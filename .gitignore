@@ -1,0 +1,29 @@
+# --- secrets: never commit (keys go into Railway env vars) ---
+.env
+.env.*
+!.env.sample
+backend/.env
+backend/.env.*
+!backend/.env.sample
+
+# --- python ---
+backend/.venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- local scratch / temp ---
+backend/_*.py
+.image-slots.state.json
+*.state.json
+
+# --- local tooling / dev artifacts (not needed to deploy) ---
+.claude/
+.thumbnail
+screenshots/
+
+# --- node / OS ---
+node_modules/
+.DS_Store
+Thumbs.db

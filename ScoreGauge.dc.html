@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</helmet>
+<div style="position:relative; display:inline-flex; align-items:center; justify-content:center; width:{{ box }}px; height:{{ box }}px;">
+  <svg width="{{ box }}" height="{{ box }}" viewBox="0 0 {{ box }} {{ box }}" style="display:block;" aria-hidden="true">
+    <circle cx="{{ half }}" cy="{{ half }}" r="{{ r }}" fill="none" stroke="{{ trackColor }}" stroke-width="{{ strokeW }}" stroke-dasharray="{{ trackDash }}" stroke-linecap="round"></circle>
+    <sc-if value="{{ hasScore }}" hint-placeholder-val="{{ true }}">
+      <circle cx="{{ half }}" cy="{{ half }}" r="{{ r }}" fill="none" stroke="{{ band }}" stroke-width="{{ strokeW }}" stroke-dasharray="{{ circ }}" stroke-dashoffset="{{ offset }}" stroke-linecap="round" transform="rotate(-90 {{ half }} {{ half }})" style="{{ arcStyle }}"></circle>
+    </sc-if>
+  </svg>
+  <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1;">
+    <span style="font-family:'IBM Plex Mono',ui-monospace,monospace; font-weight:700; font-size:{{ fontSize }}px; color:{{ centerColor }}; font-variant-numeric:tabular-nums;">{{ score }}</span>
+    <sc-if value="{{ showSlash }}" hint-placeholder-val="{{ false }}">
+      <span style="font-family:'IBM Plex Mono',ui-monospace,monospace; font-weight:500; font-size:{{ slashSize }}px; color:#8A9BB5; margin-top:3px;">/100</span>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:140,&quot;height&quot;:140},&quot;score&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:78,&quot;min&quot;:0,&quot;max&quot;:100,&quot;tsType&quot;:&quot;number&quot;},&quot;size&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;lg&quot;,&quot;options&quot;:[&quot;sm&quot;,&quot;md&quot;,&quot;lg&quot;],&quot;tsType&quot;:&quot;'sm'|'md'|'lg'&quot;},&quot;showLabel&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { mounted: false, reduced: false };
+  componentDidMount() {
+    const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) { this.setState({ mounted: true, reduced: true }); return; }
+    requestAnimationFrame(() => requestAnimationFrame(() => this.setState({ mounted: true })));
+  }
+  renderVals() {
+    const sizeMap = {
+      sm: { box: 48, strokeW: 5, fontSize: 15, slashSize: 0 },
+      md: { box: 84, strokeW: 7, fontSize: 25, slashSize: 11 },
+      lg: { box: 120, strokeW: 9, fontSize: 38, slashSize: 13 }
+    };
+    const d = sizeMap[this.props.size] || sizeMap.md;
+    const raw = this.props.score;
+    const hasScore = raw !== null && raw !== undefined && raw !== '';
+    const score = hasScore ? Math.max(0, Math.min(100, Math.round(Number(raw)))) : null;
+    const half = d.box / 2;
+    const r = half - d.strokeW / 2 - 1;
+    const circ = 2 * Math.PI * r;
+    const frac = hasScore ? score / 100 : 0;
+    const targetOffset = circ - circ * frac;
+    const offset = (this.state.mounted || !hasScore) ? targetOffset : circ;
+    const band = !hasScore ? '#8A9BB5' : (score <= 30 ? '#2E7D32' : (score <= 60 ? '#C99A00' : '#C0392B'));
+    return {
+      box: d.box, half, r, circ, offset, band,
+      trackColor: '#E2E8F1', trackDash: hasScore ? '0' : '2.5 6',
+      strokeW: d.strokeW, fontSize: d.fontSize, slashSize: d.slashSize,
+      score: hasScore ? String(score) : '\u2014',
+      centerColor: hasScore ? '#1A2B3C' : '#8A9BB5',
+      hasScore,
+      showSlash: !!this.props.showLabel && hasScore && d.slashSize > 0,
+      arcStyle: 'transition:' + (this.state.reduced ? 'none' : 'stroke-dashoffset 720ms cubic-bezier(.2,0,0,1)') + ';'
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Root requirements so Railway/Nixpacks detects a Python app.
+# Mirrors backend/requirements.txt (the deployed service is the backend).
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+langgraph==0.2.61
+httpx==0.28.1
+pydantic==2.10.4
+python-multipart==0.0.20
+python-dotenv==1.0.1
