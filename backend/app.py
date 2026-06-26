@@ -11,6 +11,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -65,8 +66,22 @@ def analyze(req: AnalyzeReq):
     }
 
 
-# ---- serve the frontend (single-service deploy) ----
-# Mounted LAST so /api/* routes match first; serves analyze.html, the .dc.html
-# prototype, support.js, vf-data.js, /data images, etc. from the repo root.
+# ---- serve the analyze.html app (single-service deploy) ----
+# The root URL IS the app. Only analyze.html + /data are served; there is no
+# prototype. The /api/* routes above are registered first, so they win.
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-app.mount("/", StaticFiles(directory=_ROOT, html=True), name="frontend")
+
+
+@app.get("/")
+def root():
+    return FileResponse(os.path.join(_ROOT, "analyze.html"))
+
+
+# Serve /analyze.html and /data/* (e.g. reference images). check_dir=False so a
+# missing directory never crashes startup.
+app.mount("/data", StaticFiles(directory=os.path.join(_ROOT, "data")), name="data")
+
+
+@app.get("/analyze.html")
+def analyze_page():
+    return FileResponse(os.path.join(_ROOT, "analyze.html"))

@@ -1,8 +1,8 @@
 # Deploying VF VERITAS to Railway
 
 The app runs as a **single service**: the FastAPI backend serves both the API
-(`/api/*`) and the frontend (`analyze.html`, the `.dc.html` prototype, `/data`
-images). No separate static host needed.
+(`/api/*`) and the frontend — the analysis app at the **root URL**, plus
+`/data` reference images. No separate static host needed.
 
 ## 1. Connect the repo
 1. Railway → **New Project → Deploy from GitHub repo** → pick
@@ -25,11 +25,9 @@ Copy these from your local `backend/.env` — **never commit them**:
 With no keys set, the app still boots and runs in mock mode.
 
 ## 3. Deploy & open
-Railway builds and gives a public URL. The app is at:
-- `/` → prototype (redirects to the `.dc.html` app)
-- `/analyze.html` → the live analysis page (engine + reference toggles)
-
-`/api/health` should report which engines are live.
+Railway builds and gives a public URL — **the root URL is the app** (engine +
+reference toggles, multi-image upload, UPC extraction, run report).
+`/api/health` reports which engines are live.
 
 ## Notes
 - The frontend calls the API on the **same origin** in production, and falls
