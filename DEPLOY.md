@@ -21,6 +21,12 @@ Copy these from your local `backend/.env` — **never commit them**:
 | `GEMINI_OR_MODEL` | `google/gemini-3.1-pro-preview` |
 | `SERPAPI_API_KEY` | your SerpAPI key |
 | `SERPAPI_COST_PER_SEARCH` | `0` |
+| `SUPABASE_URL` | `https://xxxx.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | your Supabase service_role key |
+| `SUPABASE_BUCKET` | `veritas-products` |
+
+The product catalog (add / select products) needs the three `SUPABASE_*`
+vars. It creates one dedicated bucket and never touches existing data.
 
 With no keys set, the app still boots and runs in mock mode.
 

@@ -3,97 +3,135 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VF VERITAS — Live Analysis</title>
+<title>VF VERITAS — Counterfeit Analysis</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --blue:#1F4E96; --blue-deep:#163A70; --ink:#1A2B3C; --slate:#5A6B82; --mist:#8A9BB5;
-    --app:#F7F9FC; --card:#fff; --border:#E2E8F1; --border-strong:#C7D2E0;
-    --green:#2E7D32; --green-bg:#E8F3E9; --amber:#C99A00; --amber-bg:#FBF3DC;
-    --red:#C0392B; --red-bg:#FBE9E7; --mono:'IBM Plex Mono',monospace;
+    --blue:#1F4E96; --blue-deep:#163A70; --blue-tint:#EDF1F7;
+    --ink:#1A2B3C; --slate:#5A6B82; --mist:#8A9BB5;
+    --app:#F4F7FB; --card:#fff; --border:#E4E9F1; --border-strong:#CBD5E3;
+    --green:#1E8A4C; --green-bg:#E6F4EA; --amber:#B07D0A; --amber-bg:#FBF1D6;
+    --red:#C0392B; --red-bg:#FCEBE9; --mono:'IBM Plex Mono',monospace;
+    --sh:0 1px 2px rgba(26,43,60,.05),0 1px 3px rgba(26,43,60,.06);
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--app);font-size:14px}
-  header{background:var(--blue);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:14px}
-  .wm{width:34px;height:34px;border-radius:7px;background:#fff;color:var(--blue);font-weight:800;display:flex;align-items:center;justify-content:center}
-  header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.06em}
-  header .sub{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.7)}
-  .modepill{margin-left:auto;font-size:11px;font-weight:600;border:1px solid rgba(255,255,255,.35);padding:4px 10px;border-radius:9999px}
-  main{max-width:1100px;margin:0 auto;padding:22px}
-  .controls{display:flex;gap:14px;align-items:end;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:18px}
-  label.fld{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--slate);font-weight:600}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--app);font-size:14px;-webkit-font-smoothing:antialiased}
+  header{background:linear-gradient(90deg,#1F4E96,#27599f);color:#fff;height:60px;padding:0 26px;display:flex;align-items:center;gap:13px}
+  .wm{width:36px;height:36px;border-radius:8px;background:#fff;color:var(--blue);font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center}
+  header h1{font-size:17px;margin:0;font-weight:800;letter-spacing:.14em;line-height:1}
+  header .sub{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.72);margin-top:4px}
+  .modepill{margin-left:auto;font-size:11px;font-weight:600;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);padding:5px 12px;border-radius:9999px}
+  main{max-width:1160px;margin:0 auto;padding:22px}
+  /* toolbar */
+  .toolbar{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:18px;box-shadow:var(--sh)}
+  label.fld{display:flex;flex-direction:column;gap:6px;font-size:10.5px;color:var(--slate);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
   select,button{font-family:inherit;font-size:14px}
-  select{border:1px solid var(--border-strong);border-radius:8px;padding:9px 12px;background:#fff;color:var(--ink);min-width:170px}
-  .btn{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:11px 20px;font-weight:600;cursor:pointer}
+  select{border:1px solid var(--border-strong);border-radius:9px;padding:9px 12px;background:#fff;color:var(--ink);font-weight:500;min-width:170px}
+  select:focus,input:focus{outline:2px solid var(--blue);outline-offset:1px;border-color:var(--blue)}
+  .btn{background:var(--blue);color:#fff;border:none;border-radius:9px;padding:11px 20px;font-weight:600;cursor:pointer;transition:background .12s}
   .btn:hover{background:var(--blue-deep)} .btn:disabled{opacity:.5;cursor:default}
-  .seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:8px;overflow:hidden}
-  .seg-btn{font-family:inherit;font-size:13px;border:none;background:#fff;color:var(--slate);padding:9px 13px;cursor:pointer;white-space:nowrap}
+  .btn.run{margin-left:auto;padding:11px 24px}
+  .seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:9px;overflow:hidden;background:#fff}
+  .seg-btn{font-family:inherit;font-size:13px;border:none;background:#fff;color:var(--slate);padding:9px 14px;cursor:pointer;white-space:nowrap;font-weight:500}
   .seg-btn+.seg-btn{border-left:1px solid var(--border)}
   .seg-btn.active{background:var(--blue);color:#fff;font-weight:600}
   .seg-btn:disabled{opacity:.45;cursor:not-allowed}
-  .ref img,#updrop img,#drop img{cursor:zoom-in}
+  /* cards */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--sh)}
+  .card-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);margin:0 0 14px}
+  .grid2{display:grid;grid-template-columns:360px 1fr;gap:18px;align-items:stretch}
+  .eyebrow{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--mist);font-weight:700;margin-bottom:8px}
+  .subhead{margin-top:12px}
+  .divider{height:1px;background:var(--border);margin:12px 0}
+  /* uploads */
+  .drop{border:1.5px dashed var(--border-strong);border-radius:11px;min-height:78px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--slate);cursor:pointer;overflow:hidden;background:#FAFCFE;font-size:12.5px;transition:.12s}
+  .drop:hover,.drop.over{border-color:var(--blue);background:var(--blue-tint)}
+  .drop img{width:100%;height:100%;max-height:220px;object-fit:contain}
+  .refs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:11px}
+  .ref{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff}
+  .ref img{width:100%;height:64px;object-fit:cover;display:block;cursor:zoom-in}
+  .ref span{display:block;font-size:10px;color:var(--slate);padding:3px 5px;text-align:center;background:#fbfcfe}
+  #updrop{max-height:116px;padding:6px} #updrop img{cursor:zoom-in;width:auto!important;height:auto!important;max-width:100%;max-height:102px!important;object-fit:contain}
+  /* verdict */
+  .verdict-main{display:flex;gap:18px;align-items:center}
+  .verdict-txt{min-width:0}
+  .vscore{font-family:var(--mono);font-size:30px;font-weight:700;line-height:1;margin:9px 0 8px}
+  .vscore span{font-size:14px;color:var(--mist);font-weight:500}
+  .vsummary{color:var(--slate);font-size:13px;line-height:1.55}
+  .matchgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0;padding-top:16px;border-top:1px solid var(--border)}
+  .matchcell{background:#FAFCFE;border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+  .matchcell .mk{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--mist);font-weight:700;margin-bottom:7px}
+  .matchcell .mv{font-size:13px;font-weight:600}
+  .ev-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);margin-bottom:6px}
+  .evidence{margin:0;padding-left:18px;color:var(--ink);font-size:13px;line-height:1.6}
+  .evidence li{margin:3px 0}
+  .emptybox{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--mist);padding:40px 20px;gap:12px;font-size:13px;line-height:1.5}
+  .emptybox svg{opacity:.45}
+  /* badges */
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:9999px;font-size:11.5px;font-weight:700;letter-spacing:.02em;white-space:nowrap;text-transform:capitalize}
+  .badge svg{width:12px;height:12px;flex:none}
+  .bg-match{background:var(--green-bg);color:var(--green)}
+  .bg-review{background:var(--amber-bg);color:var(--amber)}
+  .bg-dev{background:var(--red-bg);color:var(--red)}
+  .bg-neutral{background:#eef1f5;color:var(--slate)}
+  /* dimensions */
+  .dimsection{margin-top:22px}
+  .section-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px}
+  .section-head .card-title{margin:0}
+  .dimsummary{display:flex;gap:8px;flex-wrap:wrap}
+  .cnt{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:9999px;font-size:12px;font-weight:700}
+  .cnt svg{width:12px;height:12px}
+  .dimgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+  .dim{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--mist);border-radius:12px;padding:15px 16px;box-shadow:var(--sh)}
+  .dim-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:11px}
+  .dim-name{font-weight:700;font-size:14px}
+  .dim-scorerow{display:flex;align-items:baseline;gap:7px;margin-bottom:8px}
+  .dim-score{font-family:var(--mono);font-weight:700;font-size:24px;line-height:1}
+  .dim-max{font-size:10px;color:var(--mist);font-weight:500}
+  .dim-bar{height:6px;border-radius:9999px;background:#eef1f5;overflow:hidden;margin-bottom:11px}
+  .dim-bar i{display:block;height:100%;border-radius:9999px}
+  .dim-find{font-size:13px;font-weight:600;margin-bottom:5px;line-height:1.4}
+  .dim-rsn{font-size:12.5px;color:var(--slate);line-height:1.5}
+  .dim-conf{font-size:10.5px;color:var(--mist);margin-top:10px;font-family:var(--mono);border-top:1px solid var(--border);padding-top:9px}
+  .upc-num{font-family:var(--mono);font-size:19px;font-weight:600;letter-spacing:.02em;margin-bottom:8px}
+  /* report */
+  .rep{margin-top:22px}
+  .rep h3{margin:0 0 14px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate)}
+  table.rt{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.rt th,table.rt td{padding:9px 11px;border-bottom:1px solid var(--border);text-align:left}
+  table.rt th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--mist);font-weight:700}
+  table.rt td.num,table.rt th.num{text-align:right;font-family:var(--mono)}
+  table.rt tbody tr:hover{background:#FAFCFE}
+  table.rt tfoot td{font-weight:700;border-top:2px solid var(--border-strong)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .evals{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:16px}
+  .ev{background:#FAFCFE;border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+  .ev .k{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--mist);font-weight:700}
+  .ev .v{font-size:16px;font-weight:700;font-family:var(--mono);margin-top:4px}
+  .muted{color:var(--mist)} .hidden{display:none!important}
+  .spin{width:16px;height:16px;border:2.5px solid #cfe;border-top-color:var(--blue);border-radius:50%;animation:s .8s linear infinite;display:inline-block;vertical-align:middle}
+  @keyframes s{to{transform:rotate(360deg)}}
+  /* lightbox + modal */
   .lb{position:fixed;inset:0;background:rgba(10,20,35,.82);display:none;align-items:center;justify-content:center;z-index:200;cursor:zoom-out;padding:28px}
   .lb.open{display:flex}
   .lb img{max-width:92vw;max-height:92vh;border-radius:8px;background:#fff;box-shadow:0 14px 44px rgba(0,0,0,.5)}
   .lb .lbclose{position:absolute;top:16px;right:22px;color:#fff;font-size:30px;line-height:1;cursor:pointer;opacity:.85}
-  .grid2{display:grid;grid-template-columns:340px 1fr;gap:18px;align-items:start}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
-  .card h3{margin:0 0 12px;font-size:13px;font-weight:600}
-  .eyebrow{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--mist);font-weight:600;margin-bottom:8px}
-  .drop{border:1.5px dashed var(--border-strong);border-radius:10px;min-height:170px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--slate);cursor:pointer;overflow:hidden;background:#fbfcfe}
-  .drop.over{border-color:var(--blue);background:#EDF1F7}
-  .drop img{width:100%;height:100%;max-height:240px;object-fit:contain}
-  .refs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
-  .ref{border:1px solid var(--border);border-radius:7px;overflow:hidden;background:#fff}
-  .ref img{width:100%;height:62px;object-fit:cover;display:block}
-  .ref span{display:block;font-size:10px;color:var(--slate);padding:3px 5px;text-align:center}
-  /* gauge + verdict */
-  .verdictrow{display:flex;gap:18px;align-items:center}
-  .gauge{flex:none}
-  .vlabel{font-size:22px;font-weight:700}
-  .vsummary{color:var(--slate);font-size:13px;line-height:1.5;margin-top:6px}
-  .evidence{margin:10px 0 0;padding-left:18px;color:var(--ink);font-size:12.5px}
-  .evidence li{margin:3px 0}
-  .pill{display:inline-block;padding:4px 10px;border-radius:9999px;font-size:11px;font-weight:700}
-  .b-authentic{background:var(--green-bg);color:var(--green)} .b-caution{background:var(--amber-bg);color:var(--amber)} .b-counterfeit{background:var(--red-bg);color:var(--red)} .b-neutral{background:#eef1f5;color:var(--slate)}
-  /* dimension cards */
-  .dimgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:18px}
-  .dim{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:13px}
-  .dim .dh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-  .dim .nm{font-weight:600;font-size:13px}
-  .dim .sc{font-family:var(--mono);font-weight:600;font-size:18px}
-  .dim .find{font-size:12px;font-weight:600;margin:4px 0}
-  .dim .rsn{font-size:11.5px;color:var(--slate);line-height:1.45}
-  .dim .cf{font-size:10.5px;color:var(--mist);margin-top:7px;font-family:var(--mono)}
-  .bar{height:5px;border-radius:9999px;background:#eef1f5;overflow:hidden;margin-bottom:9px}
-  .bar i{display:block;height:100%}
-  /* report */
-  .rep{margin-top:18px}
-  table.rt{width:100%;border-collapse:collapse;font-size:12.5px}
-  table.rt th,table.rt td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left}
-  table.rt th{font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--slate)}
-  table.rt td.num,table.rt th.num{text-align:right;font-family:var(--mono)}
-  table.rt tfoot td{font-weight:700;border-top:2px solid var(--border-strong)}
-  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
-  .evals{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:14px}
-  .ev{background:#fbfcfe;border:1px solid var(--border);border-radius:8px;padding:9px 11px}
-  .ev .k{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--slate)}
-  .ev .v{font-size:15px;font-weight:700;font-family:var(--mono);margin-top:3px}
-  .muted{color:var(--mist)} .hidden{display:none}
-  .spin{width:18px;height:18px;border:2.5px solid #cfe;border-top-color:var(--blue);border-radius:50%;animation:s .8s linear infinite;display:inline-block;vertical-align:middle}
-  @keyframes s{to{transform:rotate(360deg)}}
-  @media(max-width:820px){.grid2{grid-template-columns:1fr}.dimgrid{grid-template-columns:repeat(2,1fr)}.evals{grid-template-columns:repeat(3,1fr)}}
+  .modal{position:fixed;inset:0;background:rgba(10,20,35,.55);display:none;align-items:center;justify-content:center;z-index:210;padding:24px}
+  .modal.open{display:flex}
+  .modalcard{background:#fff;border-radius:14px;padding:22px;width:100%;max-width:470px;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .txt{font-family:inherit;font-size:14px;border:1px solid var(--border-strong);border-radius:9px;padding:9px 11px;width:100%;margin-top:5px}
+  @media(max-width:840px){.grid2{grid-template-columns:1fr}.matchgrid{grid-template-columns:1fr}.evals{grid-template-columns:repeat(3,1fr)}.btn.run{margin-left:0}}
 </style>
 </head>
 <body>
 <header>
   <div class="wm">VF</div>
-  <div><h1>VERITAS</h1><div class="sub">Counterfeit Intelligence · Live Analysis</div></div>
+  <div><h1>VERITAS</h1><div class="sub">Counterfeit Intelligence Platform</div></div>
   <div class="modepill" id="mode">checking…</div>
 </header>
 
 <main>
-  <div class="controls">
+  <div class="toolbar">
     <label class="fld">Case
       <select id="case">
         <option value="VF-2026-0412">VF-2026-0412 · TNF · Shenzhen</option>
@@ -113,55 +151,98 @@
     </label>
     <label class="fld">References
       <div class="seg" id="refsrc">
-        <button type="button" class="seg-btn active" data-src="local">Local data/</button>
+        <button type="button" class="seg-btn active" data-src="product">Product</button>
         <button type="button" class="seg-btn" data-src="google">Google reverse</button>
       </div>
     </label>
-    <button class="btn" id="run">Run AI analysis</button>
-    <span id="status" class="muted" style="font-size:12.5px"></span>
+    <label class="fld" id="prodpickwrap">Product
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select id="prodpick" style="min-width:210px"></select>
+        <button type="button" class="btn" id="addprod" style="padding:9px 12px;">+ Add</button>
+      </div>
+    </label>
+    <button class="btn run" id="run">Run AI analysis</button>
+    <span id="status" class="muted" style="font-size:12.5px;align-self:center"></span>
   </div>
 
   <div class="grid2">
-    <div class="card">
-      <div class="eyebrow">Product photos <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400;font-size:11px;">— add multiple views</span></div>
-      <div class="drop" id="drop" style="min-height:92px"><div id="dropmsg">Drop product photos<br><span class="muted" style="font-size:11px">or click to browse · add several angles</span></div></div>
+    <section class="card">
+      <div class="card-title">Evidence</div>
+      <div class="eyebrow">Suspect product photos — add multiple views</div>
+      <div class="drop" id="drop"><div id="dropmsg">Drop product photos<br><span class="muted" style="font-size:11px">or click to browse · add several angles</span></div></div>
       <input type="file" id="file" accept="image/*" multiple class="hidden">
-      <div class="refs" id="prodgallery" style="margin-top:10px"></div>
-      <div class="eyebrow" style="margin-top:14px">UPC / barcode image</div>
-      <div class="drop" id="updrop" style="min-height:96px"><div id="updropmsg">Drop a UPC / barcode photo<br><span class="muted" style="font-size:11px">click to browse · GPT-5.5 reads the number</span></div></div>
+      <div class="refs" id="prodgallery"></div>
+      <div class="eyebrow subhead">UPC / barcode image</div>
+      <div class="drop" id="updrop"><div id="updropmsg">Drop a UPC / barcode photo<br><span class="muted" style="font-size:11px">click to browse · the model reads the number</span></div></div>
       <input type="file" id="upfile" accept="image/*" class="hidden">
-      <div class="eyebrow" style="margin-top:14px" id="refseyebrow">Authentic references · from data/</div>
-      <div class="refs" id="refs"><span class="muted" style="font-size:12px;grid-column:1/-1">Run an analysis to load references.</span></div>
-    </div>
+      <div class="divider"></div>
+      <div class="eyebrow" id="refseyebrow">Authentic references</div>
+      <div class="refs" id="refs"><span class="muted" style="font-size:12px;grid-column:1/-1">Select a product to load references.</span></div>
+    </section>
 
-    <div class="card">
-      <div class="eyebrow">AI assessment</div>
-      <div id="verdict" class="muted" style="font-size:13px">No run yet. Pick a case and click <b>Run AI analysis</b>.</div>
-    </div>
+    <section class="card">
+      <div class="card-title">AI assessment</div>
+      <div id="verdict">
+        <div class="emptybox">
+          <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+          <div>Add a suspect photo, pick a reference product, and click <b>Run AI analysis</b>.<br>You'll get a composite verdict and a per-dimension match breakdown.</div>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <div class="dimgrid" id="dims"></div>
+  <section class="dimsection hidden" id="dimsection">
+    <div class="section-head">
+      <div class="card-title">Forensic dimensions</div>
+      <div class="dimsummary" id="dimsummary"></div>
+    </div>
+    <div class="dimgrid" id="dims"></div>
+  </section>
 
-  <div class="card rep hidden" id="repcard">
-    <h3>Run report — token usage, cost & evals for this run</h3>
+  <section class="card rep hidden" id="repcard">
+    <h3>Run report — token usage, cost &amp; evals</h3>
     <table class="rt" id="rt"><thead><tr>
       <th>Agent</th><th>Model</th><th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th><th class="num">Latency</th><th>Status</th>
     </tr></thead><tbody></tbody><tfoot></tfoot></table>
     <div class="evals" id="evals"></div>
-    <div class="muted" id="repnote" style="font-size:11.5px;margin-top:12px;line-height:1.5"></div>
-  </div>
+    <div class="muted" id="repnote" style="font-size:11.5px;margin-top:14px;line-height:1.5"></div>
+  </section>
 </main>
 
 <div class="lb" id="lightbox"><span class="lbclose">×</span><img id="lbimg" alt="preview"></div>
 
+<div class="modal" id="addmodal">
+  <div class="modalcard" onclick="event.stopPropagation()">
+    <div style="font-size:16px;font-weight:700;margin-bottom:16px;">Add product</div>
+    <label class="fld" style="margin-bottom:12px;text-transform:none;letter-spacing:0;font-size:12px;">Name<input id="np_name" class="txt" placeholder="e.g. The North Face 1996 Nuptse"></label>
+    <label class="fld" style="margin-bottom:12px;text-transform:none;letter-spacing:0;font-size:12px;">Brand<input id="np_brand" class="txt" placeholder="e.g. TNF"></label>
+    <div class="eyebrow">Authentic images — add multiple views</div>
+    <div class="drop" id="np_drop" style="min-height:82px"><div>Drop authentic photos<br><span class="muted" style="font-size:11px">or click to browse</span></div></div>
+    <input type="file" id="np_file" accept="image/*" multiple class="hidden">
+    <div class="refs" id="np_gallery"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
+      <button type="button" class="btn" id="np_cancel" style="background:#8A9BB5;">Cancel</button>
+      <button type="button" class="btn" id="np_save">Save product</button>
+    </div>
+    <div id="np_status" class="muted" style="font-size:12px;margin-top:10px;"></div>
+  </div>
+</div>
+
 <script>
 // Same-origin when served by the backend (deploy); the :8000 backend in local two-server dev.
 const API = (location.port === '8753') ? 'http://127.0.0.1:8000' : '';
-let suspectImgs = [], upcB64 = null, provider = 'openai', refSource = 'local';
+let suspectImgs = [], upcB64 = null, provider = 'openai', refSource = 'product';
+let products = [], productId = '', npImgs = [];
 
 const $ = s => document.querySelector(s);
 const band = s => s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
-const bandColor = b => ({authentic:'#2E7D32',caution:'#C99A00',counterfeit:'#C0392B',neutral:'#8A9BB5'}[b]);
+const bandColor = b => ({authentic:'#1E8A4C',caution:'#B07D0A',counterfeit:'#C0392B',neutral:'#8A9BB5'}[b]);
+
+// verdict icons + mapping
+const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+const ALERT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+const XI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+function vinfo(b){ return ({authentic:{l:'Match',c:'bg-match',i:CHECK},caution:{l:'Review',c:'bg-review',i:ALERT},counterfeit:{l:'Deviation',c:'bg-dev',i:XI}})[b] || {l:'N/A',c:'bg-neutral',i:''}; }
 
 // ---- health / mode badge ----
 fetch(API+"/api/health").then(r=>r.json()).then(h=>{
@@ -174,6 +255,7 @@ fetch(API+"/api/health").then(r=>r.json()).then(h=>{
   else { gb.disabled=true; gb.textContent='Gemini · OpenRouter (set key)'; gb.title='Set OPENROUTER_API_KEY in backend/.env and restart'; }
   const gs=document.querySelector('.seg-btn[data-src="google"]');
   if(m.serpapi!=='live'){ gs.disabled=true; gs.textContent='Google reverse (set key)'; gs.title='Set SERPAPI_API_KEY in backend/.env and restart'; }
+  if(m.supabase!=='live'){ const pb=document.querySelector('.seg-btn[data-src="product"]'); pb.disabled=true; pb.textContent='Product (no db)'; pb.classList.remove('active'); gs.classList.add('active'); refSource='google'; onRefSourceChange(); }
 }).catch(()=>{ $('#mode').textContent='backend offline (start uvicorn :8000)'; });
 // segmented toggles (scoped per group so engine + reference selections are independent)
 function wireSeg(groupId, attr, setFn){
@@ -181,16 +263,65 @@ function wireSeg(groupId, attr, setFn){
   grp.querySelectorAll('.seg-btn').forEach(b=>b.onclick=()=>{ if(b.disabled) return; setFn(b.dataset[attr]); grp.querySelectorAll('.seg-btn').forEach(x=>x.classList.toggle('active',x===b)); });
 }
 wireSeg('engine','prov', v=>provider=v);
-wireSeg('refsrc','src', v=>refSource=v);
+wireSeg('refsrc','src', v=>{ refSource=v; onRefSourceChange(); });
+
+// ---- product catalog (Supabase) ----
+function onRefSourceChange(){
+  $('#prodpickwrap').style.display = (refSource==='product') ? '' : 'none';
+  if(refSource==='product'){ showProductRefs(); }
+  else { $('#refseyebrow').textContent='Authentic references · Google reverse-image'; $('#refs').innerHTML='<span class="muted" style="font-size:12px;grid-column:1/-1">Google Lens fetches product-only authentic images at run time.</span>'; }
+}
+function showProductRefs(){
+  const p=products.find(x=>x.id===productId);
+  if(!p){ $('#refseyebrow').textContent='Authentic references · product'; $('#refs').innerHTML='<span class="muted" style="font-size:12px;grid-column:1/-1">No product selected — click <b>+ Add</b> to create one.</span>'; return; }
+  $('#refseyebrow').textContent='Authentic references · '+p.name+' ('+(p.images||[]).length+')';
+  $('#refs').innerHTML=(p.images||[]).map((fn,i)=>`<div class="ref"><img src="${API}/api/products/${p.id}/img/${fn}" onerror="this.style.opacity=.15"><span>ref ${i+1}</span></div>`).join('');
+}
+async function loadProducts(){
+  try{
+    const d=await fetch(API+'/api/products').then(r=>r.json());
+    products=d.products||[];
+    const sel=$('#prodpick');
+    sel.innerHTML = products.length ? products.map(p=>`<option value="${p.id}">${p.name}${p.brand?' · '+p.brand:''}</option>`).join('') : '<option value="">no products — click + Add</option>';
+    productId = products.length ? products[0].id : '';
+    if(refSource==='product') showProductRefs();
+  }catch(e){ $('#prodpick').innerHTML='<option value="">(unavailable)</option>'; }
+}
+$('#prodpick').onchange=()=>{ productId=$('#prodpick').value; showProductRefs(); };
+
+// add-product modal
+const npDrop=$('#np_drop'), npFile=$('#np_file');
+npDrop.onclick=()=>npFile.click(); dragify(npDrop);
+function renderNp(){ $('#np_gallery').innerHTML=npImgs.map((b,i)=>`<div class="ref" style="position:relative"><img src="data:image/jpeg;base64,${b}"><span>${i+1}</span><button data-i="${i}" class="rmimg" style="position:absolute;top:2px;right:2px;width:17px;height:17px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:12px;line-height:1;cursor:pointer;padding:0;">×</button></div>`).join(''); document.querySelectorAll('#np_gallery .rmimg').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); npImgs.splice(+b.dataset.i,1); renderNp(); }); }
+function addNp(files){ [...files].forEach(f=>downscale(f,b=>{ npImgs.push(b); renderNp(); })); }
+npDrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length) addNp(ev.dataTransfer.files); });
+npFile.onchange=()=>{ if(npFile.files.length) addNp(npFile.files); npFile.value=''; };
+$('#addprod').onclick=()=>{ npImgs=[]; $('#np_name').value=''; $('#np_brand').value=''; $('#np_gallery').innerHTML=''; $('#np_status').textContent=''; $('#addmodal').classList.add('open'); };
+$('#np_cancel').onclick=()=>$('#addmodal').classList.remove('open');
+$('#addmodal').onclick=()=>$('#addmodal').classList.remove('open');
+$('#np_save').onclick=async()=>{
+  const name=$('#np_name').value.trim();
+  if(!name){ $('#np_status').textContent='Enter a name.'; return; }
+  if(!npImgs.length){ $('#np_status').textContent='Add at least one image.'; return; }
+  $('#np_save').disabled=true; $('#np_status').innerHTML='<span class="spin"></span> saving to Supabase…';
+  try{
+    const r=await fetch(API+'/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,brand:$('#np_brand').value.trim(),images:npImgs})});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const p=await r.json();
+    await loadProducts();
+    $('#prodpick').value=p.id; productId=p.id; showProductRefs();
+    $('#addmodal').classList.remove('open');
+  }catch(e){ $('#np_status').innerHTML='<span style="color:#C0392B">Error: '+e.message+'</span>'; }
+  $('#np_save').disabled=false;
+};
+loadProducts();
 
 // ---- click-to-preview lightbox ----
 function openLb(src){ if(!src) return; $('#lbimg').src=src; $('#lightbox').classList.add('open'); }
 function closeLb(){ $('#lightbox').classList.remove('open'); $('#lbimg').removeAttribute('src'); }
 $('#lightbox').onclick=closeLb;
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeLb(); });
-// references + product gallery thumbnails (bubble phase)
 document.addEventListener('click', e=>{ const t=e.target; if(t.tagName==='IMG' && (t.closest('#refs')||t.closest('#prodgallery'))) openLb(t.src); });
-// UPC preview (capture phase so it doesn't also trigger the file picker)
 document.addEventListener('click', e=>{ const t=e.target; if(t.tagName==='IMG' && t.closest('#updrop')){ openLb(t.src); e.stopPropagation(); } }, true);
 
 // ---- image uploads (client-side downscale to base64) ----
@@ -206,17 +337,15 @@ function dragify(drop){
   ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over')}));
   ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over')}));
 }
-// product photos (multiple views)
 function renderProdGallery(){
   $('#prodgallery').innerHTML = suspectImgs.map((b,i)=>`<div class="ref" style="position:relative"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span><button data-i="${i}" class="rmimg" style="position:absolute;top:2px;right:2px;width:17px;height:17px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:12px;line-height:1;cursor:pointer;padding:0;">×</button></div>`).join('');
-  document.querySelectorAll('.rmimg').forEach(btn=>btn.onclick=(e)=>{ e.stopPropagation(); suspectImgs.splice(+btn.dataset.i,1); renderProdGallery(); });
+  document.querySelectorAll('#prodgallery .rmimg').forEach(btn=>btn.onclick=(e)=>{ e.stopPropagation(); suspectImgs.splice(+btn.dataset.i,1); renderProdGallery(); });
 }
 function addProductFiles(files){ [...files].forEach(f=>downscale(f,b=>{ suspectImgs.push(b); renderProdGallery(); })); }
 const pdrop=$('#drop'), pfile=$('#file');
 pdrop.onclick=()=>pfile.click(); dragify(pdrop);
 pdrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length) addProductFiles(ev.dataTransfer.files); });
 pfile.onchange=()=>{ if(pfile.files.length) addProductFiles(pfile.files); pfile.value=''; };
-// upc / barcode (single)
 const udrop=$('#updrop'), ufile=$('#upfile');
 udrop.onclick=()=>ufile.click(); dragify(udrop);
 function setUpc(f){ downscale(f,b=>{ upcB64=b; udrop.style.position='relative'; udrop.innerHTML=''; const el=new Image(); el.src='data:image/jpeg;base64,'+b; el.style.maxHeight='100%'; udrop.appendChild(el);
@@ -230,7 +359,7 @@ $('#run').onclick=async()=>{
   $('#run').disabled=true; $('#status').innerHTML='<span class="spin"></span> running on '+(provider==='gemini'?'Gemini 3 Pro':'GPT-5.5')+'…';
   try{
     const r=await fetch(API+"/api/analyze",{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({case_id,brand,provider,reference_source:refSource,suspect_images:suspectImgs,upc_image:upcB64})});
+      body:JSON.stringify({case_id,brand,provider,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64})});
     if(!r.ok) throw new Error('HTTP '+r.status);
     render(await r.json());
     $('#status').textContent='';
@@ -240,63 +369,76 @@ $('#run').onclick=async()=>{
 
 function gauge(score){
   const b=band(score), col=bandColor(b), R=54, C=2*Math.PI*R, arc=score==null?0:score/100*C;
-  return `<svg class="gauge" width="124" height="124" viewBox="0 0 124 124">
-    <circle cx="62" cy="62" r="${R}" fill="none" stroke="#E2E8F1" stroke-width="11"/>
+  return `<svg width="124" height="124" viewBox="0 0 124 124" style="flex:none">
+    <circle cx="62" cy="62" r="${R}" fill="none" stroke="#EAEFF6" stroke-width="11"/>
     <circle cx="62" cy="62" r="${R}" fill="none" stroke="${col}" stroke-width="11" stroke-linecap="round"
       stroke-dasharray="${arc} ${C}" transform="rotate(-90 62 62)"/>
-    <text x="62" y="60" text-anchor="middle" font-size="30" font-weight="700" font-family="var(--mono)" fill="#1A2B3C">${score??'—'}</text>
-    <text x="62" y="78" text-anchor="middle" font-size="11" fill="#8A9BB5">/100</text></svg>`;
+    <text x="62" y="60" text-anchor="middle" font-size="30" font-weight="700" font-family="'IBM Plex Mono',monospace" fill="#1A2B3C">${score??'—'}</text>
+    <text x="62" y="79" text-anchor="middle" font-size="11" fill="#8A9BB5">/100</text></svg>`;
 }
 
 function render(d){
-  // references — Google-fetched or local
+  // references — product catalog or Google-fetched
   const fm=d.fetched_meta;
-  if(fm && fm.used){
+  if(fm && fm.source==='product'){ showProductRefs(); }
+  else if(fm && fm.used){
     if(fm.sources && fm.sources.length){
-      $('#refseyebrow').textContent='Authentic refs · fetched via Google Lens ('+fm.sources.length+', no human models)';
+      $('#refseyebrow').textContent='Authentic refs · via Google Lens ('+fm.sources.length+', no human models)';
       $('#refs').innerHTML = fm.sources.map((u,i)=>`<div class="ref"><img src="${u}" referrerpolicy="no-referrer" loading="lazy" onerror="this.style.opacity=.15"><span>web ${i+1}</span></div>`).join('');
-    } else {
-      $('#refseyebrow').textContent='Authentic references · Google found none → used data/';
-      $('#refs').innerHTML = Object.entries(d.references).filter(([k])=>k[0]!=='_').map(([dim,fn])=>`<div class="ref"><img src="/data/${fn}" alt="${dim}"><span>${dim}</span></div>`).join('');
-    }
-  } else {
-    $('#refseyebrow').textContent='Authentic references · from data/';
-    $('#refs').innerHTML = Object.entries(d.references).filter(([k])=>k[0]!=='_')
-      .map(([dim,fn])=>`<div class="ref"><img src="/data/${fn}" alt="${dim}"><span>${dim}</span></div>`).join('');
+    } else { $('#refseyebrow').textContent='Authentic references · Google found none'; $('#refs').innerHTML='<span class="muted" style="font-size:12px;grid-column:1/-1">No product-only references found.</span>'; }
   }
-  // verdict + gauge
-  const v=d.verdict, c=d.composite;
-  $('#verdict').classList.remove('muted');
-  $('#verdict').innerHTML = `<div class="verdictrow">${gauge(c.score)}
-    <div><span class="pill b-${c.band}">${v.label}</span>
-      <div class="vlabel" style="color:${bandColor(c.band)};margin-top:8px">${c.score}/100</div>
-      <div class="vsummary">${v.summary}</div>
-      <ul class="evidence">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul>
-    </div></div>`;
-  // dimension cards
-  $('#dims').innerHTML = d.dimensions.map(x=>{
-    const col=bandColor(x.band);
-    return `<div class="dim"><div class="dh"><span class="nm">${x.dimension}</span>
-      <span class="sc" style="color:${col}">${x.score}</span></div>
-      <div class="bar"><i style="width:${x.score}%;background:${col}"></i></div>
-      <div class="find">${x.finding}</div><div class="rsn">${x.reasoning}</div>
-      <div class="cf">conf ${x.confidence} · box ${x.box.x},${x.box.y}</div></div>`;
-  }).join('') + upcCard(d.upc);
-  // report
+  // verdict + match summary
+  const v=d.verdict, c=d.composite, dims=d.dimensions;
+  const nM=dims.filter(x=>x.band==='authentic').length, nR=dims.filter(x=>x.band==='caution').length, nD=dims.filter(x=>x.band==='counterfeit').length;
+  const cv=vinfo(c.band), col=bandColor(c.band);
+  const uM={match:['bg-match','Match'],mismatch:['bg-review','Mismatch'],nomatch:['bg-dev','No match']}[d.upc.status]||['bg-dev','No match'];
+  $('#verdict').innerHTML=`
+    <div class="verdict-main">${gauge(c.score)}
+      <div class="verdict-txt">
+        <span class="badge ${cv.c}">${cv.i}${v.label}</span>
+        <div class="vscore" style="color:${col}">${c.score}<span>/100</span></div>
+        <div class="vsummary">${v.summary}</div>
+      </div>
+    </div>
+    <div class="matchgrid">
+      <div class="matchcell"><div class="mk">UPC / tag</div><span class="badge ${uM[0]}">${uM[1]}</span></div>
+      <div class="matchcell"><div class="mk">Dimensions</div><div class="mv"><span style="color:var(--green)">${nM}</span> · <span style="color:var(--amber)">${nR}</span> · <span style="color:var(--red)">${nD}</span></div></div>
+      <div class="matchcell"><div class="mk">Verifier</div><div class="mv">${v.verifier_confirmed?'✓ confirmed':'✕ refuted'}</div></div>
+    </div>
+    <div class="ev-title">Key evidence</div>
+    <ul class="evidence">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul>`;
+  // dimension summary + cards
+  $('#dimsection').classList.remove('hidden');
+  $('#dimsummary').innerHTML=`<span class="cnt bg-match">${CHECK}${nM} match</span><span class="cnt bg-review">${ALERT}${nR} review</span><span class="cnt bg-dev">${XI}${nD} deviation</span>`;
+  $('#dims').innerHTML=dims.map(dimCard).join('')+upcCard(d.upc);
   renderReport(d.report, d.mode);
 }
 
+function dimCard(x){
+  const col=bandColor(x.band), vi=vinfo(x.band);
+  return `<div class="dim" style="border-left-color:${col}">
+    <div class="dim-head"><span class="dim-name">${x.dimension}</span><span class="badge ${vi.c}">${vi.i}${vi.l}</span></div>
+    <div class="dim-scorerow"><span class="dim-score" style="color:${col}">${x.score}</span><span class="dim-max">/100 · counterfeit probability</span></div>
+    <div class="dim-bar"><i style="width:${x.score}%;background:${col}"></i></div>
+    <div class="dim-find">${x.finding}</div>
+    <div class="dim-rsn">${x.reasoning}</div>
+    <div class="dim-conf">confidence ${x.confidence}</div>
+  </div>`;
+}
+
 function upcCard(u){
-  const map={match:['#2E7D32','b-authentic','UPC Match — Authentic Record'],
-            mismatch:['#C99A00','b-caution','UPC Mismatch'],
-            nomatch:['#C0392B','b-counterfeit','No Match — Counterfeit Indicator']};
-  const [col,bg,title]=map[u.status]||map.nomatch;
-  const ext=u.extracted?`<div class="eyebrow" style="margin-bottom:2px">Extracted UPC</div><div style="font-family:var(--mono);font-size:20px;font-weight:600;color:#1A2B3C;margin-bottom:8px;letter-spacing:.02em;">${u.extracted}</div>`:'';
-  return `<div class="dim" style="grid-column:span 2"><div class="dh"><span class="nm">UPC / Security tag</span>
-    <span class="pill ${bg}">${u.status}</span></div>
+  const map={match:['bg-match','Match — authentic record','#1E8A4C',CHECK],
+            mismatch:['bg-review','Mismatch — belongs to another product','#B07D0A',ALERT],
+            nomatch:['bg-dev','No match — counterfeit indicator','#C0392B',XI]};
+  const [cls,label,col,icon]=map[u.status]||map.nomatch;
+  const ext=u.extracted?`<div class="upc-num">${u.extracted}</div>`:`<div class="upc-num muted">— no code read —</div>`;
+  return `<div class="dim" style="border-left-color:${col}">
+    <div class="dim-head"><span class="dim-name">UPC / Security tag</span><span class="badge ${cls}">${icon}${u.status}</span></div>
     ${ext}
-    <div class="find" style="color:${col}">${title}</div><div class="rsn">${u.note}</div>
-    <div class="cf">master record: ${u.expected||'—'}</div></div>`;
+    <div class="dim-find" style="color:${col}">${label}</div>
+    <div class="dim-rsn">${u.note}</div>
+    <div class="dim-conf">master record: ${u.expected||'—'}</div>
+  </div>`;
 }
 
 function renderReport(rep,mode){
@@ -306,10 +448,12 @@ function renderReport(rep,mode){
     if(a==='Verify')return['#639922','confirmed'];
     if(a==='Verdict synth.')return['#BA7517','escalated'];
     if(a==='UPC / Tag')return['#E24B4A','checked'];
+    if(a==='Reverse image')return['#8A9BB5','searched'];
+    if(a==='Curate refs')return['#378ADD','curated'];
     return['#378ADD','scored'];
   };
   const tb=rep.rows.map(r=>{const[c,t]=statusFor(r.agent);
-    return `<tr><td>${r.agent}</td><td class="mono" style="font-family:var(--mono);font-size:12px">${r.model}</td>
+    return `<tr><td>${r.agent}</td><td style="font-family:var(--mono);font-size:12px;color:var(--slate)">${r.model}</td>
       <td class="num">${r.tokens_in.toLocaleString()}</td><td class="num">${r.tokens_out.toLocaleString()}</td>
       <td class="num">$${r.cost.toFixed(4)}</td><td class="num">${(r.latency_ms/1000).toFixed(1)}s</td>
       <td><span class="dot" style="background:${c}"></span>${t}</td></tr>`;}).join('');
@@ -326,8 +470,8 @@ function renderReport(rep,mode){
     ...(e.ground_truth?[['vs ground truth', e.correct?'✓ correct':'✗ wrong']]:[]),
     ['Total cost','$'+T.cost.toFixed(4)],['Tokens',(T.tokens/1000).toFixed(1)+'K']];
   $('#evals').innerHTML=tiles.map(([k,v])=>`<div class="ev"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
-  $('#repnote').innerHTML=`*Wall-clock ${(T.wall_ms/1000).toFixed(1)}s vs ${(T.serial_ms/1000).toFixed(1)}s if run serially — the 5 dimension agents + UPC tool run in parallel. `+
-    (mode.vision==='live'||mode.verdict==='live'?'Live token counts from the model APIs.':'Mock mode: token counts & cost are estimated; set OPENAI_API_KEY to go live.');
+  $('#repnote').innerHTML=`*Wall-clock ${(T.wall_ms/1000).toFixed(1)}s vs ${(T.serial_ms/1000).toFixed(1)}s if run serially — the dimension agents + UPC tool run in parallel. `+
+    (mode.vision==='live'||mode.verdict==='live'?'Live token counts from the model APIs.':'Mock mode: token counts & cost are estimated.');
 }
 </script>
 </body>

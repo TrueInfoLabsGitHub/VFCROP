@@ -15,6 +15,7 @@ from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+import supa
 from pricing import price_usage
 from providers import _cfg, run_dimension_agent, run_upc_tool, run_verdict
 from references import DIMENSIONS, load_ref_b64, select_references
@@ -33,6 +34,7 @@ class RunState(TypedDict, total=False):
     brand: str
     provider: str
     ref_source: str
+    product_id: str
     suspect_images: list
     upc_image: str
     references: dict
@@ -76,6 +78,11 @@ def intake_node(state: RunState) -> dict:
         out["fetched_meta"] = meta
         if usage:
             out["usage_log"] = usage
+    elif state.get("ref_source") == "product" and state.get("product_id"):
+        refs = supa.product_images_b64(state["product_id"], cap=3)
+        out["fetched_refs"] = refs
+        out["fetched_meta"] = {"used": True, "source": "product",
+                               "product_id": state["product_id"], "kept": len(refs)}
     return out
 
 

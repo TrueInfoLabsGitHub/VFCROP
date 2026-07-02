@@ -16,6 +16,7 @@ import httpx
 from dotenv import load_dotenv
 
 import rimage
+import supa
 from references import reference_path
 
 # Load backend/.env so keys set there take effect without exporting them.
@@ -112,6 +113,7 @@ def mode() -> dict:
         "gemini_label": OPENROUTER_LABEL if OPENROUTER_API_KEY else None,
         "openrouter": "live" if OPENROUTER_API_KEY else "mock",
         "serpapi": "live" if rimage.available() else "mock",   # Google reverse-image
+        "supabase": "live" if supa.available() else "mock",    # product catalog
     }
 
 

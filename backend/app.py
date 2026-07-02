@@ -9,12 +9,13 @@ Run:  uvicorn app:app --port 8000   (from the backend/ directory)
 """
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import supa
 from graph import DIMENSIONS, build_graph
 from providers import mode
 
@@ -29,7 +30,8 @@ class AnalyzeReq(BaseModel):
     case_id: str
     brand: str = "TNF"
     provider: str = "openai"                  # "openai" (GPT-5.5) | "gemini" (via OpenRouter)
-    reference_source: str = "local"           # "local" (data/) | "google" (reverse-image)
+    reference_source: str = "local"           # "local" (data/) | "google" | "product" (catalog)
+    product_id: str | None = None             # selected catalog product (when reference_source=product)
     suspect_image: str | None = None         # single product photo (back-compat)
     suspect_images: list[str] | None = None  # multiple product photos (preferred)
     upc_image: str | None = None             # barcode/UPC photo, drives the UPC OCR node
@@ -44,9 +46,9 @@ def health():
 def analyze(req: AnalyzeReq):
     imgs = req.suspect_images if req.suspect_images else ([req.suspect_image] if req.suspect_image else [])
     provider = "gemini" if req.provider == "gemini" else "openai"
-    ref_source = "google" if req.reference_source == "google" else "local"
+    ref_source = req.reference_source if req.reference_source in ("local", "google", "product") else "local"
     state = {"case_id": req.case_id, "brand": req.brand, "provider": provider,
-             "ref_source": ref_source,
+             "ref_source": ref_source, "product_id": req.product_id or "",
              "suspect_images": [b for b in imgs if b],
              "upc_image": req.upc_image or ""}
     out = GRAPH.invoke(state)
@@ -64,6 +66,45 @@ def analyze(req: AnalyzeReq):
         "references": out["references"],
         "fetched_meta": out.get("fetched_meta", {"used": False}),
     }
+
+
+# ---- product catalog (Supabase Storage) ----
+class ProductReq(BaseModel):
+    name: str
+    brand: str = ""
+    images: list[str] = []   # base64 (no data: header)
+
+
+@app.get("/api/products")
+def products_list():
+    if not supa.available():
+        return {"available": False, "products": []}
+    return {"available": True, "products": supa.list_products()}
+
+
+@app.post("/api/products")
+def products_create(req: ProductReq):
+    if not supa.available():
+        raise HTTPException(503, "Supabase not configured")
+    if not req.name.strip() or not req.images:
+        raise HTTPException(400, "name and at least one image are required")
+    return supa.create_product(req.name.strip(), req.brand.strip(), req.images)
+
+
+@app.delete("/api/products/{pid}")
+def products_delete(pid: str):
+    if not supa.available():
+        raise HTTPException(503, "Supabase not configured")
+    supa.delete_product(pid)
+    return {"ok": True}
+
+
+@app.get("/api/products/{pid}/img/{filename}")
+def products_image(pid: str, filename: str):
+    b = supa.image_bytes(pid, filename)
+    if b is None:
+        raise HTTPException(404, "image not found")
+    return Response(content=b, media_type="image/jpeg")
 
 
 # ---- serve the analyze.html app (single-service deploy) ----
