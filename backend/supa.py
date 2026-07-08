@@ -148,3 +148,47 @@ def delete_product(pid):
                       headers=_h({"Content-Type": "application/json"}),
                       content=json.dumps({"prefixes": names}), timeout=45)
     return True
+
+
+# ---- analysis history (Excel export log) ----------------------------------
+# Stored in the same dedicated bucket under a reserved prefix. list_products()
+# ignores it (no meta.json), so the product catalog is unaffected.
+_RUNS = "_exports/"
+
+
+def _run_files():
+    return [it["name"] for it in _list(_RUNS)
+            if it.get("name", "").endswith(".json") and it.get("id") is not None]
+
+
+def save_run(record):
+    ensure_bucket()
+    rid = record["id"]
+    _upload(f"{_RUNS}{rid}.json", json.dumps(record).encode(), "application/json")
+    return {"id": rid}
+
+
+def list_runs():
+    out = []
+    for nm in _run_files():
+        rec = _get_json(f"{_RUNS}{nm}")
+        if rec:
+            out.append(rec)
+    out.sort(key=lambda r: r.get("created_at", ""))     # oldest first
+    return out
+
+
+def runs_count():
+    try:
+        return len(_run_files())
+    except Exception:
+        return 0
+
+
+def clear_runs():
+    names = [f"{_RUNS}{nm}" for nm in _run_files()]
+    if names:
+        httpx.request("DELETE", f"{_url()}/storage/v1/object/{_bucket()}",
+                      headers=_h({"Content-Type": "application/json"}),
+                      content=json.dumps({"prefixes": names}), timeout=45)
+    return True

@@ -31,6 +31,17 @@
   .btn{background:var(--blue);color:#fff;border:none;border-radius:9px;padding:11px 20px;font-weight:600;cursor:pointer;transition:background .12s}
   .btn:hover{background:var(--blue-deep)} .btn:disabled{opacity:.5;cursor:default}
   .btn.run{margin-left:auto;padding:11px 24px}
+  .btn.ghost{background:#fff;color:var(--blue);border:1px solid var(--border-strong)}
+  .btn.ghost:hover{background:#F4F7FB}
+  .btn.sm{padding:9px 16px;font-size:13px}
+  .exportbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+    background:#fff;border:1px solid var(--border);border-radius:12px;padding:13px 18px;margin-bottom:18px;
+    box-shadow:0 1px 2px rgba(16,42,77,.05)}
+  .exportbar .expl{font-size:13px;color:var(--ink);display:flex;align-items:center;gap:10px}
+  .exportbar .expl b{font-weight:700}
+  .exportbar .expbtns{display:flex;align-items:center;gap:8px}
+  .exp-clear{background:none;border:none;color:var(--mist);font-size:12px;cursor:pointer;text-decoration:underline}
+  .exp-toast{font-size:12.5px;color:var(--green);margin-left:2px}
   .seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:9px;overflow:hidden;background:#fff}
   .seg-btn{font-family:inherit;font-size:13px;border:none;background:#fff;color:var(--slate);padding:9px 14px;cursor:pointer;white-space:nowrap;font-weight:500}
   .seg-btn+.seg-btn{border-left:1px solid var(--border)}
@@ -191,6 +202,19 @@
     </section>
   </div>
 
+  <div class="exportbar hidden" id="exportbar">
+    <div class="expl">
+      <b>Excel log</b>
+      <span class="muted" id="expcount">0 saved</span>
+      <span class="exp-toast" id="exptoast"></span>
+    </div>
+    <div class="expbtns">
+      <button type="button" class="exp-clear hidden" id="expclear">clear log</button>
+      <button type="button" class="btn ghost sm" id="expsave" disabled>＋ Save this analysis</button>
+      <button type="button" class="btn sm" id="expdl" disabled>⬇ Download Excel</button>
+    </div>
+  </div>
+
   <section class="dimsection hidden" id="dimsection">
     <div class="section-head">
       <div class="card-title">Forensic dimensions</div>
@@ -233,6 +257,7 @@
 const API = (location.port === '8753') ? 'http://127.0.0.1:8000' : '';
 let suspectImgs = [], upcB64 = null, provider = 'openai', refSource = 'product';
 let products = [], productId = '', npImgs = [];
+let lastRun = null, exportOn = false;
 
 const $ = s => document.querySelector(s);
 const band = s => s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
@@ -361,11 +386,53 @@ $('#run').onclick=async()=>{
     const r=await fetch(API+"/api/analyze",{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({case_id,brand,provider,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64})});
     if(!r.ok) throw new Error('HTTP '+r.status);
-    render(await r.json());
+    const data=await r.json(); render(data);
+    lastRun={ data, engine:(provider==='gemini'?'Gemini 3.1 Pro':'GPT-5.5'),
+      product:(products.find(p=>p.id===productId)||{}).name||'',
+      suspect_image:suspectImgs[0]||null, upc_image:upcB64 };
+    if(exportOn){ $('#expsave').disabled=false; }
     $('#status').textContent='';
   }catch(e){ $('#status').innerHTML='<span style="color:#C0392B">Error: '+e.message+'</span>'; }
   $('#run').disabled=false;
 };
+
+// ---- Excel export log ----
+function setExpCount(n){
+  $('#expcount').textContent = n+' saved';
+  $('#expdl').disabled = !n;
+  $('#expclear').classList.toggle('hidden', !n);
+}
+async function exportInit(){
+  try{
+    const d=await fetch(API+'/api/export/count').then(r=>r.json());
+    if(!d.available) return;                      // Supabase off → keep bar hidden
+    exportOn=true; $('#exportbar').classList.remove('hidden');
+    setExpCount(d.count||0);
+  }catch(e){}
+}
+$('#expsave').onclick=async()=>{
+  if(!lastRun) return;
+  const b=$('#expsave'); b.disabled=true; $('#exptoast').textContent='';
+  try{
+    const r=await fetch(API+'/api/export/save',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(lastRun)});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json(); setExpCount(d.count);
+    $('#exptoast').textContent='✓ saved to log';
+    setTimeout(()=>{ $('#exptoast').textContent=''; }, 2500);
+  }catch(e){ $('#exptoast').style.color='#C0392B'; $('#exptoast').textContent='save failed'; }
+  b.disabled=false;
+};
+$('#expdl').onclick=()=>{
+  const a=document.createElement('a'); a.href=API+'/api/export.xlsx'; a.download='VERITAS_analyses.xlsx';
+  document.body.appendChild(a); a.click(); a.remove();
+};
+$('#expclear').onclick=async()=>{
+  if(!confirm('Clear all saved analyses from the Excel log?')) return;
+  try{ await fetch(API+'/api/export',{method:'DELETE'}); setExpCount(0); $('#exptoast').textContent='log cleared'; }
+  catch(e){}
+};
+exportInit();
 
 function gauge(score){
   const b=band(score), col=bandColor(b), R=54, C=2*Math.PI*R, arc=score==null?0:score/100*C;

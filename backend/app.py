@@ -8,6 +8,8 @@ set GEMINI_API_KEY / OPENAI_API_KEY to go live.
 Run:  uvicorn app:app --port 8000   (from the backend/ directory)
 """
 import os
+import time
+import uuid
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +17,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import exporter
 import supa
 from graph import DIMENSIONS, build_graph
 from providers import mode
@@ -105,6 +108,86 @@ def products_image(pid: str, filename: str):
     if b is None:
         raise HTTPException(404, "image not found")
     return Response(content=b, media_type="image/jpeg")
+
+
+# ---- Excel export log (Supabase-backed history) ----
+class ExportSaveReq(BaseModel):
+    engine: str = ""
+    product: str = ""
+    suspect_image: str | None = None    # base64 (no data: header)
+    upc_image: str | None = None
+    data: dict = {}                     # the /api/analyze response
+
+
+def _build_record(req: ExportSaveReq) -> dict:
+    d = req.data or {}
+    comp = d.get("composite") or {}
+    dims = d.get("dimensions") or []
+    dim_map = {x.get("dimension"): {"score": x.get("score"), "finding": x.get("finding") or ""}
+               for x in dims if x.get("dimension")}
+    upc = d.get("upc") or {}
+    verd = d.get("verdict") or {}
+    tot = (d.get("report") or {}).get("totals") or {}
+    evals = (d.get("report") or {}).get("evals") or {}
+    return {
+        "id": f"{int(time.time())}-{uuid.uuid4().hex[:6]}",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "case_id": d.get("case_id", ""),
+        "brand": d.get("brand", ""),
+        "engine": req.engine or "",
+        "product": req.product or "",
+        "verdict": comp.get("verdict_label", ""),
+        "score": comp.get("score"),
+        "band": comp.get("band", ""),
+        "dimensions": dim_map,
+        "upc": {"status": upc.get("status", ""), "extracted": upc.get("extracted", ""),
+                "expected": upc.get("expected", "")},
+        "verifier": "confirmed" if verd.get("verifier_confirmed") else "refuted",
+        "confidence": evals.get("confidence"),
+        "tokens": tot.get("tokens"),
+        "cost": tot.get("cost"),
+        "latency_ms": tot.get("wall_ms"),
+        "suspect_thumb": exporter.thumb(req.suspect_image),
+        "upc_thumb": exporter.thumb(req.upc_image),
+    }
+
+
+@app.get("/api/export/count")
+def export_count():
+    if not supa.available():
+        return {"available": False, "count": 0}
+    return {"available": True, "count": supa.runs_count()}
+
+
+@app.post("/api/export/save")
+def export_save(req: ExportSaveReq):
+    if not supa.available():
+        raise HTTPException(503, "Supabase not configured")
+    if not req.data:
+        raise HTTPException(400, "no analysis data to save")
+    rec = _build_record(req)
+    supa.save_run(rec)
+    return {"ok": True, "id": rec["id"], "count": supa.runs_count()}
+
+
+@app.get("/api/export.xlsx")
+def export_xlsx():
+    if not supa.available():
+        raise HTTPException(503, "Supabase not configured")
+    data = exporter.build_workbook(supa.list_runs())
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="VERITAS_analyses.xlsx"'},
+    )
+
+
+@app.delete("/api/export")
+def export_clear():
+    if not supa.available():
+        raise HTTPException(503, "Supabase not configured")
+    supa.clear_runs()
+    return {"ok": True, "count": 0}
 
 
 # ---- serve the analyze.html app (single-service deploy) ----
