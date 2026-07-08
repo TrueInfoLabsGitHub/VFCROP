@@ -389,7 +389,8 @@ $('#run').onclick=async()=>{
     const data=await r.json(); render(data);
     lastRun={ data, engine:(provider==='gemini'?'Gemini 3.1 Pro':'GPT-5.5'),
       product:(products.find(p=>p.id===productId)||{}).name||'',
-      suspect_image:suspectImgs[0]||null, upc_image:upcB64 };
+      product_id:(refSource==='product'?productId:'')||'',
+      suspect_images:suspectImgs.slice(), upc_image:upcB64 };
     if(exportOn){ $('#expsave').disabled=false; }
     $('#status').textContent='';
   }catch(e){ $('#status').innerHTML='<span style="color:#C0392B">Error: '+e.message+'</span>'; }

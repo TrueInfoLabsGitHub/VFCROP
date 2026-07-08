@@ -114,13 +114,25 @@ def products_image(pid: str, filename: str):
 class ExportSaveReq(BaseModel):
     engine: str = ""
     product: str = ""
-    suspect_image: str | None = None    # base64 (no data: header)
+    product_id: str = ""                    # catalog id → authentic refs resolved server-side
+    suspect_image: str | None = None        # base64 (no data: header, back-compat)
+    suspect_images: list[str] = []          # all suspect photos (preferred)
+    reference_images: list[str] = []        # authentic reference photos (optional override)
     upc_image: str | None = None
-    data: dict = {}                     # the /api/analyze response
+    data: dict = {}                         # the /api/analyze response
 
 
 def _build_record(req: ExportSaveReq) -> dict:
     d = req.data or {}
+    _sus_imgs = req.suspect_images or ([req.suspect_image] if req.suspect_image else [])
+    _sus_imgs = [b for b in _sus_imgs if b]
+    # authentic references: explicit override, else resolve from the catalog
+    _ref_imgs = [b for b in (req.reference_images or []) if b]
+    if not _ref_imgs and req.product_id and supa.available():
+        try:
+            _ref_imgs = supa.product_images_b64(req.product_id, cap=12)
+        except Exception:
+            _ref_imgs = []
     comp = d.get("composite") or {}
     dims = d.get("dimensions") or []
     dim_map = {x.get("dimension"): {"score": x.get("score"), "finding": x.get("finding") or ""}
@@ -147,7 +159,8 @@ def _build_record(req: ExportSaveReq) -> dict:
         "tokens": tot.get("tokens"),
         "cost": tot.get("cost"),
         "latency_ms": tot.get("wall_ms"),
-        "suspect_thumb": exporter.thumb(req.suspect_image),
+        "suspect_thumbs": [t for t in (exporter.thumb(b) for b in _sus_imgs) if t],
+        "reference_thumbs": [t for t in (exporter.thumb(b) for b in _ref_imgs) if t],
         "upc_thumb": exporter.thumb(req.upc_image),
     }
 
