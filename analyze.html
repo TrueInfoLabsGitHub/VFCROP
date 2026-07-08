@@ -93,7 +93,7 @@
   .cnt{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:9999px;font-size:12px;font-weight:700}
   .cnt svg{width:12px;height:12px}
   .dimgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
-  .dim{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--mist);border-radius:12px;padding:15px 16px;box-shadow:var(--sh)}
+  .dim{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:15px 16px;box-shadow:var(--sh)}
   .dim-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:11px}
   .dim-name{font-weight:700;font-size:14px}
   .dim-scorerow{display:flex;align-items:baseline;gap:7px;margin-bottom:8px}
@@ -105,6 +105,41 @@
   .dim-rsn{font-size:12.5px;color:var(--slate);line-height:1.5}
   .dim-conf{font-size:10.5px;color:var(--mist);margin-top:10px;font-family:var(--mono);border-top:1px solid var(--border);padding-top:9px}
   .upc-num{font-family:var(--mono);font-size:19px;font-weight:600;letter-spacing:.02em;margin-bottom:8px}
+  /* graphical overview: radar + score bars */
+  .dim-overview{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--sh);padding:16px 20px;margin-bottom:14px;
+    display:grid;grid-template-columns:270px 1fr;gap:22px;align-items:center}
+  @media(max-width:720px){.dim-overview{grid-template-columns:1fr}}
+  .dim-radar-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .dim-radar-cap{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mist);font-weight:700}
+  .dim-radar-wrap svg{max-width:100%;height:auto}
+  .dim-legend{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .dim-legrow{display:grid;grid-template-columns:12px minmax(78px,120px) 1fr 34px;gap:11px;align-items:center;
+    cursor:pointer;border-radius:8px;padding:7px 8px;transition:background .12s}
+  .dim-legrow:hover{background:#FAFCFE}
+  .dim-legdot{width:11px;height:11px;border-radius:3px}
+  .dim-legname{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dim-legbar{height:8px;border-radius:9999px;background:#eef1f5;overflow:hidden}
+  .dim-legbar i{display:block;height:100%;border-radius:9999px;transition:width .6s cubic-bezier(.4,0,.2,1)}
+  .dim-legscore{font-family:var(--mono);font-weight:700;font-size:13px;text-align:right}
+  /* graphical dimension cards */
+  .gdim{padding:14px 16px;transition:box-shadow .15s,transform .15s}
+  .gdim.flash{box-shadow:0 0 0 2px var(--blue),var(--sh)}
+  .gdim-top{display:flex;gap:14px;align-items:flex-start}
+  .gdim-info{min-width:0;flex:1}
+  .mini-gauge{flex:none}
+  .gdim .dim-head{margin-bottom:7px}
+  .gdim .dim-find{margin-bottom:9px}
+  .conf-meter{display:flex;align-items:center;gap:8px}
+  .conf-lab{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--mist);font-weight:700;flex:none}
+  .conf-track{flex:1;height:5px;border-radius:9999px;background:#eef1f5;overflow:hidden;min-width:40px}
+  .conf-track i{display:block;height:100%;border-radius:9999px;background:var(--blue);transition:width .6s ease}
+  .conf-val{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--slate);flex:none}
+  .dim-toggle{display:flex;align-items:center;gap:6px;width:100%;justify-content:flex-start;
+    margin-top:12px;padding:8px 0 0;border:none;border-top:1px solid var(--border);background:none;cursor:pointer;
+    font-family:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--blue)}
+  .dim-toggle svg{width:13px;height:13px;transition:transform .2s}
+  .dim-toggle[aria-expanded="true"] svg{transform:rotate(180deg)}
+  .gdim-rsn{margin-top:10px}
   /* report */
   .rep{margin-top:22px}
   .rep h3{margin:0 0 14px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate)}
@@ -220,6 +255,7 @@
       <div class="card-title">Forensic dimensions</div>
       <div class="dimsummary" id="dimsummary"></div>
     </div>
+    <div class="dim-overview" id="dimoverview"></div>
     <div class="dimgrid" id="dims"></div>
   </section>
 
@@ -267,6 +303,7 @@ const bandColor = b => ({authentic:'#1E8A4C',caution:'#B07D0A',counterfeit:'#C03
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 const ALERT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
 const XI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const CHEV='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 function vinfo(b){ return ({authentic:{l:'Match',c:'bg-match',i:CHECK},caution:{l:'Review',c:'bg-review',i:ALERT},counterfeit:{l:'Deviation',c:'bg-dev',i:XI}})[b] || {l:'N/A',c:'bg-neutral',i:''}; }
 
 // ---- health / mode badge ----
@@ -478,20 +515,88 @@ function render(d){
   // dimension summary + cards
   $('#dimsection').classList.remove('hidden');
   $('#dimsummary').innerHTML=`<span class="cnt bg-match">${CHECK}${nM} match</span><span class="cnt bg-review">${ALERT}${nR} review</span><span class="cnt bg-dev">${XI}${nD} deviation</span>`;
+  $('#dimoverview').innerHTML=`<div class="dim-radar-wrap"><div class="dim-radar-cap">Deviation profile</div>${radar(dims)}</div><div class="dim-legend">${dims.map(dimBar).join('')}</div>`;
   $('#dims').innerHTML=dims.map(dimCard).join('')+upcCard(d.upc);
   renderReport(d.report, d.mode);
 }
 
-function dimCard(x){
-  const col=bandColor(x.band), vi=vinfo(x.band);
-  return `<div class="dim" style="border-left-color:${col}">
-    <div class="dim-head"><span class="dim-name">${x.dimension}</span><span class="badge ${vi.c}">${vi.i}${vi.l}</span></div>
-    <div class="dim-scorerow"><span class="dim-score" style="color:${col}">${x.score}</span><span class="dim-max">/100 · counterfeit probability</span></div>
-    <div class="dim-bar"><i style="width:${x.score}%;background:${col}"></i></div>
-    <div class="dim-find">${x.finding}</div>
-    <div class="dim-rsn">${x.reasoning}</div>
-    <div class="dim-conf">confidence ${x.confidence}</div>
+// ---- graphical dimension views ----
+function miniGauge(score,col){
+  const R=26,C=2*Math.PI*R,arc=score==null?0:score/100*C;
+  return `<svg class="mini-gauge" width="70" height="70" viewBox="0 0 70 70">
+    <circle cx="35" cy="35" r="${R}" fill="none" stroke="#EAEFF6" stroke-width="7"/>
+    <circle cx="35" cy="35" r="${R}" fill="none" stroke="${col}" stroke-width="7" stroke-linecap="round"
+      stroke-dasharray="${arc} ${C}" transform="rotate(-90 35 35)"/>
+    <text x="35" y="38" text-anchor="middle" font-size="18" font-weight="700" font-family="'IBM Plex Mono',monospace" fill="${col}">${score??'—'}</text>
+    <text x="35" y="51" text-anchor="middle" font-size="7.5" fill="#8A9BB5">/100</text></svg>`;
+}
+
+// spider/radar chart of every dimension's counterfeit-probability score
+function radar(dims){
+  const N=dims.length; if(!N) return '';
+  const cx=130, cy=118, R=84;
+  const ang=i=>-Math.PI/2 + i*2*Math.PI/N;
+  const pt=(i,r)=>[cx+r*Math.cos(ang(i)), cy+r*Math.sin(ang(i))];
+  let rings='';
+  [0.25,0.5,0.75,1].forEach(f=>{
+    const p=dims.map((_,i)=>pt(i,R*f).map(n=>n.toFixed(1)).join(',')).join(' ');
+    rings+=`<polygon points="${p}" fill="${f===1?'#fff':'none'}" stroke="#E4E9F1" stroke-width="1"/>`;
+  });
+  let spokes='',labels='',dots='';
+  dims.forEach((x,i)=>{
+    const [ex,ey]=pt(i,R);
+    spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" stroke="#E4E9F1" stroke-width="1"/>`;
+    const [lx,ly]=pt(i,R+15), anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
+    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="10" font-weight="600" fill="#5A6B82" style="cursor:pointer" onclick="focusDim(${i})">${x.dimension}</text>`;
+    const [px,py]=pt(i,R*((x.score||0)/100));
+    dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${bandColor(x.band)}" stroke="#fff" stroke-width="1.5" style="cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score}/100</title></circle>`;
+  });
+  const poly=dims.map((x,i)=>pt(i,R*((x.score||0)/100)).map(n=>n.toFixed(1)).join(',')).join(' ');
+  return `<svg width="260" height="182" viewBox="-45 -5 350 245" role="img" aria-label="Deviation radar">
+    ${rings}${spokes}
+    <polygon points="${poly}" fill="rgba(192,57,43,.12)" stroke="#C0392B" stroke-width="2" stroke-linejoin="round"/>
+    ${dots}${labels}</svg>`;
+}
+
+// horizontal score bar in the overview legend
+function dimBar(x,i){
+  const col=bandColor(x.band);
+  return `<div class="dim-legrow" onclick="focusDim(${i})" title="Jump to ${x.dimension}">
+    <span class="dim-legdot" style="background:${col}"></span>
+    <span class="dim-legname">${x.dimension}</span>
+    <span class="dim-legbar"><i style="width:${x.score}%;background:${col}"></i></span>
+    <span class="dim-legscore" style="color:${col}">${x.score}</span>
   </div>`;
+}
+
+function dimCard(x,i){
+  const col=bandColor(x.band), vi=vinfo(x.band);
+  const conf=Math.round((x.confidence??0)*100);
+  return `<div class="dim gdim" id="dcard-${i}">
+    <div class="gdim-top">
+      ${miniGauge(x.score,col)}
+      <div class="gdim-info">
+        <div class="dim-head"><span class="dim-name">${x.dimension}</span><span class="badge ${vi.c}">${vi.i}${vi.l}</span></div>
+        <div class="dim-find">${x.finding}</div>
+        <div class="conf-meter"><span class="conf-lab">confidence</span><span class="conf-track"><i style="width:${conf}%"></i></span><span class="conf-val">${conf}%</span></div>
+      </div>
+    </div>
+    <button type="button" class="dim-toggle" aria-expanded="false" onclick="toggleDim(this,${i})"><span>Show analysis</span>${CHEV}</button>
+    <div class="dim-rsn gdim-rsn hidden" id="drsn-${i}">${x.reasoning}</div>
+  </div>`;
+}
+
+function toggleDim(btn,i){
+  const box=$('#drsn-'+i), open=box.classList.toggle('hidden')===false;
+  btn.setAttribute('aria-expanded', open);
+  btn.querySelector('span').textContent = open ? 'Hide analysis' : 'Show analysis';
+}
+function focusDim(i){
+  const card=$('#dcard-'+i); if(!card) return;
+  const box=$('#drsn-'+i), btn=card.querySelector('.dim-toggle');
+  if(box.classList.contains('hidden')){ box.classList.remove('hidden'); btn.setAttribute('aria-expanded',true); btn.querySelector('span').textContent='Hide analysis'; }
+  card.scrollIntoView({behavior:'smooth',block:'center'});
+  card.classList.add('flash'); setTimeout(()=>card.classList.remove('flash'),1100);
 }
 
 function upcCard(u){
@@ -500,7 +605,7 @@ function upcCard(u){
             nomatch:['bg-dev','No match — counterfeit indicator','#C0392B',XI]};
   const [cls,label,col,icon]=map[u.status]||map.nomatch;
   const ext=u.extracted?`<div class="upc-num">${u.extracted}</div>`:`<div class="upc-num muted">— no code read —</div>`;
-  return `<div class="dim" style="border-left-color:${col}">
+  return `<div class="dim">
     <div class="dim-head"><span class="dim-name">UPC / Security tag</span><span class="badge ${cls}">${icon}${u.status}</span></div>
     ${ext}
     <div class="dim-find" style="color:${col}">${label}</div>
