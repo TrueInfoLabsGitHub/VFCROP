@@ -67,6 +67,7 @@
   /* toolbar */
   .toolbar{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:18px;box-shadow:var(--sh)}
   label.fld{display:flex;flex-direction:column;gap:7px;font-size:12.1px;color:var(--slate);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+  #prodpickwrap{flex:1 1 100%;min-width:0}
   select,button{font-family:inherit;font-size:16.1px}
   select{border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:10px 13px;background:var(--surface);color:var(--ink);font-weight:500;min-width:170px;transition:border-color .15s,box-shadow .15s}
   select:hover{border-color:var(--accent-solid)}
@@ -254,8 +255,8 @@
       </div>
     </label>
     <label class="fld" id="prodpickwrap">Product
-      <div style="display:flex;gap:6px;align-items:center;">
-        <select id="prodpick" style="min-width:190px;flex:1 1 auto"></select>
+      <div style="display:flex;gap:8px;align-items:center;width:100%;min-width:0;">
+        <select id="prodpick" style="min-width:0;flex:1 1 auto"></select>
         <button type="button" class="btn" id="addprod" style="padding:11px 16px;white-space:nowrap;flex:0 0 auto;">+ Add</button>
       </div>
     </label>
