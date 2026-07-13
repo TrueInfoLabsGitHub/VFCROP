@@ -67,9 +67,16 @@
   .themebtn:active{transform:translateY(0) scale(.95)}
   main{max-width:1180px;margin:0 auto;padding:26px 22px 48px}
   /* toolbar */
-  .toolbar{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:18px;box-shadow:var(--sh)}
+  .toolbar{display:flex;flex-direction:column;gap:16px;background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:18px;box-shadow:var(--sh)}
+  .tb-fields{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap}
+  .tb-action{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
+  .tb-action #prodpickwrap{flex:1 1 320px;min-width:0}
+  .prodrow{display:flex;gap:8px;align-items:center;width:100%;min-width:0}
+  .prodrow select{flex:1 1 auto;min-width:0}
+  .tb-status{font-size:14.4px;min-height:1px}
   label.fld{display:flex;flex-direction:column;gap:7px;font-size:12.1px;color:var(--slate);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
-  #prodpickwrap{flex:1 1 100%;min-width:0}
+  label.fld.grow{flex:1 1 200px;min-width:170px}
+  label.fld.grow select{width:100%}
   select,button{font-family:inherit;font-size:16.1px}
   select{border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:10px 13px;background:var(--surface);color:var(--ink);font-weight:500;min-width:170px;transition:border-color .15s,box-shadow .15s}
   select:hover{border-color:var(--accent-solid)}
@@ -78,10 +85,22 @@
   .btn:hover{background-position:100% 0;box-shadow:0 14px 30px rgba(99,102,241,.44)}
   .btn:active{transform:translateY(1px) scale(.99)}
   .btn:disabled{opacity:.5;cursor:default;box-shadow:none}
-  .btn.run{margin-left:auto;padding:11px 28px}
+  .btn.run{flex:0 0 auto;padding:13px 34px;font-size:16.6px}
   .btn.ghost{background:var(--surface);color:var(--accent-deep);border:1px solid var(--border-strong);box-shadow:var(--sh-sm)}
   .btn.ghost:hover{background:rgba(99,102,241,.08)}
   .btn.sm{padding:9px 16px;font-size:14.9px}
+  /* sticky run bar — appears after photos are added and the top Run scrolls away */
+  .runbar{position:fixed;left:0;right:0;bottom:0;z-index:60;
+    background:var(--glass-strong);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+    border-top:1px solid var(--glass-brd);box-shadow:0 -8px 30px rgba(24,20,60,.14);
+    transform:translateY(105%);transition:transform .3s cubic-bezier(.4,0,.2,1)}
+  .runbar.show{transform:translateY(0)}
+  .runbar-inner{max-width:1180px;margin:0 auto;width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 22px}
+  .runbar-ctx{font-size:14.4px;color:var(--slate);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:9px}
+  .runbar-ctx b{color:var(--ink);font-weight:700}
+  .runbar-ctx .rbdot{width:8px;height:8px;border-radius:50%;background:var(--green);flex:none;box-shadow:0 0 0 3px var(--green-bg)}
+  .runbar-act{display:flex;align-items:center;gap:12px;flex:none}
+  @media(max-width:560px){.runbar-ctx b+span,.runbar-ctx .rbprod{display:none}}
   .exportbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
     background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r);padding:14px 20px;margin-bottom:18px;
     box-shadow:var(--sh)}
@@ -99,12 +118,20 @@
   .card{position:relative;background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r-lg);padding:22px;box-shadow:var(--sh);animation:fadeUp .5s ease both;overflow:hidden}
   .card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--accent);opacity:.9}
   .card-title{font-size:13.8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);margin:0 0 14px}
-  .grid2{display:grid;grid-template-columns:360px 1fr;gap:18px;align-items:stretch}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:stretch}
+  /* evidence card: two internal columns so the card stays short and wide */
+  .ev-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 20px}
+  .ev-grid .ev-full{grid-column:1/-1}
+  .ev-full .refs{grid-template-columns:repeat(6,1fr)}
+  .ev-grid .eyebrow{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:9px}
+  .ev-grid .drop{height:92px;min-height:0}
+  #updrop{max-height:none}
+  @media(max-width:840px){.ev-grid{grid-template-columns:1fr}.ev-full .refs{grid-template-columns:repeat(3,1fr)}}
   .eyebrow{font-size:12.1px;letter-spacing:.05em;text-transform:uppercase;color:var(--mist);font-weight:700;margin-bottom:8px}
   .subhead{margin-top:14px}
   .divider{height:1px;background:var(--border);margin:14px 0}
   /* uploads */
-  .drop{border:1.5px dashed var(--border-strong);border-radius:var(--r);min-height:82px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--slate);cursor:pointer;overflow:hidden;background:var(--panel-2);font-size:14.4px;transition:.15s}
+  .drop{border:1.5px dashed var(--border-strong);border-radius:var(--r);min-height:62px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--slate);cursor:pointer;overflow:hidden;background:var(--panel-2);font-size:14.4px;transition:.15s;padding:8px}
   .drop:hover,.drop.over{border-color:var(--accent-solid);background:var(--blue-tint);color:var(--accent-deep)}
   .drop img{width:100%;height:100%;max-height:220px;object-fit:contain}
   .refs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:11px}
@@ -112,7 +139,7 @@
   .ref:hover{transform:translateY(-2px);box-shadow:var(--sh)}
   .ref img{width:100%;height:64px;object-fit:cover;display:block;cursor:zoom-in}
   .ref span{display:block;font-size:11.5px;color:var(--slate);padding:3px 5px;text-align:center;background:var(--panel)}
-  #updrop{max-height:116px;padding:6px} #updrop img{cursor:zoom-in;width:auto!important;height:auto!important;max-width:100%;max-height:102px!important;object-fit:contain}
+  #updrop{max-height:96px;padding:6px} #updrop img{cursor:zoom-in;width:auto!important;height:auto!important;max-width:100%;max-height:84px!important;object-fit:contain}
   /* verdict */
   .verdict-main{display:flex;gap:20px;align-items:center;animation:fadeUp .5s ease both}
   .verdict-txt{min-width:0}
@@ -219,110 +246,389 @@
   .modal.open{display:flex}
   .modalcard{background:var(--surface);border-radius:var(--r-lg);padding:24px;width:100%;max-width:470px;max-height:88vh;overflow:auto;box-shadow:var(--sh-lg);animation:pop .22s ease both}
   .txt{font-family:inherit;font-size:16.1px;border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:10px 12px;width:100%;margin-top:5px;transition:border-color .15s,box-shadow .15s}
+  /* ===== case workspace ===== */
+  .casehdr{padding:20px 22px}
+  .ch-top{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:flex-start}
+  .ch-eyebrow{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mist);font-weight:700;margin-bottom:3px}
+  .ch-case-select{font-family:var(--mono);font-size:21.5px;font-weight:700;color:var(--ink);background:transparent;border:none;padding:2px 4px 2px 0;cursor:pointer;min-width:0}
+  .ch-case-select:focus{outline:none;box-shadow:none;border:none}
+  .ch-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:9999px;font-size:12.6px;font-weight:600;background:var(--panel);border:1px solid var(--border);color:var(--slate)}
+  .chip select{border:none;background:transparent;font-size:12.6px;font-weight:700;color:var(--ink);padding:0;min-width:0;cursor:pointer}
+  .chip select:focus{outline:none;box-shadow:none}
+  .chip-status{border-color:transparent;background:var(--green-bg);color:var(--green)}
+  .chip-status.st-amber{background:var(--amber-bg);color:var(--amber)}
+  .chip-status.st-red{background:var(--red-bg);color:var(--red)}
+  .ch-side{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+  .ch-analyst{font-size:13.4px;color:var(--slate);display:flex;gap:7px;align-items:center}
+  .ch-analyst b{color:var(--ink)}
+  .ch-settings{display:flex;gap:18px;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:16px;padding-top:16px}
+  /* step badges */
+  .stepbadge{width:23px;height:23px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;font-size:12.6px;display:inline-flex;align-items:center;justify-content:center;margin-right:9px;flex:none;letter-spacing:0}
+  .card-title{display:flex;align-items:center}
+  /* readiness checklist (step 2 idle) */
+  .ckl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+  .ckl li{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid var(--border);border-radius:12px;background:var(--panel);font-size:14.4px;font-weight:600;color:var(--slate)}
+  .ckl li.done{border-color:rgba(18,137,76,.35);background:var(--green-bg);color:var(--ink)}
+  .ck-ic{width:21px;height:21px;border-radius:50%;border:2px solid var(--border-strong);flex:none;display:flex;align-items:center;justify-content:center;color:#fff}
+  .ck-ic svg{width:11px;height:11px}
+  .ckl li.done .ck-ic{background:var(--green);border-color:var(--green)}
+  .ckl li .opt{margin-left:auto;font-size:10.6px;color:var(--mist);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  .ckl-hint{font-size:13px;color:var(--mist);margin-top:12px;line-height:1.5}
+  /* pipeline progress (step 2 running/done) */
+  .pipe{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  @media(max-width:1020px){.pipe{grid-template-columns:1fr}}
+  .pipe-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel);font-size:13.8px;font-weight:600;color:var(--slate);min-width:0}
+  .pipe-row .pico{width:18px;height:18px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--green)}
+  .pipe-row .pico svg{width:14px;height:14px}
+  .pipe-row .pico .spin{width:13px;height:13px;border-width:2px}
+  .pipe-row.done{color:var(--ink)}
+  .pipe-row.queued{opacity:.62}
+  .pipe-row .lat{margin-left:auto;font-family:var(--mono);font-size:12.1px;color:var(--mist);flex:none}
+  .pipe-foot{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.8px;color:var(--mist);font-family:var(--mono);padding:2px 3px}
+  .runrow{display:flex;gap:12px;align-items:center;margin-top:16px;flex-wrap:wrap}
+  /* analysis card fills its column: panel grows, run row pins to the bottom */
+  .runcard{display:flex;flex-direction:column}
+  .runcard #runpanel{flex:1}
+  .runcard .runrow{margin-top:auto;padding-top:16px}
+  .qdot{width:9px;height:9px;border-radius:50%;border:2px solid var(--border-strong);display:inline-block}
+  .pipe-title{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mist);font-weight:700;margin:16px 0 9px}
+  .stagechips{display:flex;flex-wrap:wrap;gap:7px}
+  .stagechip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--border);border-radius:9999px;background:var(--panel);font-size:12.6px;font-weight:600;color:var(--slate)}
+  .stagechip .qdot{width:7px;height:7px}
+  /* compact verdict recap in the analysis panel once a run completes */
+  .done-recap{display:flex;align-items:center;gap:13px;margin-top:14px;padding:13px 16px;border:1px solid var(--border);border-radius:12px;background:var(--panel);flex-wrap:wrap}
+  .done-recap .dr-score{font-family:var(--mono);font-weight:700;font-size:23px;line-height:1}
+  .done-recap .dr-link{margin-left:auto;color:var(--accent-deep);font-weight:700;font-size:13.4px;text-decoration:none;white-space:nowrap}
+  /* finding */
+  .finding-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .runmeta{font-size:12.4px;color:var(--mist);font-family:var(--mono);margin-top:7px;line-height:1.6;word-break:break-word}
+  .finding-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:16px;font-size:12.6px;color:var(--slate);font-weight:600}
+  .legend .lg{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .compare{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:start;margin-top:10px}
+  @media(max-width:720px){.compare{grid-template-columns:1fr}}
+  .cmp-vs{font-weight:800;color:var(--mist);font-size:13px;letter-spacing:.06em;align-self:center;padding:0 3px}
+  .cmp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .cmp-grid .ref img{height:86px}
+  .disclaimer{font-size:12.6px;color:var(--mist);text-align:center;margin-top:20px;border-top:1px solid var(--border);padding-top:15px;line-height:1.55}
+  /* ===== login gate — simple light card on a dark backdrop ===== */
+  .loginview{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;padding:22px;
+    background:radial-gradient(900px 600px at 30% 12%,rgba(124,58,237,.28),transparent 60%),radial-gradient(800px 560px at 78% 90%,rgba(14,165,233,.16),transparent 55%),#0c1020}
+  .login-form{background:#fff;color:#101a2b;padding:34px 32px 28px;display:flex;flex-direction:column;justify-content:center;
+    width:100%;max-width:398px;border-radius:22px;box-shadow:0 30px 70px rgba(5,8,22,.55);animation:pop .3s ease both}
+  .ls-brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .ls-brand .wm{width:42px;height:42px;border-radius:13px;background:var(--accent);color:#fff;font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 20px rgba(99,102,241,.4)}
+  .ls-brand h1{font-size:20px;margin:0;font-weight:800;letter-spacing:.14em;line-height:1;background:var(--accent);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .ls-brand .sub{font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:#8a94a8;margin-top:4px}
+  .login-h{font-size:22px;font-weight:800;margin:0 0 4px;color:#101a2b}
+  .login-p{font-size:14px;color:#586579;margin:0 0 22px}
+  .sso{display:flex;flex-direction:column;gap:10px}
+  .sso-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px 14px;border:1px solid #dfe5ee;border-radius:12px;background:#fff;color:#1a2b3c;font-family:inherit;font-size:14.5px;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s}
+  .sso-btn:hover{background:#f5f7fc;border-color:#c9d2e0}
+  .sso-btn svg{width:18px;height:18px;flex:none}
+  .or{display:flex;align-items:center;gap:12px;margin:18px 0;color:#9aa6ba;font-size:11.6px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  .or::before,.or::after{content:"";flex:1;height:1px;background:#e6eaf2}
+  .login-field{display:block;margin-bottom:14px}
+  .login-field>span{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#586579;margin-bottom:7px}
+  .login-form .txt{margin-top:0;background:#fff;border:1px solid #dfe5ee;color:#101a2b}
+  .login-form .txt:focus{border-color:var(--accent-solid);box-shadow:0 0 0 3px rgba(99,102,241,.18)}
+  .login-form .txt::placeholder{color:#aab4c5}
+  .login-btn{width:100%;margin-top:4px;padding:13px;font-size:16px;display:flex;align-items:center;justify-content:center}
+  .login-err{color:#d43d2b;font-size:13.4px;margin-top:11px;min-height:17px}
+  .login-note{font-size:12px;color:#8a9bb5;margin-top:18px;text-align:center;line-height:1.55}
+  /* ===== app shell ===== */
+  .appshell{display:flex;min-height:100vh;align-items:stretch}
+  .sidebar{position:sticky;top:0;align-self:flex-start;height:100vh;width:238px;flex:none;display:flex;flex-direction:column;padding:20px 15px;
+    background:var(--glass-strong);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-right:1px solid var(--glass-brd);z-index:120}
+  .sb-brand{display:flex;align-items:center;gap:11px;padding:6px 8px 20px}
+  .sb-brand .wm{width:38px;height:38px;border-radius:11px;font-size:15px}
+  .sb-brand h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.13em;line-height:1;background:var(--accent);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .sb-brand .sub{font-size:8.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--slate);margin-top:4px}
+  .sb-lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--mist);padding:6px 10px 8px}
+  .sb-nav{display:flex;flex-direction:column;gap:3px}
+  .nav-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:var(--r-sm);border:none;background:none;cursor:pointer;
+    font-family:inherit;font-size:15px;font-weight:600;color:var(--slate);text-align:left;width:100%;transition:background .15s,color .15s}
+  .nav-item svg{width:19px;height:19px;flex:none;opacity:.85}
+  .nav-item:hover{background:var(--panel);color:var(--ink)}
+  .nav-item.active{background:var(--blue-tint);color:var(--accent-deep)}
+  .nav-item.active svg{opacity:1}
+  .nav-item .nav-dot{margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--red);opacity:0;transition:opacity .2s}
+  .nav-item.hasnew .nav-dot{opacity:1}
+  .sb-spacer{flex:1}
+  .sb-foot{border-top:1px solid var(--border);padding-top:14px;display:flex;flex-direction:column;gap:12px}
+  .sb-user{display:flex;align-items:center;gap:10px;min-width:0}
+  .sb-avatar{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;flex:none;box-shadow:var(--sh-brand)}
+  .sb-user .u-meta{min-width:0}
+  .sb-user .u-name{font-size:13.6px;font-weight:700;color:var(--ink);line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sb-user .u-role{font-size:11.4px;color:var(--mist);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sb-logout{background:none;border:1px solid var(--border-strong);border-radius:9px;color:var(--slate);font-family:inherit;font-size:13px;font-weight:600;padding:8px;cursor:pointer;transition:.15s}
+  .sb-logout:hover{color:var(--red);border-color:var(--red)}
+  /* branded coloured sidebar (fixed deep-indigo in both themes) */
+  .sidebar{background:linear-gradient(190deg,#282f63 0%,#1c2149 58%,#141833 100%);border-right:1px solid rgba(255,255,255,.09);box-shadow:2px 0 24px rgba(10,12,30,.28)}
+  .sidebar .sb-brand .sub{color:rgba(255,255,255,.56)}
+  .sidebar .sb-lbl{color:rgba(255,255,255,.42)}
+  .sidebar .nav-item{color:rgba(255,255,255,.76)}
+  .sidebar .nav-item:hover{background:rgba(255,255,255,.09);color:#fff}
+  .sidebar .nav-item.active{background:linear-gradient(90deg,rgba(124,116,255,.42),rgba(124,116,255,.16));color:#fff;box-shadow:inset 3px 0 0 0 #a9b0ff}
+  .sidebar .nav-item.active svg{opacity:1}
+  .sidebar .sb-foot{border-top-color:rgba(255,255,255,.12)}
+  .sidebar .sb-user .u-name{color:#fff}
+  .sidebar .sb-user .u-role{color:rgba(255,255,255,.54)}
+  .sidebar .sb-logout{color:rgba(255,255,255,.74);border-color:rgba(255,255,255,.2)}
+  .sidebar .sb-logout:hover{color:#fff;border-color:#ff8a7a}
+  .sidebar .themebtn{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18);color:#fff}
+  .sidebar .themebtn:hover{background:rgba(255,255,255,.16)}
+  .maincol{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{position:sticky;top:0;z-index:45;height:62px;display:flex;align-items:center;gap:14px;padding:0 26px;
+    background:rgba(255,255,255,.62);backdrop-filter:saturate(1.8) blur(18px);-webkit-backdrop-filter:saturate(1.8) blur(18px);border-bottom:1px solid var(--glass-brd)}
+  html[data-theme="dark"] .topbar{background:rgba(10,14,26,.5)}
+  .topbar h2{font-size:18.5px;font-weight:700;margin:0}
+  .topbar .spacer{margin-left:auto}
+  .menubtn{display:none;width:38px;height:38px;border-radius:10px;border:1px solid var(--glass-brd);background:var(--glass-strong);color:var(--ink);cursor:pointer;font-size:18px;align-items:center;justify-content:center}
+  .maincol>main{width:100%}
+  .page{animation:fadeUp .4s ease both}
+  .sb-backdrop{display:none;position:fixed;inset:0;background:rgba(12,20,34,.4);z-index:110}
+  .sb-backdrop.open{display:block}
+  @media(max-width:760px){
+    .sidebar{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--sh-lg)}
+    .sidebar.open{transform:none}
+    .menubtn{display:flex}
+    .runbar{left:0!important}
+  }
+  @media(min-width:761px){.runbar{left:238px}}
   @media(max-width:840px){.grid2{grid-template-columns:1fr}.matchgrid{grid-template-columns:1fr}.evals{grid-template-columns:repeat(3,1fr)}.btn.run{margin-left:0}}
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-<header>
-  <div class="wm">VF</div>
-  <div><h1>VERITAS</h1><div class="sub">Counterfeit Intelligence Platform</div></div>
-  <div class="modepill" id="mode">checking…</div>
-  <button type="button" class="themebtn" id="themetoggle" title="Toggle light / dark" aria-label="Toggle light / dark theme">🌙</button>
-</header>
 
-<main>
-  <div class="toolbar">
-    <label class="fld">Case
-      <select id="case">
-        <option value="VF-2026-0412">VF-2026-0412 · TNF · Shenzhen</option>
-        <option value="VF-2026-0384">VF-2026-0384 · TNF · Yiwu</option>
-        <option value="VF-2026-0395">VF-2026-0395 · TNF · Hanoi</option>
-        <option value="VF-2026-0371">VF-2026-0371 · TNF · Fuzhou</option>
-      </select>
-    </label>
-    <label class="fld">Brand
-      <select id="brand"><option value="TNF">The North Face</option></select>
-    </label>
-    <label class="fld">Engine
-      <div class="seg" id="engine">
-        <button type="button" class="seg-btn active" data-prov="openai">OpenAI · GPT-5.5</button>
-        <button type="button" class="seg-btn" data-prov="gemini">Gemini 3 Pro · OpenRouter</button>
+<!-- ===== login gate ===== -->
+<div class="loginview" id="loginview">
+  <form class="login-form" id="lg_form" autocomplete="on">
+    <div class="ls-brand">
+      <div class="wm">VF</div>
+      <div><h1>VERITAS</h1><div class="sub">Counterfeit Intelligence</div></div>
+    </div>
+    <div class="login-h">Sign in</div>
+    <div class="login-p">Access your workspace.</div>
+    <div class="sso">
+      <button type="button" class="sso-btn" id="sso_google">
+        <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>
+        Continue with Google
+      </button>
+      <button type="button" class="sso-btn" id="sso_ms">
+        <svg viewBox="0 0 24 24"><path fill="#F25022" d="M2 2h9.5v9.5H2z"/><path fill="#7FBA00" d="M12.5 2H22v9.5h-9.5z"/><path fill="#00A4EF" d="M2 12.5h9.5V22H2z"/><path fill="#FFB900" d="M12.5 12.5H22V22h-9.5z"/></svg>
+        Continue with Microsoft
+      </button>
+    </div>
+    <div class="or">or</div>
+    <label class="login-field"><span>Work email</span><input id="lg_email" class="txt" type="email" placeholder="you@vfcorp.com" autocomplete="username" autofocus></label>
+    <label class="login-field" style="margin-bottom:6px"><span>Password</span><input id="lg_pw" class="txt" type="password" placeholder="••••••••" autocomplete="current-password"></label>
+    <div style="text-align:right;margin-bottom:14px"><a href="#" id="lg_forgot" style="font-size:12.6px;color:var(--accent-deep);font-weight:600;text-decoration:none">Forgot password?</a></div>
+    <button type="submit" class="btn login-btn" id="lg_btn">Sign in</button>
+    <div class="login-err" id="lg_err"></div>
+    <div class="login-note">© 2026 VF Corporation · Internal use only</div>
+  </form>
+</div>
+
+<!-- ===== app shell ===== -->
+<div class="appshell hidden" id="appshell">
+  <div class="sb-backdrop" id="sbbackdrop"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-brand">
+      <div class="wm">VF</div>
+      <div><h1>VERITAS</h1><div class="sub">Counterfeit Intelligence</div></div>
+    </div>
+    <div class="sb-lbl">Workspace</div>
+    <nav class="sb-nav">
+      <button type="button" class="nav-item active" data-page="analysis">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span>Case analysis</span><span class="nav-dot"></span>
+      </button>
+      <button type="button" class="nav-item" data-page="report">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span>Run report</span><span class="nav-dot"></span>
+      </button>
+    </nav>
+    <div class="sb-spacer"></div>
+    <div class="sb-foot">
+      <button type="button" class="themebtn" id="themetoggle" title="Toggle light / dark" aria-label="Toggle light / dark theme" style="align-self:flex-start">🌙</button>
+      <div class="sb-user">
+        <div class="sb-avatar" id="uavatar">A</div>
+        <div class="u-meta"><div class="u-name" id="uname">Alex Morgan</div><div class="u-role" id="uemail">alex.morgan@vfcorp.com</div></div>
       </div>
-    </label>
-    <label class="fld">References
-      <div class="seg" id="refsrc">
-        <button type="button" class="seg-btn active" data-src="product">Product</button>
-        <button type="button" class="seg-btn" data-src="google">Google reverse</button>
+      <button type="button" class="sb-logout" id="logout">Sign out</button>
+    </div>
+  </aside>
+
+  <div class="maincol">
+    <div class="topbar">
+      <button type="button" class="menubtn" id="menubtn" aria-label="Toggle menu">☰</button>
+      <h2 id="pagetitle">Case analysis</h2>
+      <span class="spacer"></span>
+      <div class="modepill" id="mode">checking…</div>
+    </div>
+
+    <main>
+      <section id="page-analysis" class="page">
+      <div class="card casehdr">
+        <div class="ch-top">
+          <div class="ch-main">
+            <div class="ch-eyebrow">Case</div>
+            <select id="case" class="ch-case-select">
+              <option value="VF-2026-0412">VF-2026-0412</option>
+              <option value="VF-2026-0384">VF-2026-0384</option>
+              <option value="VF-2026-0395">VF-2026-0395</option>
+              <option value="VF-2026-0371">VF-2026-0371</option>
+            </select>
+            <div class="ch-chips">
+              <label class="chip">Brand
+                <select id="brand">
+                  <option value="TNF">The North Face</option>
+                  <option value="TBL">Timberland</option>
+                  <option value="VANS">Vans</option>
+                </select>
+              </label>
+              <span class="chip" id="ch-origin">—</span>
+              <span class="chip chip-status" id="ch-status">Active</span>
+              <span class="chip" id="ch-opened">Opened —</span>
+            </div>
+          </div>
+          <div class="ch-side">
+            <div class="ch-analyst"><span>Analyst</span><b id="ch-analyst">Alex Morgan</b></div>
+            <button type="button" class="btn ghost sm" id="settingsbtn">⚙ Analysis settings</button>
+          </div>
+        </div>
+        <div class="ch-settings hidden" id="chsettings">
+          <label class="fld">Engine
+            <div class="seg" id="engine">
+              <button type="button" class="seg-btn active" data-prov="openai">OpenAI · GPT-5.5</button>
+              <button type="button" class="seg-btn" data-prov="gemini">Gemini 3 Pro · OpenRouter</button>
+            </div>
+          </label>
+          <label class="fld">References
+            <div class="seg" id="refsrc">
+              <button type="button" class="seg-btn active" data-src="product">Product</button>
+              <button type="button" class="seg-btn" data-src="google">Google reverse</button>
+            </div>
+          </label>
+        </div>
       </div>
-    </label>
-    <label class="fld" id="prodpickwrap">Product
-      <div style="display:flex;gap:8px;align-items:center;width:100%;min-width:0;">
-        <select id="prodpick" style="min-width:0;flex:1 1 auto"></select>
-        <button type="button" class="btn" id="addprod" style="padding:11px 16px;white-space:nowrap;flex:0 0 auto;">+ Add</button>
-      </div>
-    </label>
-    <button class="btn run" id="run">Run AI analysis</button>
-    <span id="status" class="muted" style="font-size:14.4px;align-self:center"></span>
-  </div>
 
   <div class="grid2">
     <section class="card">
-      <div class="card-title">Evidence</div>
-      <div class="eyebrow">Suspect product photos — add multiple views</div>
-      <div class="drop" id="drop"><div id="dropmsg">Drop product photos<br><span class="muted" style="font-size:12.6px">or click to browse · add several angles</span></div></div>
-      <input type="file" id="file" accept="image/*" multiple class="hidden">
-      <div class="refs" id="prodgallery"></div>
-      <div class="eyebrow subhead">UPC / barcode image</div>
-      <div class="drop" id="updrop"><div id="updropmsg">Drop a UPC / barcode photo<br><span class="muted" style="font-size:12.6px">click to browse · the model reads the number</span></div></div>
-      <input type="file" id="upfile" accept="image/*" class="hidden">
-      <div class="divider"></div>
-      <div class="eyebrow" id="refseyebrow">Authentic references</div>
-      <div class="refs" id="refs"><span class="muted" style="font-size:13.8px;grid-column:1/-1">Select a product to load references.</span></div>
+      <div class="card-title"><span class="stepbadge">1</span>Evidence</div>
+      <div class="ev-grid">
+        <div>
+          <div class="eyebrow">Suspect product photos</div>
+          <div class="drop" id="drop"><div id="dropmsg">Drop product photos<br><span class="muted" style="font-size:12.6px">or click to browse · add several angles</span></div></div>
+          <input type="file" id="file" accept="image/*" multiple class="hidden">
+          <div class="refs" id="prodgallery"></div>
+        </div>
+        <div>
+          <div class="eyebrow">UPC / barcode image</div>
+          <div class="drop" id="updrop"><div id="updropmsg">Drop a UPC / barcode photo<br><span class="muted" style="font-size:12.6px">click to browse · the model reads the number</span></div></div>
+          <input type="file" id="upfile" accept="image/*" class="hidden">
+          <label class="fld" id="prodpickwrap" style="margin-top:14px">Reference product
+            <div class="prodrow">
+              <select id="prodpick"></select>
+              <button type="button" class="btn ghost" id="addprod" style="white-space:nowrap;flex:0 0 auto;">+ Add</button>
+            </div>
+          </label>
+        </div>
+        <div class="ev-full">
+          <div class="eyebrow" id="refseyebrow">Authentic references</div>
+          <div class="refs" id="refs"><span class="muted" style="font-size:13.8px;grid-column:1/-1">Select a product to load references.</span></div>
+        </div>
+      </div>
     </section>
 
-    <section class="card">
-      <div class="card-title">AI assessment</div>
-      <div id="verdict">
-        <div class="emptybox">
-          <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-          <div>Add a suspect photo, pick a reference product, and click <b>Run AI analysis</b>.<br>You'll get a composite verdict and a per-dimension match breakdown.</div>
-        </div>
+    <section class="card runcard">
+      <div class="card-title"><span class="stepbadge">2</span>Analysis</div>
+      <div id="runpanel"></div>
+      <div class="runrow">
+        <button class="btn run" id="run">Run AI analysis</button>
+        <span id="status" class="muted" style="font-size:14.4px"></span>
       </div>
     </section>
   </div>
 
-  <div class="exportbar hidden" id="exportbar">
-    <div class="expl">
-      <b>Excel log</b>
-      <span class="muted" id="expcount">0 saved</span>
-      <span class="exp-toast" id="exptoast"></span>
+  <section id="finding" class="hidden">
+    <div class="card" style="margin-top:18px">
+      <div class="finding-head">
+        <div>
+          <div class="card-title" style="margin:0"><span class="stepbadge">3</span>Forensic finding</div>
+          <div class="runmeta" id="runmeta"></div>
+        </div>
+        <div class="finding-actions hidden" id="exportbar">
+          <span class="muted" id="expcount" style="font-size:12.8px">0 saved</span>
+          <span class="exp-toast" id="exptoast"></span>
+          <button type="button" class="exp-clear hidden" id="expclear">clear log</button>
+          <button type="button" class="btn ghost sm" id="expsave" disabled>＋ Save to log</button>
+          <button type="button" class="btn sm" id="expdl" disabled>⬇ Download Excel</button>
+        </div>
+      </div>
+      <div id="verdict"></div>
+      <div class="legend">
+        <span class="lg"><i style="background:var(--green)"></i>0–30 Match</span>
+        <span class="lg"><i style="background:var(--amber)"></i>31–60 Review</span>
+        <span class="lg"><i style="background:var(--red)"></i>61–100 Deviation</span>
+        <span class="muted" style="font-weight:500">· counterfeit probability</span>
+      </div>
+      <div class="divider"></div>
+      <div class="eyebrow">Suspect vs authentic reference</div>
+      <div class="compare">
+        <div><div class="eyebrow" style="color:var(--red)">Suspect</div><div class="cmp-grid" id="cmp-suspect"></div></div>
+        <div class="cmp-vs">VS</div>
+        <div><div class="eyebrow" style="color:var(--green)">Reference</div><div class="cmp-grid" id="cmp-ref"></div></div>
+      </div>
     </div>
-    <div class="expbtns">
-      <button type="button" class="exp-clear hidden" id="expclear">clear log</button>
-      <button type="button" class="btn ghost sm" id="expsave" disabled>＋ Save this analysis</button>
-      <button type="button" class="btn sm" id="expdl" disabled>⬇ Download Excel</button>
+
+    <section class="dimsection hidden" id="dimsection">
+      <div class="section-head">
+        <div class="card-title">Forensic dimensions</div>
+        <div class="dimsummary" id="dimsummary"></div>
+      </div>
+      <div class="dim-overview" id="dimoverview"></div>
+      <div class="dimgrid" id="dims"></div>
+    </section>
+
+    <div class="disclaimer">AI-assisted assessment — findings are advisory and require analyst confirmation before enforcement action.</div>
+  </section>
+      </section><!-- /page-analysis -->
+
+      <section id="page-report" class="page hidden">
+        <div id="reportempty" class="card">
+          <div class="emptybox">
+            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            <div>No run yet. Head to <b>Analysis</b>, run an assessment, and its token usage, cost &amp; eval metrics will appear here.</div>
+          </div>
+        </div>
+        <section class="card rep hidden" id="repcard">
+          <h3 style="margin-bottom:4px">Run report — token usage, cost &amp; evals</h3>
+          <div class="runmeta" id="repmeta" style="margin:0 0 16px"></div>
+          <table class="rt" id="rt"><thead><tr>
+            <th>Agent</th><th>Model</th><th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th><th class="num">Latency</th><th>Status</th>
+          </tr></thead><tbody></tbody><tfoot></tfoot></table>
+          <div class="evals" id="evals"></div>
+          <div class="muted" id="repnote" style="font-size:13.2px;margin-top:14px;line-height:1.5"></div>
+        </section>
+      </section><!-- /page-report -->
+    </main>
+  </div><!-- /maincol -->
+</div><!-- /appshell -->
+
+<div class="runbar" id="runbar" aria-hidden="true">
+  <div class="runbar-inner">
+    <div class="runbar-ctx" id="runbarctx"><span class="rbdot"></span><span>Add a suspect photo to run</span></div>
+    <div class="runbar-act">
+      <span id="runbarstatus" class="muted" style="font-size:14.4px"></span>
+      <button type="button" class="btn run" id="runbarbtn" style="padding:11px 28px;font-size:15.5px">Run AI analysis</button>
     </div>
   </div>
-
-  <section class="dimsection hidden" id="dimsection">
-    <div class="section-head">
-      <div class="card-title">Forensic dimensions</div>
-      <div class="dimsummary" id="dimsummary"></div>
-    </div>
-    <div class="dim-overview" id="dimoverview"></div>
-    <div class="dimgrid" id="dims"></div>
-  </section>
-
-  <section class="card rep hidden" id="repcard">
-    <h3>Run report — token usage, cost &amp; evals</h3>
-    <table class="rt" id="rt"><thead><tr>
-      <th>Agent</th><th>Model</th><th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th><th class="num">Latency</th><th>Status</th>
-    </tr></thead><tbody></tbody><tfoot></tfoot></table>
-    <div class="evals" id="evals"></div>
-    <div class="muted" id="repnote" style="font-size:13.2px;margin-top:14px;line-height:1.5"></div>
-  </section>
-</main>
+</div>
 
 <div class="lb" id="lightbox"><span class="lbclose">×</span><img id="lbimg" alt="preview"></div>
 
@@ -336,7 +642,7 @@
     <input type="file" id="np_file" accept="image/*" multiple class="hidden">
     <div class="refs" id="np_gallery"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
-      <button type="button" class="btn" id="np_cancel" style="background:#8A9BB5;">Cancel</button>
+      <button type="button" class="btn ghost" id="np_cancel">Cancel</button>
       <button type="button" class="btn" id="np_save">Save product</button>
     </div>
     <div id="np_status" class="muted" style="font-size:13.8px;margin-top:10px;"></div>
@@ -348,16 +654,136 @@
 const API = (location.port === '8753') ? 'http://127.0.0.1:8000' : '';
 let suspectImgs = [], upcB64 = null, provider = 'openai', refSource = 'product';
 let products = [], productId = '', npImgs = [];
-let lastRun = null, exportOn = false;
+let lastRun = null, exportOn = false, currentPage = 'analysis', runInView = true;
+let runpanelState = 'idle', pipeTimer = null, pipeT0 = 0;
 
 const $ = s => document.querySelector(s);
+
+// ---- auth gate (demo / presentational — real auth needs a backend session) ----
+const AUTH_KEY = 'veritas-auth';
+function showApp(user){
+  $('#loginview').classList.add('hidden');
+  $('#appshell').classList.remove('hidden');
+  if(user){
+    const nm = user.name || (user.email||'').split('@')[0] || 'Analyst';
+    $('#uname').textContent = nm;
+    $('#uemail').textContent = user.email || '';
+    $('#uavatar').textContent = (nm.trim()[0] || 'A').toUpperCase();
+    const ca=$('#ch-analyst'); if(ca) ca.textContent = nm;
+  }
+  if(typeof refreshRunbar==='function') refreshRunbar();
+}
+function finishLogin(user){
+  try{ sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); }catch(e){}
+  showApp(user);
+  const b=$('#lg_btn'); if(b){ b.disabled=false; b.textContent='Sign in'; }
+}
+function doLogin(){
+  const err=$('#lg_err'); err.style.color='';
+  const email = $('#lg_email').value.trim(), pw = $('#lg_pw').value;
+  if(!email || !pw){ err.textContent = 'Enter your email and password.'; return; }
+  err.textContent='';
+  const name = email.split('@')[0].replace(/[._-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  const b=$('#lg_btn'); b.disabled=true; b.innerHTML='<span class="spin" style="border-top-color:#fff;margin-right:8px"></span>Signing in…';
+  setTimeout(()=>finishLogin({ email, name }), 450);
+}
+function ssoLogin(){
+  const b=$('#lg_btn'); if(b){ b.disabled=true; }
+  setTimeout(()=>finishLogin({ email:'alex.morgan@vfcorp.com', name:'Alex Morgan' }), 350);
+}
+$('#lg_form').addEventListener('submit', e=>{ e.preventDefault(); doLogin(); });
+$('#lg_forgot').onclick = e=>{ e.preventDefault(); const el=$('#lg_err'); el.style.color='var(--slate)'; el.textContent='Password resets are handled by your VF workspace admin.'; };
+{ const g=$('#sso_google'), m=$('#sso_ms'); if(g) g.onclick=ssoLogin; if(m) m.onclick=ssoLogin; }
+$('#logout').onclick = ()=>{ try{ sessionStorage.removeItem(AUTH_KEY); }catch(e){} location.reload(); };
+(function(){ let u=null; try{ u=JSON.parse(sessionStorage.getItem(AUTH_KEY)||'null'); }catch(e){} if(u) showApp(u); })();
+
+// ---- sidebar nav (single-page view switching) ----
+function gotoPage(p){
+  currentPage = p;
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.page===p));
+  document.querySelectorAll('.page').forEach(s=>s.classList.toggle('hidden', s.id !== 'page-'+p));
+  $('#pagetitle').textContent = (p==='report') ? 'Run report' : 'Case analysis';
+  if(p==='report'){ const ni=document.querySelector('.nav-item[data-page="report"]'); if(ni) ni.classList.remove('hasnew'); }
+  window.scrollTo(0,0);
+  if(typeof refreshRunbar==='function') refreshRunbar();
+}
+document.querySelectorAll('.nav-item').forEach(n=>n.onclick=()=>{
+  if(n.dataset.page) gotoPage(n.dataset.page);
+  $('#sidebar').classList.remove('open'); $('#sbbackdrop').classList.remove('open');
+});
+$('#menubtn').onclick = ()=>{ $('#sidebar').classList.toggle('open'); $('#sbbackdrop').classList.toggle('open'); };
+$('#sbbackdrop').onclick = ()=>{ $('#sidebar').classList.remove('open'); $('#sbbackdrop').classList.remove('open'); };
+
+// ---- case header (display metadata only — case_id sent to the API is unchanged) ----
+const CASES = {
+  'VF-2026-0412': {origin:'Shenzhen, CN', status:'Active',       opened:'Jun 28, 2026'},
+  'VF-2026-0384': {origin:'Yiwu, CN',     status:'Active',       opened:'Jun 12, 2026'},
+  'VF-2026-0395': {origin:'Hanoi, VN',    status:'Under review', opened:'Jun 19, 2026'},
+  'VF-2026-0371': {origin:'Fuzhou, CN',   status:'Escalated',    opened:'May 30, 2026'},
+};
+function syncCaseHeader(){
+  const c = CASES[$('#case').value] || {};
+  $('#ch-origin').textContent = c.origin || '—';
+  const st = $('#ch-status'); st.textContent = c.status || 'Active';
+  st.className = 'chip chip-status' + (c.status==='Under review' ? ' st-amber' : c.status==='Escalated' ? ' st-red' : '');
+  $('#ch-opened').textContent = 'Opened ' + (c.opened || '—');
+}
+$('#case').onchange = syncCaseHeader;
+syncCaseHeader();
+$('#settingsbtn').onclick = ()=> $('#chsettings').classList.toggle('hidden');
+
+// ---- step 2 panel: readiness checklist → live pipeline → completion summary ----
+const CK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+function updateChecklist(){
+  if(runpanelState !== 'idle') return;
+  const prod = (products.find(p=>p.id===productId)||{}).name;
+  const items = [
+    {ok: suspectImgs.length>0, t: suspectImgs.length ? suspectImgs.length+' suspect photo'+(suspectImgs.length>1?'s':'')+' attached' : 'Add suspect product photos'},
+    {ok: refSource==='google' || !!productId, t: refSource==='google' ? 'References: Google reverse-image at run time' : (prod ? 'Reference: '+prod : 'Select a reference product')},
+    {ok: !!upcB64, t: upcB64 ? 'UPC / barcode attached' : 'Add a UPC / barcode photo', opt:true},
+  ];
+  const stages = ['Reference curation','Logo agent','Stitching agent','Hardware agent','Label agent','Material agent','UPC / tag tool','Aggregator','Adversarial verifier'];
+  $('#runpanel').innerHTML = '<ul class="ckl">' + items.map(i=>
+    `<li${i.ok?' class="done"':''}><span class="ck-ic">${i.ok?CK:''}</span><span>${i.t}</span>${i.opt?'<span class="opt">optional</span>':''}</li>`
+  ).join('') + '</ul>'
+  + '<div class="pipe-title">Pipeline · 9 stages</div>'
+  + '<div class="stagechips">' + stages.map(s=>`<span class="stagechip"><span class="qdot"></span>${s}</span>`).join('') + '</div>'
+  + '<div class="ckl-hint">Dimension agents + the UPC tool run in parallel, then an aggregator and an adversarial verifier.</div>';
+}
+function renderPipelineRunning(){
+  const stages = ['Reference curation','Logo agent','Stitching agent','Hardware agent','Label agent','Material agent','UPC / tag tool','Aggregator','Adversarial verifier'];
+  $('#runpanel').innerHTML = '<div class="pipe">' + stages.map(s=>
+    `<div class="pipe-row"><span class="pico"><span class="spin"></span></span><span>${s}</span></div>`
+  ).join('') + `<div class="pipe-foot"><span>agents run in parallel — stages resolve together</span><span id="pipeelapsed">0.0s</span></div></div>`;
+  pipeT0 = Date.now();
+  clearInterval(pipeTimer);
+  pipeTimer = setInterval(()=>{ const el=$('#pipeelapsed'); if(el) el.textContent = ((Date.now()-pipeT0)/1000).toFixed(1)+'s'; }, 100);
+}
+function renderPipelineDone(rep){
+  clearInterval(pipeTimer);
+  runpanelState = 'done';
+  if(!rep || !rep.rows){ $('#runpanel').innerHTML=''; return; }
+  $('#runpanel').innerHTML = '<div class="pipe">' + rep.rows.map(r=>
+    `<div class="pipe-row done"><span class="pico">${CK}</span><span>${r.agent}</span><span class="lat">${(r.latency_ms/1000).toFixed(1)}s</span></div>`
+  ).join('') + `<div class="pipe-foot"><span>completed in ${(rep.totals.wall_ms/1000).toFixed(1)}s · $${rep.totals.cost.toFixed(4)}</span><span><a href="#finding" style="color:var(--accent-deep);font-weight:700;text-decoration:none" onclick="document.querySelector('#finding').scrollIntoView({behavior:'smooth'});return false">view finding ↓</a></span></div></div>`;
+}
+function pipelineFailed(){
+  clearInterval(pipeTimer);
+  runpanelState = 'idle';
+  updateChecklist();
+}
 
 // ---- theme toggle (persisted) ----
 function applyTheme(t){ document.documentElement.setAttribute('data-theme',t); const b=$('#themetoggle'); if(b) b.textContent = t==='dark' ? '☀️' : '🌙'; }
 applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
 $('#themetoggle').onclick=()=>{ const cur = document.documentElement.getAttribute('data-theme')==='dark' ? 'light' : 'dark'; try{ localStorage.setItem('veritas-theme',cur); }catch(e){} applyTheme(cur); };
 const band = s => s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
-const bandColor = b => ({authentic:'#1E8A4C',caution:'#B07D0A',counterfeit:'#C0392B',neutral:'#8A9BB5'}[b]);
+// resolve band colours from the active theme's tokens so charts match the design system in both modes
+const bandColor = b => {
+  const map={authentic:'--green',caution:'--amber',counterfeit:'--red',neutral:'--mist'};
+  const v=getComputedStyle(document.documentElement).getPropertyValue(map[b]||'--mist').trim();
+  return v || '#8A9BB5';
+};
 
 // verdict icons + mapping
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
@@ -392,6 +818,7 @@ function onRefSourceChange(){
   $('#prodpickwrap').style.display = (refSource==='product') ? '' : 'none';
   if(refSource==='product'){ showProductRefs(); }
   else { $('#refseyebrow').textContent='Authentic references · Google reverse-image'; $('#refs').innerHTML='<span class="muted" style="font-size:13.8px;grid-column:1/-1">Google Lens fetches product-only authentic images at run time.</span>'; }
+  updateChecklist();
 }
 function showProductRefs(){
   const p=products.find(x=>x.id===productId);
@@ -408,8 +835,9 @@ async function loadProducts(){
     productId = products.length ? products[0].id : '';
     if(refSource==='product') showProductRefs();
   }catch(e){ $('#prodpick').innerHTML='<option value="">(unavailable)</option>'; }
+  updateChecklist();
 }
-$('#prodpick').onchange=()=>{ productId=$('#prodpick').value; showProductRefs(); };
+$('#prodpick').onchange=()=>{ productId=$('#prodpick').value; showProductRefs(); updateRunbar(); updateChecklist(); };
 
 // add-product modal
 const npDrop=$('#np_drop'), npFile=$('#np_file');
@@ -433,7 +861,7 @@ $('#np_save').onclick=async()=>{
     await loadProducts();
     $('#prodpick').value=p.id; productId=p.id; showProductRefs();
     $('#addmodal').classList.remove('open');
-  }catch(e){ $('#np_status').innerHTML='<span style="color:#C0392B">Error: '+e.message+'</span>'; }
+  }catch(e){ $('#np_status').innerHTML='<span style="color:var(--red)">Error: '+e.message+'</span>'; }
   $('#np_save').disabled=false;
 };
 loadProducts();
@@ -462,6 +890,7 @@ function dragify(drop){
 function renderProdGallery(){
   $('#prodgallery').innerHTML = suspectImgs.map((b,i)=>`<div class="ref" style="position:relative"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span><button data-i="${i}" class="rmimg" style="position:absolute;top:2px;right:2px;width:17px;height:17px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:13.8px;line-height:1;cursor:pointer;padding:0;">×</button></div>`).join('');
   document.querySelectorAll('#prodgallery .rmimg').forEach(btn=>btn.onclick=(e)=>{ e.stopPropagation(); suspectImgs.splice(+btn.dataset.i,1); renderProdGallery(); });
+  updateRunbar(); updateChecklist();
 }
 function addProductFiles(files){ [...files].forEach(f=>downscale(f,b=>{ suspectImgs.push(b); renderProdGallery(); })); }
 const pdrop=$('#drop'), pfile=$('#file');
@@ -470,29 +899,65 @@ pdrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length) addProductF
 pfile.onchange=()=>{ if(pfile.files.length) addProductFiles(pfile.files); pfile.value=''; };
 const udrop=$('#updrop'), ufile=$('#upfile');
 udrop.onclick=()=>ufile.click(); dragify(udrop);
-function setUpc(f){ downscale(f,b=>{ upcB64=b; udrop.style.position='relative'; udrop.innerHTML=''; const el=new Image(); el.src='data:image/jpeg;base64,'+b; el.style.maxHeight='100%'; udrop.appendChild(el);
+function setUpc(f){ downscale(f,b=>{ upcB64=b; updateChecklist(); udrop.style.position='relative'; udrop.innerHTML=''; const el=new Image(); el.src='data:image/jpeg;base64,'+b; el.style.maxHeight='100%'; udrop.appendChild(el);
   const rep=document.createElement('button'); rep.textContent='replace'; rep.style.cssText='position:absolute;bottom:4px;right:4px;font:11px/1 inherit;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:5px;padding:3px 7px;cursor:pointer;z-index:2;'; rep.onclick=(e)=>{ e.stopPropagation(); ufile.click(); }; udrop.appendChild(rep); }); }
 udrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files[0]) setUpc(ev.dataTransfer.files[0]); });
 ufile.onchange=()=>{ if(ufile.files[0]) setUpc(ufile.files[0]); ufile.value=''; };
 
 // ---- run analysis ----
-$('#run').onclick=async()=>{
+async function runAnalysis(){
   const case_id=$('#case').value, brand=$('#brand').value;
-  $('#run').disabled=true; $('#status').innerHTML='<span class="spin"></span> running on '+(provider==='gemini'?'Gemini 3 Pro':'GPT-5.5')+'…';
+  const runBtns=[$('#run'),$('#runbarbtn')], rbs=$('#runbarstatus');
+  runBtns.forEach(b=>{ if(b) b.disabled=true; });
+  const msg='<span class="spin"></span> running on '+(provider==='gemini'?'Gemini 3 Pro':'GPT-5.5')+'…';
+  $('#status').innerHTML=msg; if(rbs) rbs.innerHTML=msg;
+  runpanelState='running'; renderPipelineRunning();
   try{
     const r=await fetch(API+"/api/analyze",{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({case_id,brand,provider,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64})});
     if(!r.ok) throw new Error('HTTP '+r.status);
-    const data=await r.json(); render(data);
+    const data=await r.json();
+    renderPipelineDone(data.report);
+    render(data);
     lastRun={ data, engine:(provider==='gemini'?'Gemini 3.1 Pro':'GPT-5.5'),
       product:(products.find(p=>p.id===productId)||{}).name||'',
       product_id:(refSource==='product'?productId:'')||'',
       suspect_images:suspectImgs.slice(), upc_image:upcB64 };
     if(exportOn){ $('#expsave').disabled=false; }
-    $('#status').textContent='';
-  }catch(e){ $('#status').innerHTML='<span style="color:#C0392B">Error: '+e.message+'</span>'; }
-  $('#run').disabled=false;
-};
+    $('#status').textContent=''; if(rbs) rbs.textContent='';
+  }catch(e){ pipelineFailed(); const err='<span style="color:var(--red)">Error: '+e.message+'</span>'; $('#status').innerHTML=err; if(rbs) rbs.innerHTML=err; }
+  runBtns.forEach(b=>{ if(b) b.disabled=false; });
+}
+$('#run').onclick=runAnalysis;
+$('#runbarbtn').onclick=runAnalysis;
+
+// ---- sticky run bar: show once photos exist and the top Run button is scrolled out of view ----
+function syncRunbar(){
+  const appVisible = !$('#appshell').classList.contains('hidden');
+  const show = appVisible && currentPage==='analysis' && suspectImgs.length>0 && !runInView;
+  const bar=$('#runbar'); if(!bar) return;
+  bar.classList.toggle('show', show);
+  bar.setAttribute('aria-hidden', String(!show));
+  document.body.style.paddingBottom = show ? '78px' : '';
+}
+function computeRunInView(){
+  const el=$('#run'); if(!el) return true;
+  const r=el.getBoundingClientRect(), vh=window.innerHeight||document.documentElement.clientHeight;
+  return r.bottom>70 && r.top<vh;   // 70 ≈ sticky header height; visible below the header
+}
+function refreshRunbar(){ runInView=computeRunInView(); syncRunbar(); }
+function updateRunbar(){
+  const n=suspectImgs.length, prod=(products.find(p=>p.id===productId)||{}).name||'';
+  const ctx=$('#runbarctx');
+  if(ctx) ctx.innerHTML = n
+    ? `<span class="rbdot"></span><b>${n}</b><span>&nbsp;suspect photo${n>1?'s':''} ready</span>${prod?`<span class="rbprod muted">&nbsp;·&nbsp;${prod}</span>`:''}`
+    : `<span class="rbdot" style="background:var(--mist);box-shadow:0 0 0 3px var(--track)"></span><span>Add a suspect photo to run</span>`;
+  refreshRunbar();
+}
+let rbTick=false;
+window.addEventListener('scroll',()=>{ if(rbTick) return; rbTick=true; requestAnimationFrame(()=>{ rbTick=false; refreshRunbar(); }); },{passive:true});
+window.addEventListener('resize',refreshRunbar);
+refreshRunbar();
 
 // ---- Excel export log ----
 function setExpCount(n){
@@ -518,7 +983,7 @@ $('#expsave').onclick=async()=>{
     const d=await r.json(); setExpCount(d.count);
     $('#exptoast').textContent='✓ saved to log';
     setTimeout(()=>{ $('#exptoast').textContent=''; }, 2500);
-  }catch(e){ $('#exptoast').style.color='#C0392B'; $('#exptoast').textContent='save failed'; }
+  }catch(e){ $('#exptoast').style.color='var(--red)'; $('#exptoast').textContent='save failed'; }
   b.disabled=false;
 };
 $('#expdl').onclick=()=>{
@@ -542,7 +1007,29 @@ function gauge(score){
     <text x="62" y="79" text-anchor="middle" font-size="11" style="fill:var(--gauge-sub)">/100</text></svg>`;
 }
 
+function buildCompare(d){
+  const s=$('#cmp-suspect'), r=$('#cmp-ref'); if(!s||!r) return;
+  s.innerHTML = suspectImgs.length
+    ? suspectImgs.slice(0,3).map((b,i)=>`<div class="ref"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span></div>`).join('')
+    : '<span class="muted" style="font-size:13px;grid-column:1/-1">No suspect photos attached.</span>';
+  let refsHtml='';
+  const fm=d&&d.fetched_meta, p=products.find(x=>x.id===productId);
+  if(fm && fm.used && fm.sources && fm.sources.length){
+    refsHtml=fm.sources.slice(0,3).map((u,i)=>`<div class="ref"><img src="${u}" referrerpolicy="no-referrer" loading="lazy" onerror="this.style.opacity=.15"><span>web ${i+1}</span></div>`).join('');
+  } else if(p && (p.images||[]).length){
+    refsHtml=p.images.slice(0,3).map((fn,i)=>`<div class="ref"><img src="${API}/api/products/${p.id}/img/${fn}" onerror="this.style.opacity=.15"><span>ref ${i+1}</span></div>`).join('');
+  }
+  r.innerHTML = refsHtml || '<span class="muted" style="font-size:13px;grid-column:1/-1">No reference images available.</span>';
+}
+
 function render(d){
+  // reveal the finding with run provenance (frontend metadata only)
+  $('#finding').classList.remove('hidden');
+  const now=new Date();
+  const runid='RUN-'+now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+'-'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0')+String(now.getSeconds()).padStart(2,'0');
+  const analyst=($('#ch-analyst')&&$('#ch-analyst').textContent)||'—';
+  $('#runmeta').textContent = `${runid} · ${now.toLocaleString()} · engine ${provider==='gemini'?'Gemini 3.1 Pro':'GPT-5.5'} · case ${$('#case').value} · analyst ${analyst}`;
+  buildCompare(d);
   // references — product catalog or Google-fetched
   const fm=d.fetched_meta;
   if(fm && fm.source==='product'){ showProductRefs(); }
@@ -556,6 +1043,14 @@ function render(d){
   const v=d.verdict, c=d.composite, dims=d.dimensions;
   const nM=dims.filter(x=>x.band==='authentic').length, nR=dims.filter(x=>x.band==='caution').length, nD=dims.filter(x=>x.band==='counterfeit').length;
   const cv=vinfo(c.band), col=bandColor(c.band);
+  // compact recap inside the analysis panel (only after a completed run)
+  const rp=$('#runpanel');
+  if(rp && runpanelState==='done' && !rp.querySelector('.done-recap')){
+    rp.insertAdjacentHTML('beforeend',
+      `<div class="done-recap"><span class="badge ${cv.c}">${cv.i}${v.label}</span>`+
+      `<span class="dr-score" style="color:${col}">${c.score}<span style="font-size:12px;color:var(--mist)">/100</span></span>`+
+      `<a href="#finding" class="dr-link" onclick="document.querySelector('#finding').scrollIntoView({behavior:'smooth'});return false">Open finding ↓</a></div>`);
+  }
   const uM={match:['bg-match','Match'],mismatch:['bg-review','Mismatch'],nomatch:['bg-dev','No match']}[d.upc.status]||['bg-dev','No match'];
   $('#verdict').innerHTML=`
     <div class="verdict-main">${gauge(c.score)}
@@ -612,9 +1107,10 @@ function radar(dims){
     dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${bandColor(x.band)}" stroke-width="1.5" style="stroke:var(--dot-stroke);cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score}/100</title></circle>`;
   });
   const poly=dims.map((x,i)=>pt(i,R*((x.score||0)/100)).map(n=>n.toFixed(1)).join(',')).join(' ');
+  const devCol=bandColor('counterfeit');
   return `<svg width="260" height="182" viewBox="-45 -5 350 245" role="img" aria-label="Deviation radar">
     ${rings}${spokes}
-    <polygon points="${poly}" fill="rgba(192,57,43,.12)" stroke="#C0392B" stroke-width="2" stroke-linejoin="round"/>
+    <polygon points="${poly}" fill="${devCol}" fill-opacity=".12" stroke="${devCol}" stroke-width="2" stroke-linejoin="round"/>
     ${dots}${labels}</svg>`;
 }
 
@@ -660,9 +1156,9 @@ function focusDim(i){
 }
 
 function upcCard(u){
-  const map={match:['bg-match','Match — authentic record','#1E8A4C',CHECK],
-            mismatch:['bg-review','Mismatch — belongs to another product','#B07D0A',ALERT],
-            nomatch:['bg-dev','No match — counterfeit indicator','#C0392B',XI]};
+  const map={match:['bg-match','Match — authentic record','var(--green)',CHECK],
+            mismatch:['bg-review','Mismatch — belongs to another product','var(--amber)',ALERT],
+            nomatch:['bg-dev','No match — counterfeit indicator','var(--red)',XI]};
   const [cls,label,col,icon]=map[u.status]||map.nomatch;
   const ext=u.extracted?`<div class="upc-num">${u.extracted}</div>`:`<div class="upc-num muted">— no code read —</div>`;
   return `<div class="dim">
@@ -676,14 +1172,18 @@ function upcCard(u){
 
 function renderReport(rep,mode){
   $('#repcard').classList.remove('hidden');
+  const re=$('#reportempty'); if(re) re.classList.add('hidden');
+  const rm=$('#repmeta'); if(rm) rm.textContent = $('#runmeta').textContent;   // same provenance as the finding
+  const ni=document.querySelector('.nav-item[data-page="report"]');
+  if(ni && currentPage!=='report') ni.classList.add('hasnew');
   const statusFor=a=>{
-    if(a==='Aggregator')return['#639922','composite'];
-    if(a==='Verify')return['#639922','confirmed'];
-    if(a==='Verdict synth.')return['#BA7517','escalated'];
-    if(a==='UPC / Tag')return['#E24B4A','checked'];
-    if(a==='Reverse image')return['#8A9BB5','searched'];
-    if(a==='Curate refs')return['#378ADD','curated'];
-    return['#378ADD','scored'];
+    if(a==='Aggregator')return['var(--green)','composite'];
+    if(a==='Verify')return['var(--green)','confirmed'];
+    if(a==='Verdict synth.')return['var(--amber)','escalated'];
+    if(a==='UPC / Tag')return['var(--red)','checked'];
+    if(a==='Reverse image')return['var(--mist)','searched'];
+    if(a==='Curate refs')return['var(--accent-solid)','curated'];
+    return['var(--accent-solid)','scored'];
   };
   const tb=rep.rows.map(r=>{const[c,t]=statusFor(r.agent);
     return `<tr><td>${r.agent}</td><td style="font-family:var(--mono);font-size:13.8px;color:var(--slate)">${r.model}</td>
