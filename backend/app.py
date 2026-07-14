@@ -210,12 +210,24 @@ def cases():
                 top = (v.get("finding") or "", v["score"])
         out.append({
             "id": r.get("case_id") or r.get("id"),
+            "rid": r.get("id"),                       # unique run id, for opening the detail
             "brand": r.get("brand", ""), "engine": r.get("engine", ""),
             "verdict": r.get("verdict", ""), "band": r.get("band", ""),
             "score": r.get("score"), "upc": (r.get("upc") or {}).get("status", ""),
             "summary": top[0], "created_at": r.get("created_at", ""),
         })
     return {"available": True, "count": len(runs), "kpis": kpis, "cases": out}
+
+
+@app.get("/api/cases/{rid}")
+def case_detail(rid: str):
+    """Full saved run for the case dashboard — clicking a row opens this."""
+    if not supa.available():
+        raise HTTPException(503, "Supabase not configured")
+    rec = supa.get_run(rid)
+    if not rec:
+        raise HTTPException(404, "run not found")
+    return rec
 
 
 # ---- product catalog (Supabase Storage) ----

@@ -178,6 +178,11 @@ def list_runs():
     return out
 
 
+def get_run(rid):
+    """Fetch one saved run by its unique id (the stored file stem)."""
+    return _get_json(f"{_RUNS}{rid}.json")
+
+
 def runs_count():
     try:
         return len(_run_files())
