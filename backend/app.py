@@ -8,6 +8,7 @@ set GEMINI_API_KEY / OPENAI_API_KEY to go live.
 Run:  uvicorn app:app --port 8000   (from the backend/ directory)
 """
 import os
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,33 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
 GRAPH = build_graph()
+
+
+# In-memory async jobs. A full run (esp. Compare with the slow Kimi reasoning
+# model) can take minutes; holding one HTTP request open that long trips the
+# platform's gateway timeout (→ 502). Instead we start the work in a background
+# thread, return a job id immediately, and let the UI poll for the result.
+_JOBS: dict = {}
+_JOBS_LOCK = threading.Lock()
+
+
+def _start_job(fn):
+    jid = uuid.uuid4().hex
+    with _JOBS_LOCK:
+        _JOBS[jid] = {"status": "running", "ts": time.time()}
+        if len(_JOBS) > 60:                       # bound memory: drop old finished jobs
+            for k in sorted(_JOBS, key=lambda k: _JOBS[k]["ts"])[:20]:
+                if _JOBS[k]["status"] != "running":
+                    _JOBS.pop(k, None)
+
+    def worker():
+        try:
+            _JOBS[jid] = {"status": "done", "result": fn(), "ts": time.time()}
+        except Exception as e:
+            _JOBS[jid] = {"status": "error", "error": str(e), "ts": time.time()}
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"job_id": jid}
 
 
 _PROVIDERS = ("openai", "gemini", "kimi")
@@ -76,31 +104,40 @@ def _run_one(req: AnalyzeReq, provider: str) -> dict:
 @app.post("/api/analyze")
 def analyze(req: AnalyzeReq):
     provider = req.provider if req.provider in _PROVIDERS else "openai"
-    try:
-        result = _run_one(req, provider)
-    except Exception as e:                      # surface real model/config errors (no mock masking)
-        raise HTTPException(502, f"{provider}: {e}")
-    return {"mode": mode(), **result}
+    return _start_job(lambda: {"mode": mode(), **_run_one(req, provider)})
 
 
 @app.post("/api/compare")
 def compare(req: CompareReq):
-    """Run several engines on identical inputs, concurrently, for a side-by-side
-    comparison. One engine failing does not sink the others — it returns an error
-    entry so the UI can show which engine failed and why."""
+    """Start a side-by-side run of several engines on identical inputs. They run
+    concurrently in the background; one engine failing does not sink the others."""
     provs = [p for p in req.providers if p in _PROVIDERS] or ["openai"]
 
-    def run(p):
-        try:
-            return p, {"ok": True, **_run_one(req, p)}
-        except Exception as e:
-            return p, {"ok": False, "provider": p, "error": str(e)}
+    def work():
+        def run(p):
+            try:
+                return p, {"ok": True, **_run_one(req, p)}
+            except Exception as e:
+                return p, {"ok": False, "provider": p, "error": str(e)}
+        results = {}
+        with ThreadPoolExecutor(max_workers=len(provs)) as ex:
+            for p, res in ex.map(run, provs):
+                results[p] = res
+        return {"mode": mode(), "providers": provs, "results": results}
 
-    results = {}
-    with ThreadPoolExecutor(max_workers=len(provs)) as ex:
-        for p, res in ex.map(run, provs):
-            results[p] = res
-    return {"mode": mode(), "providers": provs, "results": results}
+    return _start_job(work)
+
+
+@app.get("/api/job/{jid}")
+def job_status(jid: str):
+    j = _JOBS.get(jid)
+    if not j:
+        raise HTTPException(404, "unknown job")
+    if j["status"] == "running":
+        return {"status": "running"}
+    if j["status"] == "error":
+        return {"status": "error", "error": j.get("error", "run failed")}
+    return {"status": "done", **j["result"]}
 
 
 # ---- product catalog (Supabase Storage) ----

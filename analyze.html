@@ -540,6 +540,19 @@ function showProc(){
 }
 function stopProc(){ clearInterval(procTimer); $('#procbar').style.width='100%'; }
 async function readErr(r){ try{ const j=await r.json(); return j.detail||('HTTP '+r.status); }catch(_){ return 'HTTP '+r.status; } }
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+// poll a background job until it finishes (avoids long-held requests / 502s)
+async function pollJob(jobId){
+  for(let i=0;i<400;i++){
+    await sleep(2500);
+    let r; try{ r=await fetch(API+'/api/job/'+jobId); }catch(e){ continue; }
+    if(!r.ok){ if(r.status===404) throw new Error('job expired — please retry'); continue; }
+    const j=await r.json();
+    if(j.status==='done') return j;
+    if(j.status==='error') throw new Error(j.error||'run failed');
+  }
+  throw new Error('timed out waiting for result');
+}
 
 $('#run').onclick=async()=>{
   $('#runerr').innerHTML=''; showProc();
@@ -548,7 +561,7 @@ $('#run').onclick=async()=>{
     if(provider==='all'){
       const provs=(LIVE_PROVIDERS.length?LIVE_PROVIDERS:['openai']).slice();
       const r=await fetch(API+'/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,providers:provs})});
-      if(!r.ok) throw new Error(await readErr(r)); const data=await r.json();
+      if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);
       stopProc(); renderCompare(data,provs);
       const okp=provs.find(p=>data.results[p]&&data.results[p].ok);
       if(okp) setLastRun(data.results[okp], engineName(okp));
@@ -556,7 +569,7 @@ $('#run').onclick=async()=>{
     } else {
       activeEngine=provider;
       const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,provider})});
-      if(!r.ok) throw new Error(await readErr(r)); const data=await r.json();
+      if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);
       stopProc(); renderSingle(data); lastReport={report:data.report,mode:data.mode,engine:engineName(provider)};
       setLastRun(data, engineName(provider));
       benchAppend([benchRow(engineName(provider),caseId,data)]);
