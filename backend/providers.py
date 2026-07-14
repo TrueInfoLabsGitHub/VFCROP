@@ -81,7 +81,7 @@ ALLOW_MOCK = os.environ.get("ALLOW_MOCK", "0").strip().lower() in ("1", "true", 
 # Per-call HTTP timeout (seconds). Reasoning models (Kimi K2.6) can spend many
 # seconds thinking before the first token, especially under the concurrent load
 # of Compare mode (5 dimension agents x N engines). Keep this generous.
-CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "150"))
+CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "240"))
 
 # Which provider runs the vision (dimension) agents by default: "openai" or "gemini".
 VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()

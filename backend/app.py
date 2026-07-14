@@ -39,8 +39,11 @@ _JOBS: dict = {}
 _JOBS_LOCK = threading.Lock()
 
 # Hard ceiling on one run's wall-clock, so a stuck/very-slow engine can't run
-# forever — the job returns whatever finished within the budget.
-RUN_DEADLINE = float(os.environ.get("RUN_DEADLINE", "220"))
+# forever — the job returns whatever finished within the budget. Reasoning
+# models (Kimi K2.6) run a full parallel-dimension + verdict chain that can take
+# several minutes; the run is an async job the frontend polls, so this can be
+# generous without risking a gateway timeout. Raise on Railway if Kimi needs more.
+RUN_DEADLINE = float(os.environ.get("RUN_DEADLINE", "420"))
 
 
 def _start_job(fn):
