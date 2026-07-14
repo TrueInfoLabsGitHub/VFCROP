@@ -588,7 +588,7 @@ $('#run').onclick=async()=>{
       activeEngine=provider;
       const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,provider})});
       if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);
-      stopProc(); renderSingle(data); lastReport={report:data.report,mode:data.mode,engine:engineName(provider)};
+      stopProc(); renderSingle(data); lastReport={engine:engineName(provider),reports:[{name:engineName(provider),color:ENGINE_COLOR[provider],report:data.report}]};
       setLastRun(data, engineName(provider));
       benchAppend([benchRow(engineName(provider),caseId,data)]);
     }
@@ -807,7 +807,7 @@ function renderCompare(data,provs){
     <div class="tablewrap" style="margin-bottom:16px;overflow-x:auto"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">UPC</th><th class="num">Verifier</th><th class="num">Conf</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
     <div class="sect-lbl">Evidence comparison</div>
     <div class="card pad">${compareStrip(primary||{})}</div>`;
-  lastReport = primary ? {report:primary.report,mode:data.mode,engine:'Compare ('+oks.map(engineName).join(', ')+')'} : null;
+  lastReport = oks.length ? {engine:'Compare ('+oks.map(engineName).join(', ')+')', reports: oks.map(p=>({name:engineName(p),color:ENGINE_COLOR[p],report:res[p].report}))} : null;
 }
 
 /* ---------- comparison CSV log ---------- */
@@ -857,18 +857,23 @@ $('#expdl').onclick=()=>{ const a=document.createElement('a'); a.href=API+'/api/
 $('#expclear').onclick=async()=>{ if(!confirm('Clear all saved analyses from the Excel log?')) return; try{ await fetch(API+'/api/export',{method:'DELETE'}); setExpCount(0); $('#exptoast').textContent='log cleared'; }catch(e){} };
 
 /* ---------- reports page ---------- */
-function renderReportPage(){
-  $('#nav .nav-item[data-page="reports"]').classList.remove('hasnew');
-  updateBenchUI();
-  if(!lastReport){ $('#reportcard').innerHTML='<div class="card pad muted" style="font-size:14.6px">No run yet. Head to Analysis and run an assessment.</div>'; return; }
-  const rep=lastReport.report,rows=(rep.rows||[]),T=rep.totals||{},e=rep.evals||{};
+function reportTableHTML(rep){
+  const rows=(rep.rows||[]),T=rep.totals||{},e=rep.evals||{};
   const tb=rows.map(r=>`<tr><td>${r.agent}</td><td class="muted" style="font-family:var(--mono);font-size:12.9px">${r.model}</td>
     <td class="num">${(r.tokens_in||0).toLocaleString()}</td><td class="num">${(r.tokens_out||0).toLocaleString()}</td>
     <td class="num">$${(r.cost||0).toFixed(4)}</td><td class="num">${((r.latency_ms||0)/1000).toFixed(1)}s</td></tr>`).join('');
-  $('#reportcard').innerHTML=`<div class="sect-lbl">Run report · ${lastReport.engine}</div>
-    <div class="tablewrap"><table><thead><tr><th>Agent</th><th>Model</th><th class="num">Tok in</th><th class="num">Tok out</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead>
+  return `<div class="tablewrap"><table><thead><tr><th>Agent</th><th>Model</th><th class="num">Tok in</th><th class="num">Tok out</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead>
     <tbody>${tb}</tbody><tfoot><tr><td style="font-weight:600">Total</td><td class="muted">${e.confidence!=null?('conf '+Math.round(e.confidence*100)+'%'):''}</td>
     <td class="num">${(T.tokens_in||0).toLocaleString()}</td><td class="num">${(T.tokens_out||0).toLocaleString()}</td><td class="num">$${(T.cost||0).toFixed(4)}</td><td class="num">${((T.wall_ms||0)/1000).toFixed(1)}s</td></tr></tfoot></table></div>`;
+}
+function renderReportPage(){
+  $('#nav .nav-item[data-page="reports"]').classList.remove('hasnew');
+  updateBenchUI();
+  const reps=lastReport&&lastReport.reports;
+  if(!reps||!reps.length){ $('#reportcard').innerHTML='<div class="card pad muted" style="font-size:14.6px">No run yet. Head to Analysis and run an assessment.</div>'; return; }
+  const multi=reps.length>1;
+  $('#reportcard').innerHTML=`<div class="sect-lbl">Run report · ${lastReport.engine}</div>`+
+    reps.map(x=>(multi?`<div class="sect-lbl" style="margin-top:16px;color:var(--ink)"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${x.color||'var(--accent)'};margin-right:7px"></span>${x.name}</div>`:'')+reportTableHTML(x.report)).join('');
 }
 
 /* ---------- dashboard / cases / models ---------- */
