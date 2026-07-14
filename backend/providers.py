@@ -56,9 +56,13 @@ KIMI_API_KEY = os.environ.get("KIMI_API_KEY", "").strip()
 KIMI_BASE = os.environ.get("KIMI_BASE", "https://openrouter.ai/api/v1").strip()
 KIMI_MODEL = os.environ.get("KIMI_MODEL", "moonshotai/kimi-k2.6")
 _KIMI_LABELS = {
+    # OpenRouter-style ids
     "moonshotai/kimi-k2.6": "Kimi K2.6", "moonshotai/kimi-k2.7": "Kimi K2.7",
-    "moonshotai/kimi-k2.7-code": "Kimi K2.7", "moonshotai/kimi-latest": "Kimi (latest)",
-    "kimi-latest": "Kimi (latest)", "moonshotai/kimi-k2": "Kimi K2",
+    "moonshotai/kimi-k2.7-code": "Kimi K2.7", "moonshotai/kimi-k2.5": "Kimi K2.5",
+    "moonshotai/kimi-k2": "Kimi K2",
+    # Moonshot direct-API ids
+    "kimi-k2.6": "Kimi K2.6", "kimi-k2.5": "Kimi K2.5",
+    "kimi-k2.7": "Kimi K2.7", "kimi-k2.7-code": "Kimi K2.7",
 }
 KIMI_LABEL = _KIMI_LABELS.get(KIMI_MODEL, "Kimi")
 
