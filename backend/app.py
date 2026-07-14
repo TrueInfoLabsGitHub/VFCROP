@@ -176,6 +176,45 @@ def job_status(jid: str):
     return {"status": "done", **j["result"]}
 
 
+@app.get("/api/cases")
+def cases():
+    """Case dashboard: KPIs + recent cases, derived from the saved-runs store."""
+    if not supa.available():
+        return {"available": False, "cases": [], "kpis": {}}
+    runs = supa.list_runs()                       # oldest first
+    num = lambda v: v if isinstance(v, (int, float)) else None
+    scores = [r["score"] for r in runs if num(r.get("score")) is not None]
+    lats = [r["latency_ms"] for r in runs if num(r.get("latency_ms")) is not None]
+    med = None
+    if lats:
+        s = sorted(lats)
+        n = len(s)
+        med = round((s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2) / 1000)
+    kpis = {
+        "open": len(runs),
+        "counterfeit": sum(1 for r in runs if r.get("band") == "counterfeit"),
+        "review": sum(1 for r in runs if r.get("band") == "caution"),
+        "avg_deviation": round(sum(scores) / len(scores)) if scores else None,
+        "median_turnaround_s": med,
+        "spark": scores[-12:],
+    }
+    out = []
+    for r in reversed(runs[-60:]):                # most recent first
+        dims = r.get("dimensions") or {}
+        top = ("", -1)
+        for v in dims.values():
+            if isinstance(v, dict) and isinstance(v.get("score"), (int, float)) and v["score"] > top[1]:
+                top = (v.get("finding") or "", v["score"])
+        out.append({
+            "id": r.get("case_id") or r.get("id"),
+            "brand": r.get("brand", ""), "engine": r.get("engine", ""),
+            "verdict": r.get("verdict", ""), "band": r.get("band", ""),
+            "score": r.get("score"), "upc": (r.get("upc") or {}).get("status", ""),
+            "summary": top[0], "created_at": r.get("created_at", ""),
+        })
+    return {"available": True, "count": len(runs), "kpis": kpis, "cases": out}
+
+
 # ---- product catalog (Supabase Storage) ----
 class ProductReq(BaseModel):
     name: str

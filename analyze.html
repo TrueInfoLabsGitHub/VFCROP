@@ -198,6 +198,11 @@
   .ly{font-family:inherit;font-size:13px;border:none;background:transparent;color:var(--sec);padding:6px 12px;border-radius:6px;cursor:pointer}
   .ly.on{background:var(--card);color:var(--accent);font-weight:600;box-shadow:var(--sh-sm)}
   .dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px}
+  /* dashboard */
+  .caserow{display:flex;justify-content:space-between;gap:12px;padding:13px 16px;border-top:1px solid var(--border-2)}
+  .caserow:first-child{border-top:none}
+  .dtab{font-family:inherit;font-size:13px;border:1px solid var(--border-strong);background:var(--card);color:var(--sec);padding:6px 13px;border-radius:8px;cursor:pointer}
+  .dtab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 
   /* ---- lightbox / modal ---- */
   .lb{position:fixed;inset:0;background:rgba(15,20,30,.75);display:none;align-items:center;justify-content:center;z-index:200;cursor:zoom-out;padding:28px}
@@ -311,14 +316,13 @@
 
     <!-- ============ DASHBOARD ============ -->
     <section class="page hidden" id="page-dashboard">
-      <div class="page-h">Dashboard</div>
-      <div class="page-sub">Brand-protection overview.</div>
-      <div class="metrics" id="dashmetrics"></div>
-      <div class="card pad">
-        <div class="sect-lbl">Start</div>
-        <div style="font-size:14.6px;color:var(--sec);margin-bottom:14px">Open a case and run a multi-engine authentication.</div>
-        <button class="btn" onclick="go('analysis')"><i class="ti ti-scan"></i>New analysis</button>
+      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:12px">
+        <div><div class="page-h">Case dashboard</div><div class="page-sub">Counterfeit intelligence overview.</div></div>
+        <button class="btn" onclick="go('analysis')"><i class="ti ti-plus"></i>New case</button>
       </div>
+      <div class="metrics" id="dashmetrics"></div>
+      <div class="row" id="dashfilters" style="gap:8px;margin:6px 0 12px;flex-wrap:wrap"></div>
+      <div id="dashcases"></div>
     </section>
 
     <!-- ============ CASES ============ -->
@@ -392,6 +396,7 @@ const $$ = s => document.querySelectorAll(s);
 let suspectImgs=[], upcB64=null, provider='all', refSource='product';
 let products=[], productId='', npImgs=[];
 let LIVE_PROVIDERS=[], MODE={}, activeEngine='all', lastReport=null, lastRun=null, exportOn=false;
+let DASH=null, dashFilter='all';
 
 const CASES=[
   {id:'VF-2026-0412',brand:'TNF',brandName:'The North Face',origin:'Shenzhen, CN',status:'Active'},
@@ -867,13 +872,50 @@ function renderReportPage(){
 }
 
 /* ---------- dashboard / cases / models ---------- */
-function renderDashboard(){
-  const n=benchLoad().length;
+function sparkline(s){ if(!s||s.length<2) return ''; const w=94,h=26;
+  const pts=s.map((v,i)=>{ const x=i/(s.length-1)*w, y=h-2-((Math.max(0,Math.min(100,v)))/100)*(h-4); return x.toFixed(1)+','+y.toFixed(1); }).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="margin-top:6px;display:block"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`; }
+async function renderDashboard(){
+  if(!$('#dashmetrics').innerHTML) $('#dashmetrics').innerHTML='<div class="metric"><div class="k muted">Loading…</div></div>';
+  let d; try{ d=await fetch(API+'/api/cases').then(r=>r.json()); }catch(e){ d={available:false}; }
+  DASH=d;
+  if(!d || !d.available){
+    $('#dashmetrics').innerHTML=`
+      <div class="metric"><div class="k">Engines live</div><div class="v">${LIVE_PROVIDERS.length}</div></div>
+      <div class="metric"><div class="k">Comparisons logged</div><div class="v">${benchLoad().length}</div></div>`;
+    $('#dashfilters').innerHTML='';
+    $('#dashcases').innerHTML='<div class="card pad muted" style="font-size:13px;line-height:1.6">No case history yet. Connect Supabase (SUPABASE_URL / SUPABASE_SERVICE_KEY) and use <b>Save last run</b> on a finding — saved runs appear here as cases.</div>';
+    return;
+  }
+  const k=d.kpis||{};
   $('#dashmetrics').innerHTML=`
-    <div class="metric"><div class="k">Open cases</div><div class="v">${CASES.length}</div></div>
-    <div class="metric"><div class="k">Engines live</div><div class="v">${LIVE_PROVIDERS.length}</div></div>
-    <div class="metric"><div class="k">Comparisons logged</div><div class="v">${n}</div></div>
-    <div class="metric"><div class="k">Brand</div><div class="v" style="font-size:16.8px">The North Face</div></div>`;
+    <div class="metric"><div class="k">Open cases</div><div class="v">${k.open||0}</div></div>
+    <div class="metric"><div class="k">Confirmed counterfeit</div><div class="v" style="color:var(--red)">${k.counterfeit||0}</div></div>
+    <div class="metric"><div class="k">Avg. deviation</div><div class="v">${k.avg_deviation==null?'—':k.avg_deviation}</div>${sparkline(k.spark)}</div>
+    <div class="metric"><div class="k">Median turnaround</div><div class="v">${k.median_turnaround_s==null?'—':k.median_turnaround_s+'s'}</div></div>`;
+  const tabs=[['all','All cases'],['counterfeit','Suspected'],['authentic','Authentic'],['caution','Under review']];
+  $('#dashfilters').innerHTML=tabs.map(([f,lbl])=>`<button class="dtab${dashFilter===f?' on':''}" onclick="setDashFilter('${f}')">${lbl}</button>`).join('')+`<span class="muted" id="dashcount" style="font-size:12px;align-self:center;margin-left:6px"></span>`;
+  renderDashCases();
+}
+function setDashFilter(f){ dashFilter=f; document.querySelectorAll('#dashfilters .dtab').forEach(b=>b.classList.toggle('on',(b.getAttribute('onclick')||'').indexOf("'"+f+"'")>=0)); renderDashCases(); }
+function renderDashCases(){
+  const all=(DASH&&DASH.cases)||[];
+  const cases=all.filter(c=>dashFilter==='all'||c.band===dashFilter);
+  const cnt=$('#dashcount'); if(cnt) cnt.textContent=cases.length+' case'+(cases.length===1?'':'s');
+  if(!cases.length){ $('#dashcases').innerHTML='<div class="card pad muted" style="font-size:13px">No cases in this view.</div>'; return; }
+  const upcCls={match:'b-green',mismatch:'b-amber',nomatch:'b-red'};
+  const rows=cases.map(c=>{ const bd=c.band||band(c.score), col=bandColor(bd), vi=vinfo(bd), dt=(c.created_at||'').slice(0,10);
+    return `<div class="caserow" style="border-left:3px solid ${col}">
+      <div style="min-width:0">
+        <div class="row" style="gap:8px;flex-wrap:wrap"><span class="mono" style="font-weight:600;color:var(--accent)">${c.id||'—'}</span>
+          <span class="badge ${vi.c}" style="font-size:11px">${c.verdict||vi.l}</span>
+          ${c.upc?`<span class="badge ${upcCls[c.upc]||'b-gray'}" style="font-size:11px">UPC ${c.upc}</span>`:''}</div>
+        <div style="font-size:13px;margin-top:4px">${c.brand||''}${dt?` · <span class="muted">${dt}</span>`:''}${c.engine?` · <span class="muted">${c.engine}</span>`:''}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:560px">${c.summary||''}</div>
+      </div>
+      <div style="text-align:right;flex:none"><div class="mono" style="font-size:19px;font-weight:600;color:${col}">${c.score==null?'—':c.score}<span class="muted" style="font-size:11px">/100</span></div></div>
+    </div>`; }).join('');
+  $('#dashcases').innerHTML=`<div class="card" style="padding:4px 0">${rows}</div>`;
 }
 function renderCases(){
   $('#casesbody').innerHTML=CASES.map(c=>`<tr>
