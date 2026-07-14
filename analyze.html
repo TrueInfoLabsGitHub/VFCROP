@@ -203,6 +203,14 @@
   .caserow:first-child{border-top:none}
   .dtab{font-family:inherit;font-size:13px;border:1px solid var(--border-strong);background:var(--card);color:var(--sec);padding:6px 13px;border-radius:8px;cursor:pointer}
   .dtab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  /* case header + legend */
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:6px 12px;border-radius:9999px;background:var(--card);border:1px solid var(--border);color:var(--sec)}
+  .chip .k{font-size:11px;color:var(--mut);letter-spacing:.03em}
+  .chip-live{background:var(--green-bg);color:var(--green);border-color:transparent}
+  .cid{font-family:var(--mono);font-size:22px;font-weight:600;margin-bottom:10px}
+  .lg{display:inline-flex;align-items:center}
+  .lg i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px}
+  .legend-band{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--sec);margin-bottom:12px}
 
   /* ---- lightbox / modal ---- */
   .lb{position:fixed;inset:0;background:rgba(15,20,30,.75);display:none;align-items:center;justify-content:center;z-index:200;cursor:zoom-out;padding:28px}
@@ -255,8 +263,10 @@
     <!-- ============ ANALYSIS ============ -->
     <section class="page" id="page-analysis">
       <div id="v-input">
-        <div class="page-h">New analysis</div>
-        <div class="page-sub" id="caseline">Upload the suspect evidence, pick a reference, and choose your engine.</div>
+        <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);font-weight:600;margin-bottom:2px">Workspace · Forensic case</div>
+        <div class="page-h" style="margin-bottom:12px">Case analysis</div>
+        <div id="caseheader"></div>
+        <div class="page-sub" id="caseline" style="margin-top:16px">Upload the suspect evidence, pick a reference, and choose your engine.</div>
         <div class="grid2">
           <div class="card pad">
             <div class="sect-lbl">Evidence</div>
@@ -399,11 +409,21 @@ let LIVE_PROVIDERS=[], MODE={}, activeEngine='all', lastReport=null, lastRun=nul
 let DASH=null, dashFilter='all';
 
 const CASES=[
-  {id:'VF-2026-0412',brand:'TNF',brandName:'The North Face',origin:'Shenzhen, CN',status:'Active'},
-  {id:'VF-2026-0384',brand:'TNF',brandName:'The North Face',origin:'Yiwu, CN',status:'Open'},
-  {id:'VF-2026-0395',brand:'TNF',brandName:'The North Face',origin:'Hanoi, VN',status:'Open'},
-  {id:'VF-2026-0371',brand:'TNF',brandName:'The North Face',origin:'Fuzhou, CN',status:'Open'},
+  {id:'VF-2026-0412',brand:'TNF',brandName:'The North Face',origin:'Shenzhen, CN',status:'Active',opened:'Jun 28, 2026'},
+  {id:'VF-2026-0384',brand:'TNF',brandName:'The North Face',origin:'Yiwu, CN',status:'Open',opened:'Jun 24, 2026'},
+  {id:'VF-2026-0395',brand:'TNF',brandName:'The North Face',origin:'Hanoi, VN',status:'Open',opened:'Jun 22, 2026'},
+  {id:'VF-2026-0371',brand:'TNF',brandName:'The North Face',origin:'Fuzhou, CN',status:'Open',opened:'Jun 18, 2026'},
 ];
+function curCase(){ return CASES.find(c=>c.id===caseId)||CASES[0]; }
+function caseHeader(){ const cs=curCase();
+  return `<div class="cid">${cs.id}</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap">
+      <span class="chip"><span class="k">BRAND</span> ${cs.brandName}</span>
+      <span class="chip">${cs.origin}</span>
+      <span class="chip ${cs.status==='Active'?'chip-live':''}">${cs.status==='Active'?'● ':''}${cs.status}</span>
+      <span class="chip">Opened ${cs.opened}</span>
+    </div>`; }
+function updateCaseHeader(){ const el=$('#caseheader'); if(el) el.innerHTML=caseHeader(); }
 let caseId=CASES[0].id, brand='TNF';
 const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
 const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
@@ -699,6 +719,7 @@ function renderSingle(d){
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
       <div><div style="font-size:17.9px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:13.4px">${engineName(activeEngine)} · ${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
       <span class="badge ${badgeClass(c.band)}" style="margin-left:auto">${v.label||verdictLabel(c.band)}</span>
+      <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
     <div class="metrics">
       <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(c.band)}">${c.score}</div></div>
@@ -734,7 +755,9 @@ function setLayout(l){ findingLayout=l; document.querySelectorAll('#lyswitch .ly
 function renderFindingBody(d){
   const dims=d.dimensions||[];
   const nM=dims.filter(x=>x.band==='authentic').length,nR=dims.filter(x=>x.band==='caution').length,nD=dims.filter(x=>x.band==='counterfeit').length;
-  const counts=`<div class="row" style="justify-content:flex-end;margin-bottom:10px"><div class="dimcounts"><span class="cnt b-green">${nM} match</span><span class="cnt b-amber">${nR} review</span><span class="cnt b-red">${nD} deviation</span></div></div>`;
+  const counts=`<div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+    <div class="legend-band" style="margin:0"><span class="lg"><i style="background:var(--green)"></i>0–30 Match</span><span class="lg"><i style="background:var(--amber)"></i>31–60 Review</span><span class="lg"><i style="background:var(--red)"></i>61–100 Deviation</span></div>
+    <div class="dimcounts"><span class="cnt b-green">${nM} match</span><span class="cnt b-amber">${nR} review</span><span class="cnt b-red">${nD} deviation</span></div></div>`;
   let body;
   if(findingLayout==='dossier'){
     body=counts+`<div class="dgrid" style="margin-bottom:14px">${dims.map(dimDossierCard).join('')}</div>`;
@@ -797,6 +820,7 @@ function renderCompare(data,provs){
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
       <div><div style="font-size:17.9px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:13.4px">${provs.length} engines · ${agree?'consensus':'split'}</div></div>
       <span class="badge ${primary?badgeClass(primary.composite.band):'b-gray'}" style="margin-left:auto">${primary?verdictLabel(primary.composite.band):'—'}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
+      <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
     <div class="metrics">${metrics}</div>
     <div class="sect-lbl">Model divergence</div>
@@ -927,7 +951,7 @@ function renderCases(){
     <td class="mono">${c.id}</td><td>${c.brandName}</td><td class="muted">${c.origin}</td>
     <td><span class="badge ${c.status==='Active'?'b-green':'b-gray'}" style="font-size:12.3px">${c.status}</span></td>
     <td class="num"><button class="btn ghost sm" data-case="${c.id}">Open</button></td></tr>`).join('');
-  $$('#casesbody button[data-case]').forEach(b=>b.onclick=()=>{ caseId=b.dataset.case; $('#caseline').textContent='Case '+caseId+' — upload evidence, pick a reference, and choose your engine.'; go('analysis'); backToInput(); });
+  $$('#casesbody button[data-case]').forEach(b=>b.onclick=()=>{ caseId=b.dataset.case; updateCaseHeader(); go('analysis'); backToInput(); });
 }
 renderCases();
 function renderModels(){
@@ -941,7 +965,7 @@ function renderModels(){
       <td class="num">${pr[0]==null?'—':'$'+pr[0]}</td><td class="num">${pr[1]==null?'—':'$'+pr[1]}</td></tr>`; }).join('');
 }
 
-onRefSourceChange(); updateChecklist(); updateBenchUI(); renderModels(); exportInit();
+onRefSourceChange(); updateChecklist(); updateBenchUI(); renderModels(); exportInit(); updateCaseHeader();
 </script>
 </body>
 </html>
