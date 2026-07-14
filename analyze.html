@@ -428,7 +428,7 @@ let caseId=CASES[0].id, brand='TNF';
 const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
 const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
 const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'}}[b]||{c:'b-gray',l:'N/A'});
-let findingLayout='radar', lastSingleData=null;
+let findingLayout='radar', lastSingleData=null, cmpRes=null;
 const engineName=p=>ENGINE_LABEL[p]||p;
 const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)'}[b]);
@@ -815,6 +815,21 @@ function renderCompare(data,provs){
       <td class="num" ${isCheap?'style="color:var(--green)"':''}>$${(t.cost||0).toFixed(4)}</td>
       <td class="num">${((t.wall_ms||0)/1000).toFixed(1)}s</td></tr>`; }).join('');
   const legend=oks.map(p=>`<div class="legrow" style="grid-template-columns:12px 1fr;cursor:default"><span class="legdot" style="background:${ENGINE_COLOR[p]||'#1f2937'}"></span><span class="legname">${engineName(p)}</span></div>`).join('');
+  cmpRes=res;
+  const fEngTabs=oks.map((p,i)=>`<button class="ly${i===0?' on':''}" data-feng="${p}" onclick="setFindingEngine('${p}')"><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:6px;vertical-align:middle"></span>${engineName(p)}</button>`).join('');
+  const forensic = oks.length ? `
+    <div class="row" style="justify-content:space-between;margin:0 0 12px;flex-wrap:wrap;gap:8px">
+      <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center">
+        <div class="sect-lbl" style="margin:0">Forensic finding</div>
+        <div class="lyswitch" id="fengswitch">${fEngTabs}</div>
+      </div>
+      <div class="lyswitch" id="lyswitch">
+        <button class="ly${findingLayout==='radar'?' on':''}" onclick="setLayout('radar')">Radar hero</button>
+        <button class="ly${findingLayout==='dossier'?' on':''}" onclick="setLayout('dossier')">Dossier</button>
+        <button class="ly${findingLayout==='table'?' on':''}" onclick="setLayout('table')">Data table</button>
+      </div>
+    </div>
+    <div id="findingbody"></div>` : '';
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
@@ -829,9 +844,17 @@ function renderCompare(data,provs){
     <div class="card pad" style="margin-bottom:16px;overflow-x:auto">${heatmapTable(oks,res,dimNames)}</div>
     <div class="sect-lbl">Engine comparison</div>
     <div class="tablewrap" style="margin-bottom:16px;overflow-x:auto"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">UPC</th><th class="num">Verifier</th><th class="num">Conf</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
+    ${forensic}
     <div class="sect-lbl">Evidence comparison</div>
     <div class="card pad">${compareStrip(primary||{})}</div>`;
+  if(oks.length){ lastSingleData=res[oks[0]]; renderFindingBody(res[oks[0]]); }
   lastReport = oks.length ? {engine:'Compare ('+oks.map(engineName).join(', ')+')', reports: oks.map(p=>({name:engineName(p),color:ENGINE_COLOR[p],report:res[p].report}))} : null;
+}
+function setFindingEngine(p){
+  if(!cmpRes||!cmpRes[p]||!cmpRes[p].ok) return;
+  lastSingleData=cmpRes[p];
+  document.querySelectorAll('#fengswitch .ly').forEach(b=>b.classList.toggle('on', b.getAttribute('data-feng')===p));
+  renderFindingBody(cmpRes[p]);
 }
 
 /* ---------- comparison CSV log ---------- */
