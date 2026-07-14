@@ -11,7 +11,7 @@ import os
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,8 +38,14 @@ GRAPH = build_graph()
 _JOBS: dict = {}
 _JOBS_LOCK = threading.Lock()
 
+# Hard ceiling on one run's wall-clock, so a stuck/very-slow engine can't run
+# forever — the job returns whatever finished within the budget.
+RUN_DEADLINE = float(os.environ.get("RUN_DEADLINE", "220"))
+
 
 def _start_job(fn):
+    """fn(set_partial) runs in a background thread. It may call set_partial(obj)
+    to publish intermediate progress that GET /api/job returns while running."""
     jid = uuid.uuid4().hex
     with _JOBS_LOCK:
         _JOBS[jid] = {"status": "running", "ts": time.time()}
@@ -48,9 +54,14 @@ def _start_job(fn):
                 if _JOBS[k]["status"] != "running":
                     _JOBS.pop(k, None)
 
+    def set_partial(obj):
+        j = _JOBS.get(jid)
+        if j and j.get("status") == "running":
+            j["partial"] = obj
+
     def worker():
         try:
-            _JOBS[jid] = {"status": "done", "result": fn(), "ts": time.time()}
+            _JOBS[jid] = {"status": "done", "result": fn(set_partial), "ts": time.time()}
         except Exception as e:
             _JOBS[jid] = {"status": "error", "error": str(e), "ts": time.time()}
 
@@ -104,25 +115,47 @@ def _run_one(req: AnalyzeReq, provider: str) -> dict:
 @app.post("/api/analyze")
 def analyze(req: AnalyzeReq):
     provider = req.provider if req.provider in _PROVIDERS else "openai"
-    return _start_job(lambda: {"mode": mode(), **_run_one(req, provider)})
+
+    def work(_set_partial):
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_run_one, req, provider)
+            try:
+                res = fut.result(timeout=RUN_DEADLINE)
+            except FuturesTimeout:
+                raise RuntimeError(f"{provider} exceeded the {int(RUN_DEADLINE)}s time budget")
+        return {"mode": mode(), **res}
+
+    return _start_job(work)
 
 
 @app.post("/api/compare")
 def compare(req: CompareReq):
     """Start a side-by-side run of several engines on identical inputs. They run
-    concurrently in the background; one engine failing does not sink the others."""
+    concurrently in the background and each result is published as it completes,
+    so fast engines show immediately. Any engine still running when the deadline
+    hits is marked as timed out — the run always returns."""
     provs = [p for p in req.providers if p in _PROVIDERS] or ["openai"]
 
-    def work():
-        def run(p):
-            try:
-                return p, {"ok": True, **_run_one(req, p)}
-            except Exception as e:
-                return p, {"ok": False, "provider": p, "error": str(e)}
+    def run(p):
+        try:
+            return {"ok": True, **_run_one(req, p)}
+        except Exception as e:
+            return {"ok": False, "provider": p, "error": str(e)}
+
+    def work(set_partial):
         results = {}
+        set_partial({"mode": mode(), "providers": provs, "results": {}})
         with ThreadPoolExecutor(max_workers=len(provs)) as ex:
-            for p, res in ex.map(run, provs):
-                results[p] = res
+            futs = {ex.submit(run, p): p for p in provs}
+            try:
+                for fut in as_completed(list(futs), timeout=RUN_DEADLINE):
+                    results[futs[fut]] = fut.result()
+                    set_partial({"mode": mode(), "providers": provs, "results": dict(results)})
+            except FuturesTimeout:
+                pass
+        for p in provs:
+            results.setdefault(p, {"ok": False, "provider": p,
+                                   "error": "engine exceeded the time budget (still reasoning)"})
         return {"mode": mode(), "providers": provs, "results": results}
 
     return _start_job(work)
@@ -134,7 +167,10 @@ def job_status(jid: str):
     if not j:
         raise HTTPException(404, "unknown job")
     if j["status"] == "running":
-        return {"status": "running"}
+        out = {"status": "running"}
+        if j.get("partial"):
+            out["partial"] = j["partial"]
+        return out
     if j["status"] == "error":
         return {"status": "error", "error": j.get("error", "run failed")}
     return {"status": "done", **j["result"]}

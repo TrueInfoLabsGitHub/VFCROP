@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 from dotenv import load_dotenv
@@ -80,7 +81,7 @@ ALLOW_MOCK = os.environ.get("ALLOW_MOCK", "0").strip().lower() in ("1", "true", 
 # Per-call HTTP timeout (seconds). Reasoning models (Kimi K2.6) can spend many
 # seconds thinking before the first token, especially under the concurrent load
 # of Compare mode (5 dimension agents x N engines). Keep this generous.
-CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "240"))
+CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "150"))
 
 # Which provider runs the vision (dimension) agents by default: "openai" or "gemini".
 VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()
@@ -498,8 +499,13 @@ def _chat_upc(cfg, brand, upc_b64, t0):
 # Verdict tier — OpenAI synthesis + adversarial verify (two calls), or mock.
 # ---------------------------------------------------------------------------
 def run_verdict(provider, brand, composite, dimensions, upc):
-    synth, u1 = _verdict_call(provider, "synthesize", brand, composite, dimensions, upc)
-    verify, u2 = _verdict_call(provider, "verify", brand, composite, dimensions, upc)
+    # Run the synthesis and adversarial-verify calls concurrently instead of
+    # back-to-back — halves the verdict-tier latency for slow reasoning models.
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fs = ex.submit(_verdict_call, provider, "synthesize", brand, composite, dimensions, upc)
+        fv = ex.submit(_verdict_call, provider, "verify", brand, composite, dimensions, upc)
+        synth, u1 = fs.result()
+        verify, u2 = fv.result()
     verdict = {
         "label": composite["verdict_label"],
         "summary": synth["summary"],
