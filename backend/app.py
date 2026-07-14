@@ -10,6 +10,7 @@ Run:  uvicorn app:app --port 8000   (from the backend/ directory)
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,10 +30,13 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 GRAPH = build_graph()
 
 
+_PROVIDERS = ("openai", "gemini", "kimi")
+
+
 class AnalyzeReq(BaseModel):
     case_id: str
     brand: str = "TNF"
-    provider: str = "openai"                  # "openai" (GPT-5.5) | "gemini" (via OpenRouter)
+    provider: str = "openai"                  # "openai" (GPT-5.5) | "gemini" | "kimi" (via router)
     reference_source: str = "local"           # "local" (data/) | "google" | "product" (catalog)
     product_id: str | None = None             # selected catalog product (when reference_source=product)
     suspect_image: str | None = None         # single product photo (back-compat)
@@ -40,35 +44,63 @@ class AnalyzeReq(BaseModel):
     upc_image: str | None = None             # barcode/UPC photo, drives the UPC OCR node
 
 
+class CompareReq(AnalyzeReq):
+    # Which engines to run side-by-side on the SAME inputs. They execute
+    # concurrently; each returns its own full result (or an error entry).
+    providers: list[str] = ["openai", "gemini", "kimi"]
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "mode": mode()}
 
 
-@app.post("/api/analyze")
-def analyze(req: AnalyzeReq):
+def _run_one(req: AnalyzeReq, provider: str) -> dict:
+    """Run the graph end-to-end for one provider and shape the /api/analyze result."""
     imgs = req.suspect_images if req.suspect_images else ([req.suspect_image] if req.suspect_image else [])
-    provider = "gemini" if req.provider == "gemini" else "openai"
     ref_source = req.reference_source if req.reference_source in ("local", "google", "product") else "local"
     state = {"case_id": req.case_id, "brand": req.brand, "provider": provider,
              "ref_source": ref_source, "product_id": req.product_id or "",
              "suspect_images": [b for b in imgs if b],
              "upc_image": req.upc_image or ""}
     out = GRAPH.invoke(state)
-    dims = sorted(out["dimension_results"],
-                  key=lambda d: DIMENSIONS.index(d["dimension"]))
+    dims = sorted(out["dimension_results"], key=lambda d: DIMENSIONS.index(d["dimension"]))
     return {
-        "case_id": req.case_id,
-        "brand": req.brand,
-        "mode": mode(),
-        "composite": out["composite"],
-        "dimensions": dims,
-        "upc": out["upc_result"],
-        "verdict": out["verdict"],
-        "report": out["report"],
-        "references": out["references"],
-        "fetched_meta": out.get("fetched_meta", {"used": False}),
+        "case_id": req.case_id, "brand": req.brand, "provider": provider,
+        "composite": out["composite"], "dimensions": dims,
+        "upc": out["upc_result"], "verdict": out["verdict"], "report": out["report"],
+        "references": out["references"], "fetched_meta": out.get("fetched_meta", {"used": False}),
     }
+
+
+@app.post("/api/analyze")
+def analyze(req: AnalyzeReq):
+    provider = req.provider if req.provider in _PROVIDERS else "openai"
+    try:
+        result = _run_one(req, provider)
+    except Exception as e:                      # surface real model/config errors (no mock masking)
+        raise HTTPException(502, f"{provider}: {e}")
+    return {"mode": mode(), **result}
+
+
+@app.post("/api/compare")
+def compare(req: CompareReq):
+    """Run several engines on identical inputs, concurrently, for a side-by-side
+    comparison. One engine failing does not sink the others — it returns an error
+    entry so the UI can show which engine failed and why."""
+    provs = [p for p in req.providers if p in _PROVIDERS] or ["openai"]
+
+    def run(p):
+        try:
+            return p, {"ok": True, **_run_one(req, p)}
+        except Exception as e:
+            return p, {"ok": False, "provider": p, "error": str(e)}
+
+    results = {}
+    with ThreadPoolExecutor(max_workers=len(provs)) as ex:
+        for p, res in ex.map(run, provs):
+            results[p] = res
+    return {"mode": mode(), "providers": provs, "results": results}
 
 
 # ---- product catalog (Supabase Storage) ----

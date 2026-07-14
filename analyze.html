@@ -498,6 +498,8 @@
             <div class="seg" id="engine">
               <button type="button" class="seg-btn active" data-prov="openai">OpenAI · GPT-5.5</button>
               <button type="button" class="seg-btn" data-prov="gemini">Gemini 3 Pro · OpenRouter</button>
+              <button type="button" class="seg-btn" data-prov="kimi">Kimi · OpenRouter</button>
+              <button type="button" class="seg-btn" data-prov="all">Compare all</button>
             </div>
           </label>
           <label class="fld">References
@@ -587,6 +589,8 @@
       <div class="dimgrid" id="dims"></div>
     </section>
 
+    <section class="card hidden" id="comparecard" style="margin-top:20px"></section>
+
     <div class="disclaimer">AI-assisted assessment — findings are advisory and require analyst confirmation before enforcement action.</div>
   </section>
       </section><!-- /page-analysis -->
@@ -645,6 +649,10 @@
 // Same-origin when served by the backend (deploy); the :8000 backend in local two-server dev.
 const API = (location.port === '8753') ? 'http://127.0.0.1:8000' : '';
 let suspectImgs = [], upcB64 = null, provider = 'openai', refSource = 'product';
+let LIVE_PROVIDERS = ['openai'];
+let activeEngine = 'openai';
+const ENGINE_LABEL = {openai:'GPT-5.5', gemini:'Gemini 3.1 Pro', kimi:'Kimi'};
+const engineName = p => ENGINE_LABEL[p] || p;
 let products = [], productId = '', npImgs = [];
 let lastRun = null, exportOn = false, currentPage = 'analysis', runInView = true;
 let runpanelState = 'idle', pipeTimer = null, pipeT0 = 0;
@@ -790,9 +798,18 @@ fetch(API+"/api/health").then(r=>r.json()).then(h=>{
   $('#mode').textContent = (m.openai==='live'||m.gemini==='live')
     ? `LIVE · OpenAI ${m.openai==='live'?'✓':'✕'} · Gemini ${m.gemini==='live'?'✓':'✕'}` : 'MOCK MODE · no API keys';
   const ob=document.querySelector('.seg-btn[data-prov="openai"]'), gb=document.querySelector('.seg-btn[data-prov="gemini"]');
+  const kb=document.querySelector('.seg-btn[data-prov="kimi"]');
   ob.textContent = 'OpenAI · ' + (m.openai_model || 'GPT-5.5');
-  if(m.gemini==='live'){ gb.textContent=(m.gemini_label||'Gemini 3.1 Pro')+' · OpenRouter'; gb.title=m.gemini_model||''; }
+  if(m.openai==='live'){ ENGINE_LABEL.openai = m.openai_model || 'GPT-5.5'; }
+  if(m.gemini==='live'){ gb.textContent=(m.gemini_label||'Gemini 3.1 Pro')+' · OpenRouter'; gb.title=m.gemini_model||''; ENGINE_LABEL.gemini = m.gemini_label||'Gemini 3.1 Pro'; }
   else { gb.disabled=true; gb.textContent='Gemini · OpenRouter (set key)'; gb.title='Set OPENROUTER_API_KEY in backend/.env and restart'; }
+  if(kb){
+    if(m.kimi==='live'){ kb.textContent=(m.kimi_label||'Kimi')+' · router'; kb.title=m.kimi_model||''; ENGINE_LABEL.kimi = m.kimi_label||'Kimi'; }
+    else { kb.disabled=true; kb.textContent='Kimi · router (set key)'; kb.title='Set KIMI_API_KEY (or OPENROUTER_API_KEY) in backend/.env and restart'; }
+  }
+  // record which engines are live so "Compare all" runs only the available ones
+  LIVE_PROVIDERS = ['openai','gemini','kimi'].filter(p=>m[p]==='live');
+  if(m.allow_mock && !LIVE_PROVIDERS.length) LIVE_PROVIDERS = ['openai'];
   const gs=document.querySelector('.seg-btn[data-src="google"]');
   if(m.serpapi!=='live'){ gs.disabled=true; gs.textContent='Google reverse (set key)'; gs.title='Set SERPAPI_API_KEY in backend/.env and restart'; }
   if(m.supabase!=='live'){ const pb=document.querySelector('.seg-btn[data-src="product"]'); pb.disabled=true; pb.textContent='Product (no db)'; pb.classList.remove('active'); gs.classList.add('active'); refSource='google'; onRefSourceChange(); }
@@ -897,21 +914,25 @@ udrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files[0]) setUpc(ev.dataT
 ufile.onchange=()=>{ if(ufile.files[0]) setUpc(ufile.files[0]); ufile.value=''; };
 
 // ---- run analysis ----
+async function readErr(r){ try{ const j=await r.json(); return j.detail||('HTTP '+r.status); }catch(_){ return 'HTTP '+r.status; } }
+
 async function runAnalysis(){
+  if(provider==='all') return runCompare();
+  activeEngine=provider;
   const case_id=$('#case').value, brand=$('#brand').value;
   const runBtns=[$('#run'),$('#runbarbtn')], rbs=$('#runbarstatus');
   runBtns.forEach(b=>{ if(b) b.disabled=true; });
-  const msg='<span class="spin"></span> running on '+(provider==='gemini'?'Gemini 3 Pro':'GPT-5.5')+'…';
+  const msg='<span class="spin"></span> running on '+engineName(provider)+'…';
   $('#status').innerHTML=msg; if(rbs) rbs.innerHTML=msg;
   runpanelState='running'; renderPipelineRunning();
   try{
     const r=await fetch(API+"/api/analyze",{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({case_id,brand,provider,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64})});
-    if(!r.ok) throw new Error('HTTP '+r.status);
+    if(!r.ok) throw new Error(await readErr(r));
     const data=await r.json();
     renderPipelineDone(data.report);
     render(data);
-    lastRun={ data, engine:(provider==='gemini'?'Gemini 3.1 Pro':'GPT-5.5'),
+    lastRun={ data, engine:engineName(provider),
       product:(products.find(p=>p.id===productId)||{}).name||'',
       product_id:(refSource==='product'?productId:'')||'',
       suspect_images:suspectImgs.slice(), upc_image:upcB64 };
@@ -919,6 +940,56 @@ async function runAnalysis(){
     $('#status').textContent=''; if(rbs) rbs.textContent='';
   }catch(e){ pipelineFailed(); const err='<span style="color:var(--red)">Error: '+e.message+'</span>'; $('#status').innerHTML=err; if(rbs) rbs.innerHTML=err; }
   runBtns.forEach(b=>{ if(b) b.disabled=false; });
+}
+
+// ---- compare engines: run every live engine on the SAME inputs, side by side ----
+async function runCompare(){
+  const case_id=$('#case').value, brand=$('#brand').value;
+  const provs = LIVE_PROVIDERS.length ? LIVE_PROVIDERS.slice() : ['openai'];
+  const runBtns=[$('#run'),$('#runbarbtn')], rbs=$('#runbarstatus');
+  runBtns.forEach(b=>{ if(b) b.disabled=true; });
+  const msg='<span class="spin"></span> comparing '+provs.map(engineName).join(' · ')+'…';
+  $('#status').innerHTML=msg; if(rbs) rbs.innerHTML=msg;
+  runpanelState='running'; renderPipelineRunning();
+  try{
+    const r=await fetch(API+"/api/compare",{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({case_id,brand,providers:provs,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64})});
+    if(!r.ok) throw new Error(await readErr(r));
+    const data=await r.json();
+    // pick the first engine that succeeded to drive the normal finding view
+    const okProv = provs.find(p=>data.results[p] && data.results[p].ok);
+    if(okProv){ activeEngine=okProv; const d=data.results[okProv]; renderPipelineDone(d.report); render({...d, mode:data.mode}); }
+    else { pipelineFailed(); }
+    renderCompare(data, provs);
+    $('#status').textContent=''; if(rbs) rbs.textContent='';
+  }catch(e){ pipelineFailed(); const err='<span style="color:var(--red)">Error: '+e.message+'</span>'; $('#status').innerHTML=err; if(rbs) rbs.innerHTML=err; }
+  runBtns.forEach(b=>{ if(b) b.disabled=false; });
+}
+
+// side-by-side engine scorecard rendered onto the finding page
+function renderCompare(data, provs){
+  $('#finding').classList.remove('hidden');
+  const host=$('#comparecard'); if(!host) return;
+  const res=data.results||{};
+  const dimNames=['Logo','Stitching','Hardware','Label','Material'];
+  const cell=(html,style='')=>`<td style="padding:9px 12px;border-bottom:1px solid var(--border);${style}">${html}</td>`;
+  const scoreCell=x=>{ if(x==null) return cell('<span class="muted">—</span>'); const col=bandColor(band(x)); return cell(`<span style="font-family:var(--mono);font-weight:600;color:${col}">${x}</span>`); };
+  const head='<th style="padding:9px 12px;text-align:left;font-size:11px;color:var(--mist);font-weight:600;border-bottom:1px solid var(--border)">Metric</th>'+
+    provs.map(p=>{ const r=res[p]||{}; const ok=r.ok; return `<th style="padding:9px 12px;text-align:left;font-size:12px;font-weight:600;border-bottom:1px solid var(--border)">${engineName(p)}${ok?'':' <span class="badge bg-dev" style="font-size:10px">failed</span>'}</th>`; }).join('');
+  const rowsHtml=[];
+  const metricRow=(label,fn)=>{ rowsHtml.push('<tr>'+cell(`<span style="color:var(--slate)">${label}</span>`)+provs.map(p=>fn(res[p]||{})).join('')+'</tr>'); };
+  metricRow('Composite score', r=> r.ok ? scoreCell(r.composite&&r.composite.score) : cell(`<span class="muted" style="font-size:12px">${(r.error||'error').slice(0,60)}</span>`,'color:var(--red)'));
+  metricRow('Verdict', r=> r.ok ? cell(`<span class="badge ${vinfo((r.composite||{}).band).c}">${(r.verdict||{}).label||'—'}</span>`) : cell(''));
+  dimNames.forEach(dn=> metricRow(dn, r=>{ if(!r.ok) return cell(''); const d=(r.dimensions||[]).find(x=>x.dimension===dn); return scoreCell(d&&d.score); }));
+  metricRow('UPC / tag', r=> r.ok ? cell(`<span class="badge ${({match:'bg-match',mismatch:'bg-review',nomatch:'bg-dev'}[(r.upc||{}).status])||'bg-dev'}">${(r.upc||{}).status||'—'}</span>`) : cell(''));
+  metricRow('Verifier', r=> r.ok ? cell((r.verdict||{}).verifier_confirmed?'✓ confirmed':'✕ refuted') : cell(''));
+  metricRow('Cost (USD)', r=> r.ok ? cell(`<span style="font-family:var(--mono)">$${(((r.report||{}).totals||{}).cost||0).toFixed(4)}</span>`) : cell(''));
+  metricRow('Latency', r=> r.ok ? cell(`<span style="font-family:var(--mono)">${((((r.report||{}).totals||{}).wall_ms||0)/1000).toFixed(1)}s</span>`) : cell(''));
+  host.classList.remove('hidden');
+  host.innerHTML=`<div class="card-title">Engine comparison</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px">
+    <thead><tr>${head}</tr></thead><tbody>${rowsHtml.join('')}</tbody></table></div>
+    <div class="muted" style="font-size:12px;margin-top:12px;line-height:1.5">Same case, same images, run on each engine in parallel. Scores are counterfeit-probability (0–100); lower is more authentic. Cost is computed from live token usage.</div>`;
 }
 $('#run').onclick=runAnalysis;
 $('#runbarbtn').onclick=runAnalysis;
@@ -1020,7 +1091,8 @@ function render(d){
   const now=new Date();
   const runid='RUN-'+now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+'-'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0')+String(now.getSeconds()).padStart(2,'0');
   const analyst=($('#ch-analyst')&&$('#ch-analyst').textContent)||'—';
-  $('#runmeta').textContent = `${runid} · ${now.toLocaleString()} · engine ${provider==='gemini'?'Gemini 3.1 Pro':'GPT-5.5'} · case ${$('#case').value} · analyst ${analyst}`;
+  $('#runmeta').textContent = `${runid} · ${now.toLocaleString()} · engine ${engineName(activeEngine)} · case ${$('#case').value} · analyst ${analyst}`;
+  const cc=$('#comparecard'); if(cc) cc.classList.add('hidden');   // hidden for single-engine runs
   buildCompare(d);
   // references — product catalog or Google-fetched
   const fm=d.fetched_meta;

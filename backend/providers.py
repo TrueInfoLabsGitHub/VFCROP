@@ -49,6 +49,30 @@ _OR_LABELS = {
 }
 OPENROUTER_LABEL = _OR_LABELS.get(OPENROUTER_MODEL, "Gemini Pro")
 
+# Kimi (Moonshot) — a challenger engine on the same OpenAI-compatible interface.
+# Defaults to OpenRouter routing; set KIMI_BASE to hit the Moonshot API directly.
+# KIMI_API_KEY takes precedence; if unset we reuse OPENROUTER_API_KEY.
+KIMI_API_KEY = os.environ.get("KIMI_API_KEY", "").strip()
+KIMI_BASE = os.environ.get("KIMI_BASE", "https://openrouter.ai/api/v1").strip()
+KIMI_MODEL = os.environ.get("KIMI_MODEL", "moonshotai/kimi-k2.6")
+_KIMI_LABELS = {
+    "moonshotai/kimi-k2.6": "Kimi K2.6", "moonshotai/kimi-k2.7": "Kimi K2.7",
+    "moonshotai/kimi-k2.7-code": "Kimi K2.7", "moonshotai/kimi-latest": "Kimi (latest)",
+    "kimi-latest": "Kimi (latest)", "moonshotai/kimi-k2": "Kimi K2",
+}
+KIMI_LABEL = _KIMI_LABELS.get(KIMI_MODEL, "Kimi")
+
+
+def _kimi_key():
+    return KIMI_API_KEY or OPENROUTER_API_KEY
+
+
+# Testing switch: when false (the default) a missing key or a failed live call
+# RAISES instead of silently returning deterministic mock data — so what you see
+# is always a real model output or a real error, never fabricated numbers.
+# Set ALLOW_MOCK=1 to restore the no-key demo fallback.
+ALLOW_MOCK = os.environ.get("ALLOW_MOCK", "0").strip().lower() in ("1", "true", "yes", "on")
+
 # Which provider runs the vision (dimension) agents by default: "openai" or "gemini".
 VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()
 
@@ -63,6 +87,14 @@ def _cfg(provider):
         return {"base": "https://openrouter.ai/api/v1", "key": OPENROUTER_API_KEY,
                 "model": OPENROUTER_MODEL, "label": OPENROUTER_LABEL, "strict": False,
                 "extra_headers": {"HTTP-Referer": "http://localhost:8753", "X-Title": "VF VERITAS"}}
+    if provider == "kimi":
+        key = _kimi_key()
+        if not key:
+            return None
+        headers = ({"HTTP-Referer": "http://localhost:8753", "X-Title": "VF VERITAS"}
+                   if "openrouter.ai" in KIMI_BASE else {})
+        return {"base": KIMI_BASE.rstrip("/"), "key": key, "model": KIMI_MODEL,
+                "label": KIMI_LABEL, "strict": False, "extra_headers": headers}
     if OPENAI_API_KEY:
         return {"base": "https://api.openai.com/v1", "key": OPENAI_API_KEY,
                 "model": OPENAI_MODEL, "label": OPENAI_LABEL, "strict": True, "extra_headers": {}}
@@ -70,7 +102,11 @@ def _cfg(provider):
 
 
 def _label_for(provider):
-    return OPENROUTER_LABEL if provider == "gemini" else OPENAI_LABEL
+    if provider == "gemini":
+        return OPENROUTER_LABEL
+    if provider == "kimi":
+        return KIMI_LABEL
+    return OPENAI_LABEL
 
 
 def _chat(cfg, content, schema, schema_name, timeout):
@@ -111,7 +147,11 @@ def mode() -> dict:
         "gemini": "live" if OPENROUTER_API_KEY else "mock",        # Gemini via OpenRouter
         "gemini_model": OPENROUTER_MODEL if OPENROUTER_API_KEY else None,
         "gemini_label": OPENROUTER_LABEL if OPENROUTER_API_KEY else None,
+        "kimi": "live" if _kimi_key() else "mock",                 # Kimi (Moonshot) via router
+        "kimi_model": KIMI_MODEL if _kimi_key() else None,
+        "kimi_label": KIMI_LABEL if _kimi_key() else None,
         "openrouter": "live" if OPENROUTER_API_KEY else "mock",
+        "allow_mock": ALLOW_MOCK,
         "serpapi": "live" if rimage.available() else "mock",   # Google reverse-image
         "supabase": "live" if supa.available() else "mock",    # product catalog
     }
@@ -208,12 +248,22 @@ def run_dimension_agent(dim, brand, case_id, suspect_images, ref_b64s, provider=
     imgs = [b for b in (suspect_images or []) if b][:6]   # cap to keep token cost bounded
     refs = [b for b in (ref_b64s or []) if b][:2]
     cfg = _cfg(provider)
-    if imgs and cfg:
+    if cfg:
+        if not imgs:
+            if ALLOW_MOCK:
+                return _mock_dimension(dim, case_id, t0, _label_for(provider))
+            raise RuntimeError(f"{dim}: no suspect image provided — cannot run a real vision agent.")
         try:
             return _chat_dimension(cfg, dim, imgs, refs, t0)
-        except Exception as e:  # fall back to mock on any live error
-            print(f"[{provider}] {dim} live call failed, using mock: {e}")
-    return _mock_dimension(dim, case_id, t0, _label_for(provider))
+        except Exception as e:
+            if ALLOW_MOCK:
+                print(f"[{provider}] {dim} live call failed, using mock: {e}")
+                return _mock_dimension(dim, case_id, t0, _label_for(provider))
+            raise RuntimeError(f"{provider} {dim} agent failed: {e}") from e
+    if ALLOW_MOCK:
+        return _mock_dimension(dim, case_id, t0, _label_for(provider))
+    raise RuntimeError(f"Provider '{provider}' is not configured — set its API key "
+                       f"(or ALLOW_MOCK=1 to use demo data).")
 
 
 def _mock_dimension(dim, case_id, t0, label):
@@ -355,7 +405,13 @@ def run_upc_tool(brand, case_id, upc_image, provider="openai"):
         try:
             return _chat_upc(cfg, brand, upc_image, t0)
         except Exception as e:
+            if not ALLOW_MOCK:
+                raise RuntimeError(f"{provider} UPC OCR failed: {e}") from e
             print(f"[{provider}] UPC OCR failed, using stub: {e}")
+    elif upc_image and not cfg and not ALLOW_MOCK:
+        raise RuntimeError(f"Provider '{provider}' is not configured — set its API key "
+                           f"(or ALLOW_MOCK=1 to use demo data).")
+    # No UPC image supplied (or mock allowed): return the honest "no code" stub.
     expected = _MASTER_UPC.get(brand, "")
     usage = {"agent": "UPC / Tag", "model": f"{_label_for(provider)} (mock)",
              "tokens_in": 0, "tokens_out": 0, "latency_ms": int((time.time() - t0) * 1000)}
@@ -414,8 +470,14 @@ def _verdict_call(provider, kind, brand, composite, dimensions, upc):
         try:
             return _chat_verdict(cfg, kind, brand, composite, dimensions, upc, t0)
         except Exception as e:
+            if not ALLOW_MOCK:
+                raise RuntimeError(f"{provider} verdict ({kind}) failed: {e}") from e
             print(f"[{provider}] {kind} live call failed, using mock: {e}")
-    return _mock_verdict(kind, brand, composite, dimensions, upc, t0, _label_for(provider))
+            return _mock_verdict(kind, brand, composite, dimensions, upc, t0, _label_for(provider))
+    if ALLOW_MOCK:
+        return _mock_verdict(kind, brand, composite, dimensions, upc, t0, _label_for(provider))
+    raise RuntimeError(f"Provider '{provider}' is not configured — set its API key "
+                       f"(or ALLOW_MOCK=1 to use demo data).")
 
 
 def _top_findings(dimensions, n=3):
