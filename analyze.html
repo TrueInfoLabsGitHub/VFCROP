@@ -170,14 +170,14 @@
   .cnt{display:inline-flex;align-items:center;gap:5px;font-size:14.7px;font-weight:500;padding:4px 10px;border-radius:9999px}
   .radar-card{display:flex;gap:22px;align-items:center;flex-wrap:wrap;justify-content:center}
   .radar-card svg{flex:none;max-width:100%;height:auto}
-  .radar-legend{display:flex;flex-direction:column;gap:3px;min-width:180px;flex:1}
-  .legrow{display:grid;grid-template-columns:12px 104px 1fr 40px;gap:12px;align-items:center;cursor:pointer;border-radius:7px;padding:6px 8px}
+  .radar-legend{display:flex;flex-direction:column;gap:6px;min-width:300px;flex:1}
+  .legrow{display:grid;grid-template-columns:14px 100px 1fr 44px;gap:12px;align-items:center;cursor:pointer;border-radius:7px;padding:10px 10px}
   .legrow:hover{background:var(--panel)}
-  .legdot{width:10px;height:10px;border-radius:3px}
-  .legname{font-size:15.4px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .legbar{height:6px;border-radius:9999px;background:var(--chart-track);overflow:hidden}
+  .legdot{width:12px;height:12px;border-radius:3px}
+  .legname{font-size:16.8px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .legbar{height:9px;border-radius:9999px;background:var(--chart-track);overflow:hidden}
   .legbar i{display:block;height:100%;border-radius:9999px}
-  .legscore{font-family:var(--mono);font-size:15.4px;font-weight:600;text-align:right}
+  .legscore{font-family:var(--mono);font-size:16.8px;font-weight:600;text-align:right}
   .drow{border-top:1px solid var(--border-2)} .drow:first-child{border-top:none}
   .drow.flash{background:var(--accent-weak)}
   .drow-head{display:grid;grid-template-columns:12px minmax(0,1fr) 120px 40px 16px;gap:12px;align-items:center;width:100%;background:none;border:none;cursor:pointer;padding:11px 14px;font-family:inherit;text-align:left;color:var(--ink)}
@@ -688,10 +688,10 @@ function radar(dims){
   let spokes='',labels='',dots='';
   dims.forEach((x,i)=>{ const [ex,ey]=pt(i,R); spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" style="stroke:var(--chart-grid)" stroke-width="1"/>`;
     const [lx,ly]=pt(i,R+15),anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
-    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="10" font-weight="500" style="fill:var(--chart-label);cursor:pointer" onclick="focusDim(${i})">${x.dimension}</text>`;
-    const [px,py]=pt(i,R*((x.score||0)/100)); dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${bandColor(x.band)}" stroke-width="1.5" style="stroke:var(--dot-stroke);cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score}/100</title></circle>`; });
+    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="12" font-weight="500" style="fill:var(--chart-label);cursor:pointer" onclick="focusDim(${i})">${x.dimension}</text>`;
+    const [px,py]=pt(i,R*((x.score||0)/100)); dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${bandColor(x.band)}" stroke-width="2" style="stroke:var(--dot-stroke);cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score}/100</title></circle>`; });
   const poly=dims.map((x,i)=>pt(i,R*((x.score||0)/100)).map(n=>n.toFixed(1)).join(',')).join(' '); const dc=bandColor('counterfeit');
-  return `<svg width="250" height="182" viewBox="-45 -5 350 245" role="img" aria-label="Deviation radar">${rings}${spokes}<polygon points="${poly}" fill="${dc}" fill-opacity=".12" stroke="${dc}" stroke-width="2" stroke-linejoin="round"/>${dots}${labels}</svg>`;
+  return `<svg width="360" height="252" viewBox="-45 -5 350 245" role="img" aria-label="Deviation radar">${rings}${spokes}<polygon points="${poly}" fill="${dc}" fill-opacity=".12" stroke="${dc}" stroke-width="2" stroke-linejoin="round"/>${dots}${labels}</svg>`;
 }
 function radarLegend(dims){
   return dims.map((x,i)=>{ const col=bandColor(x.band);
