@@ -139,6 +139,9 @@
   tbody td{padding:9px 12px;border-top:1px solid var(--border-2)}
   tfoot td{padding:9px 12px;border-top:2px solid var(--line)}
   .tablewrap{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card)}
+  .tablewrap.big table{font-size:16.5px}
+  .tablewrap.big thead th{font-size:14.5px;font-weight:600;color:var(--sec);padding:13px 14px}
+  .tablewrap.big tbody td{padding:15px 14px;font-weight:500}
   tbody tr.hl{background:#f8fafd}
   .caselist{display:flex;flex-direction:column;gap:12px}
   .ccard{display:flex;justify-content:space-between;align-items:center;gap:16px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;cursor:pointer;transition:border-color .15s,background .15s}
@@ -705,25 +708,25 @@ function radarOverlay(oks,res,dimNames){
     rings+=`<polygon points="${p}" style="fill:${f===1?'var(--chart-ring)':'none'};stroke:var(--chart-grid)" stroke-width="1"/>`; });
   let spokes='',labels='';
   dimNames.forEach((d,i)=>{ const [ex,ey]=pt(i,R); spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" style="stroke:var(--chart-grid)" stroke-width="1"/>`;
-    const [lx,ly]=pt(i,R+18),anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
-    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="13.5" font-weight="500" style="fill:var(--chart-label)">${d}</text>`; });
+    const [lx,ly]=pt(i,R+19),anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
+    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="14" font-weight="600" style="fill:var(--chart-label)">${d}</text>`; });
   let series='';
   oks.forEach(p=>{ const col=ENGINE_COLOR[p]||'#1f2937'; const dims=res[p].dimensions||[];
     const poly=dimNames.map((dn,i)=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:0; return pt(i,R*sc/100).map(n=>n.toFixed(1)).join(','); }).join(' ');
-    series+=`<polygon points="${poly}" fill="${col}" fill-opacity=".14" stroke="${col}" stroke-width="2.5" stroke-linejoin="round"/>`;
-    dimNames.forEach((dn,i)=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:0; const [px,py]=pt(i,R*sc/100); series+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${col}"/>`; }); });
-  return `<svg width="400" height="300" viewBox="-30 0 340 255" role="img" aria-label="Engine divergence radar">${rings}${spokes}${series}${labels}</svg>`;
+    series+=`<polygon points="${poly}" fill="${col}" fill-opacity=".15" stroke="${col}" stroke-width="3" stroke-linejoin="round"/>`;
+    dimNames.forEach((dn,i)=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:0; const [px,py]=pt(i,R*sc/100); series+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${col}"/>`; }); });
+  return `<svg width="460" height="345" viewBox="-30 0 340 255" role="img" aria-label="Engine divergence radar">${rings}${spokes}${series}${labels}</svg>`;
 }
 // engines x dimensions heatmap, risk-coloured
 function heatmapTable(oks,res,dimNames){
   const tint={authentic:'var(--green-bg)',caution:'var(--amber-bg)',counterfeit:'var(--red-bg)'};
-  const head='<th></th>'+dimNames.map(d=>`<th style="font-weight:500;color:var(--mut);font-size:13.5px;padding:4px;text-align:center">${d}</th>`).join('');
+  const head='<th></th>'+dimNames.map(d=>`<th style="font-weight:600;color:var(--sec);font-size:15px;padding:6px;text-align:center">${d}</th>`).join('');
   const rows=oks.map(p=>{ const dims=res[p].dimensions||[];
     const cells=dimNames.map(dn=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:null;
       const bg=sc==null?'var(--panel)':tint[band(sc)]; const col=sc==null?'var(--mut)':bandColor(band(sc));
-      return `<td style="text-align:center;padding:9px 0;border-radius:6px;font-family:var(--mono);font-weight:600;background:${bg};color:${col}">${sc==null?'—':sc}</td>`; }).join('');
-    return `<tr><td style="font-size:15.4px;color:var(--sec);padding-right:8px;white-space:nowrap"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}</td>${cells}</tr>`; }).join('');
-  return `<table style="width:100%;border-collapse:separate;border-spacing:4px;font-size:14.7px"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+      return `<td style="text-align:center;padding:15px 0;border-radius:7px;font-family:var(--mono);font-weight:700;font-size:19px;background:${bg};color:${col}">${sc==null?'—':sc}</td>`; }).join('');
+    return `<tr><td style="font-size:16.5px;font-weight:600;color:var(--ink);padding-right:8px;white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:8px"></span>${engineName(p)}</td>${cells}</tr>`; }).join('');
+  return `<table style="width:100%;border-collapse:separate;border-spacing:5px;font-size:16px"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 function compareStrip(d){
   const sus = suspectImgs.length ? suspectImgs.slice(0,3).map((b,i)=>`<div class="refc"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span></div>`).join('') : '<span class="muted" style="font-size:14.7px">No suspect photos.</span>';
@@ -876,7 +879,7 @@ function renderCompare(data,provs){
     <div class="sect-lbl">Dimension scores by engine</div>
     <div class="card pad" style="margin-bottom:16px;overflow-x:auto">${heatmapTable(oks,res,dimNames)}</div>
     <div class="sect-lbl">Engine comparison</div>
-    <div class="tablewrap" style="margin-bottom:16px;overflow-x:auto"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">UPC</th><th class="num">Verifier</th><th class="num">Conf</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
+    <div class="tablewrap big" style="margin-bottom:16px;overflow-x:auto"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">UPC</th><th class="num">Verifier</th><th class="num">Conf</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
     ${forensic}
     <div class="sect-lbl">Evidence comparison</div>
     <div class="card pad">${compareStrip(primary||{})}</div>`;
