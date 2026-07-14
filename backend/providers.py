@@ -77,6 +77,11 @@ def _kimi_key():
 # Set ALLOW_MOCK=1 to restore the no-key demo fallback.
 ALLOW_MOCK = os.environ.get("ALLOW_MOCK", "0").strip().lower() in ("1", "true", "yes", "on")
 
+# Per-call HTTP timeout (seconds). Reasoning models (Kimi K2.6) can spend many
+# seconds thinking before the first token, especially under the concurrent load
+# of Compare mode (5 dimension agents x N engines). Keep this generous.
+CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "240"))
+
 # Which provider runs the vision (dimension) agents by default: "openai" or "gemini".
 VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()
 
@@ -135,9 +140,19 @@ def _chat(cfg, content, schema, schema_name, timeout):
     headers.update(cfg.get("extra_headers", {}))
 
     def post(body):
-        r = httpx.post(cfg["base"] + "/chat/completions", json=body, headers=headers, timeout=timeout)
-        r.raise_for_status()
-        return r.json()
+        # Generous read timeout for slow reasoning models (Kimi K2.6 thinks before
+        # answering); one retry on a transient timeout / dropped connection.
+        to = httpx.Timeout(timeout, connect=20.0)
+        last = None
+        for _ in range(2):
+            try:
+                r = httpx.post(cfg["base"] + "/chat/completions", json=body, headers=headers, timeout=to)
+                r.raise_for_status()
+                return r.json()
+            except (httpx.ConnectTimeout, httpx.PoolTimeout, httpx.RemoteProtocolError) as e:
+                last = e  # transient — retry once
+                continue
+        raise last
 
     js = {"name": schema_name, "schema": schema}
     if cfg["strict"]:
@@ -402,7 +417,7 @@ def _chat_dimension(cfg, dim, suspect_b64s, ref_b64s, t0):
     for j, rb in enumerate(ref_b64s):
         content.append({"type": "text", "text": f"AUTHENTIC REFERENCE {j + 1}:"})
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rb}", "detail": "high"}})
-    parsed, tin, tout = _chat(cfg, content, schema, "dimension", 120)
+    parsed, tin, tout = _chat(cfg, content, schema, "dimension", CHAT_TIMEOUT)
     score = int(max(0, min(100, parsed["score"])))
     band = _band(score)
     usage = {"agent": dim, "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
@@ -461,7 +476,7 @@ def _chat_upc(cfg, brand, upc_b64, t0):
               "if you could read a code, false if none is legible.")
     content = [{"type": "text", "text": prompt},
                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{upc_b64}", "detail": "high"}}]
-    parsed, tin, tout = _chat(cfg, content, schema, "upc", 90)
+    parsed, tin, tout = _chat(cfg, content, schema, "upc", CHAT_TIMEOUT)
     digits = "".join(ch for ch in str(parsed.get("upc", "")) if ch.isdigit())
     expected = _MASTER_UPC.get(brand, "")
     belongs = None
@@ -559,7 +574,7 @@ def _chat_verdict(cfg, kind, brand, composite, dimensions, upc, t0):
         prompt = (f"Adversarially review this counterfeit verdict. Composite {composite['score']}/100. "
                   f"Findings: {findings}. Is the counterfeit conclusion supported? "
                   f"Return confirmed (bool) and votes like '2/2'.")
-    out, tin, tout = _chat(cfg, prompt, schema, "verdict", 60)
+    out, tin, tout = _chat(cfg, prompt, schema, "verdict", CHAT_TIMEOUT)
     usage = {
         "agent": "Verdict synth." if kind == "synthesize" else "Verify",
         "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
