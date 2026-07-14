@@ -1,0 +1,2 @@
+{"case_id": "VF-2026-0412", "brand": "TNF", "label": "counterfeit", "suspect_images": ["data/613d-x0NedL._AC_SX679_.jpg", "data/6148oMGtmcL._AC_SX679_.jpg"], "reference_images": ["data/71Dg9BU1aXL._AC_SX679_.jpg"]}
+{"case_id": "VF-2026-0402", "brand": "TNF", "label": "authentic", "suspect_images": ["data/61bDpGS29JL._AC_SX679_.jpg"], "reference_images": ["data/61ppGrC7XmL._AC_SX679_.jpg"]}

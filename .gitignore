@@ -18,6 +18,9 @@ backend/_*.py
 .image-slots.state.json
 *.state.json
 
+# --- bench harness generated outputs (keep cases.sample.jsonl) ---
+bench/bench_*.csv
+
 # --- local tooling / dev artifacts (not needed to deploy) ---
 .claude/
 .thumbnail
