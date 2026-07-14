@@ -30,3 +30,6 @@ screenshots/
 node_modules/
 .DS_Store
 Thumbs.db
+
+# redesign local backup
+analyze.legacy.html

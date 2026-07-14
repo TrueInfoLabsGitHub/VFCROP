@@ -3,860 +3,456 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VF VERITAS — Counterfeit Analysis</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script>(function(){try{var t=localStorage.getItem('veritas-theme')||(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>VERITAS — Counterfeit Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.28.1/dist/tabler-icons.min.css" rel="stylesheet">
 <style>
   :root{
-    --blue:#2f5fe0; --blue-deep:#2951c4; --blue-tint:#eef2fd;
-    --ink:#1b2432; --slate:#5a6676; --mist:#8b96a6;
-    --app:#f5f6f8; --card:#ffffff; --border:#e6e8ee; --border-strong:#d5d9e1;
-    --green:#1f8a4e; --green-bg:#e9f5ee; --amber:#b0781a; --amber-bg:#f9f1db;
-    --red:#d1403c; --red-bg:#fbecec; --mono:'IBM Plex Mono',monospace;
-    --accent:#2f5fe0; --accent-hover:#2951c4;
-    --accent-solid:#2f5fe0; --accent-deep:#2951c4;
-    --glass:#ffffff; --glass-strong:#ffffff; --glass-brd:#e6e8ee;
-    --surface:#ffffff; --panel:#f7f8fa; --panel-2:#f7f8fa; --track:#eceef2; --seg-bg:#f2f4f7;
-    --chart-track:#edeff3; --chart-grid:#e6e8ee; --chart-ring:#ffffff; --chart-label:#5a6676;
-    --dot-stroke:#ffffff; --gauge-text:#1b2432; --gauge-sub:#8b96a6;
-    --sh-sm:0 1px 2px rgba(16,24,40,.05);
-    --sh:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
-    --sh-lg:0 12px 34px rgba(16,24,40,.12);
-    --sh-brand:0 1px 2px rgba(16,24,40,.06);
-    --r-sm:8px; --r:12px; --r-lg:14px; --ring:0 0 0 3px rgba(47,95,224,.18);
+    --canvas:#eef1f6; --sidebar:#e5eaf2; --card:#ffffff; --panel:#f5f7fb;
+    --border:#dfe4ee; --border-2:#e6ebf3; --line:#cdd5e3;
+    --ink:#1b2432; --sec:#5a6676; --mut:#8b96a6;
+    --accent:#1f2937; --accent-hover:#2b3647; --accent-weak:#dde4f0; --indigo:#5b5bd6;
+    --green:#1f8a4e; --green-bg:#e6efe9; --amber:#b0781a; --amber-bg:#f6efdb;
+    --red:#d1403c; --red-deep:#a3241f; --red-bg:#fbecec;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --sh:0 1px 2px rgba(24,32,54,.05),0 1px 3px rgba(24,32,54,.05);
+    --sh-md:0 8px 26px rgba(24,32,54,.12);
+    --r:12px; --r-sm:8px; --ring:0 0 0 3px rgba(31,41,55,.14);
     color-scheme:light;
   }
-  html[data-theme="dark"]{
-    --ink:#e7eaf1; --slate:#a1abbd; --mist:#7a8698;
-    --border:#252d3c; --border-strong:#333c4d;
-    --accent:#5b82f0; --accent-hover:#6f92f3; --accent-deep:#9fb4f5; --accent-solid:#5b82f0;
-    --blue:#5b82f0; --blue-deep:#8aa4f5; --blue-tint:rgba(91,130,240,.16);
-    --app:#0f1420; --surface:#161c28; --card:#161c28; --panel:#1b2230; --panel-2:#1b2230; --track:#232b3a; --seg-bg:rgba(255,255,255,.05);
-    --glass:#161c28; --glass-strong:#161c28; --glass-brd:#252d3c;
-    --green:#42c281; --green-bg:rgba(52,180,110,.16); --amber:#e0aa53; --amber-bg:rgba(210,160,60,.17); --red:#f0625f; --red-bg:rgba(240,90,88,.16);
-    --chart-track:#232b3a; --chart-grid:#2b3444; --chart-ring:#161c28; --chart-label:#a1abbd;
-    --dot-stroke:#161c28; --gauge-text:#e7eaf1; --gauge-sub:#7a8698;
-    --sh-sm:0 1px 2px rgba(0,0,0,.4);
-    --sh:0 1px 3px rgba(0,0,0,.42);
-    --sh-lg:0 20px 44px rgba(0,0,0,.5);
-    --sh-brand:0 1px 2px rgba(0,0,0,.4);
-    color-scheme:dark;
-  }
-  html[data-theme="dark"] header{background:var(--card)}
   *{box-sizing:border-box}
-  body{margin:0;font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--app);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
-  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  @keyframes pop{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:none}}
-  header{position:sticky;top:0;z-index:50;height:60px;padding:0 24px;display:flex;align-items:center;gap:13px;color:var(--ink);
-    background:var(--card);border-bottom:1px solid var(--border)}
-  .wm{width:36px;height:36px;border-radius:9px;background:var(--accent);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;letter-spacing:.02em}
-  header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.13em;line-height:1;color:var(--ink)}
-  header .sub{font-size:10.9px;letter-spacing:.06em;text-transform:uppercase;color:var(--mist);margin-top:5px;font-weight:500}
-  .modepill{margin-left:auto;font-size:12.6px;font-weight:600;background:var(--panel);color:var(--slate);border:1px solid var(--border);padding:7px 14px;border-radius:9999px}
-  .themebtn{width:40px;height:40px;border-radius:12px;border:1px solid var(--glass-brd);background:var(--glass-strong);color:var(--ink);cursor:pointer;font-size:19.5px;line-height:1;display:flex;align-items:center;justify-content:center;transition:transform .12s,box-shadow .15s}
-  .themebtn:hover{transform:translateY(-1px);box-shadow:var(--sh-sm)}
-  .themebtn:active{transform:translateY(0) scale(.95)}
-  main{max-width:1180px;margin:0 auto;padding:26px 22px 48px}
-  /* toolbar */
-  .toolbar{display:flex;flex-direction:column;gap:16px;background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r-lg);padding:18px 20px;margin-bottom:18px;box-shadow:var(--sh)}
-  .tb-fields{display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap}
-  .tb-action{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap}
-  .tb-action #prodpickwrap{flex:1 1 320px;min-width:0}
-  .prodrow{display:flex;gap:8px;align-items:center;width:100%;min-width:0}
-  .prodrow select{flex:1 1 auto;min-width:0}
-  .tb-status{font-size:14.4px;min-height:1px}
-  label.fld{display:flex;flex-direction:column;gap:7px;font-size:12.1px;color:var(--slate);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
-  label.fld.grow{flex:1 1 200px;min-width:170px}
-  label.fld.grow select{width:100%}
-  select,button{font-family:inherit;font-size:16.1px}
-  select{border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:10px 13px;background:var(--surface);color:var(--ink);font-weight:500;min-width:170px;transition:border-color .15s,box-shadow .15s}
-  select:hover{border-color:var(--accent-solid)}
-  select:focus,input:focus{outline:none;border-color:var(--accent-solid);box-shadow:var(--ring)}
-  .btn{background:var(--accent);color:#fff;border:1px solid var(--accent);border-radius:var(--r-sm);padding:11px 20px;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s,transform .1s}
-  .btn:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
-  .btn:active{transform:translateY(1px)}
-  .btn:disabled{opacity:.5;cursor:default}
-  .btn.run{flex:0 0 auto;padding:13px 30px;font-size:15.5px}
-  .btn.ghost{background:var(--surface);color:var(--accent-deep);border:1px solid var(--border-strong)}
-  .btn.ghost:hover{background:var(--blue-tint)}
-  .btn.sm{padding:9px 16px;font-size:14.9px}
-  /* sticky run bar — appears after photos are added and the top Run scrolls away */
-  .runbar{position:fixed;left:0;right:0;bottom:0;z-index:60;
-    background:var(--glass-strong);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
-    border-top:1px solid var(--glass-brd);box-shadow:0 -8px 30px rgba(24,20,60,.14);
-    transform:translateY(105%);transition:transform .3s cubic-bezier(.4,0,.2,1)}
-  .runbar.show{transform:translateY(0)}
-  .runbar-inner{max-width:1180px;margin:0 auto;width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 22px}
-  .runbar-ctx{font-size:14.4px;color:var(--slate);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:9px}
-  .runbar-ctx b{color:var(--ink);font-weight:700}
-  .runbar-ctx .rbdot{width:8px;height:8px;border-radius:50%;background:var(--green);flex:none;box-shadow:0 0 0 3px var(--green-bg)}
-  .runbar-act{display:flex;align-items:center;gap:12px;flex:none}
-  @media(max-width:560px){.runbar-ctx b+span,.runbar-ctx .rbprod{display:none}}
-  .exportbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
-    background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r);padding:14px 20px;margin-bottom:18px;
-    box-shadow:var(--sh)}
-  .exportbar .expl{font-size:14.9px;color:var(--ink);display:flex;align-items:center;gap:10px}
-  .exportbar .expl b{font-weight:700}
-  .exportbar .expbtns{display:flex;align-items:center;gap:8px}
-  .exp-clear{background:none;border:none;color:var(--mist);font-size:13.8px;cursor:pointer;text-decoration:underline}
-  .exp-toast{font-size:14.4px;color:var(--green);margin-left:2px}
-  .seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--r-sm);overflow:hidden;background:var(--seg-bg);padding:3px;gap:3px}
-  .seg-btn{font-family:inherit;font-size:14.9px;border:none;background:transparent;color:var(--slate);padding:8px 14px;cursor:pointer;white-space:nowrap;font-weight:500;border-radius:8px;transition:background .15s,color .15s,box-shadow .15s}
-  .seg-btn:hover:not(.active):not(:disabled){color:var(--ink)}
-  .seg-btn.active{background:var(--surface);color:var(--accent-deep);font-weight:600;box-shadow:var(--sh-sm)}
-  .seg-btn:disabled{opacity:.45;cursor:not-allowed}
-  /* cards */
-  .card{position:relative;background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r-lg);padding:22px;box-shadow:var(--sh);animation:fadeUp .5s ease both;overflow:hidden}
-  .card::before{content:none}
-  .card-title{font-size:13.8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);margin:0 0 14px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:stretch}
-  /* evidence card: two internal columns so the card stays short and wide */
-  .ev-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 20px}
-  .ev-grid .ev-full{grid-column:1/-1}
-  .ev-full .refs{grid-template-columns:repeat(6,1fr)}
-  .ev-grid .eyebrow{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:9px}
-  .ev-grid .drop{height:92px;min-height:0}
-  #updrop{max-height:none}
-  @media(max-width:840px){.ev-grid{grid-template-columns:1fr}.ev-full .refs{grid-template-columns:repeat(3,1fr)}}
-  .eyebrow{font-size:12.1px;letter-spacing:.05em;text-transform:uppercase;color:var(--mist);font-weight:700;margin-bottom:8px}
-  .subhead{margin-top:14px}
-  .divider{height:1px;background:var(--border);margin:14px 0}
-  /* uploads */
-  .drop{border:1.5px dashed var(--border-strong);border-radius:var(--r);min-height:62px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--slate);cursor:pointer;overflow:hidden;background:var(--panel-2);font-size:14.4px;transition:.15s;padding:8px}
-  .drop:hover,.drop.over{border-color:var(--accent-solid);background:var(--blue-tint);color:var(--accent-deep)}
-  .drop img{width:100%;height:100%;max-height:220px;object-fit:contain}
-  .refs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:11px}
-  .ref{border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden;background:var(--surface);box-shadow:var(--sh-sm);transition:transform .15s,box-shadow .15s}
-  .ref:hover{transform:translateY(-2px);box-shadow:var(--sh)}
-  .ref img{width:100%;height:64px;object-fit:cover;display:block;cursor:zoom-in}
-  .ref span{display:block;font-size:11.5px;color:var(--slate);padding:3px 5px;text-align:center;background:var(--panel)}
-  #updrop{max-height:96px;padding:6px} #updrop img{cursor:zoom-in;width:auto!important;height:auto!important;max-width:100%;max-height:84px!important;object-fit:contain}
-  /* verdict */
-  .verdict-main{display:flex;gap:20px;align-items:center;animation:fadeUp .5s ease both}
-  .verdict-txt{min-width:0}
-  .vscore{font-family:var(--mono);font-size:48.3px;font-weight:700;line-height:1;margin:12px 0 9px;letter-spacing:-.03em}
-  .vscore span{font-size:16.1px;color:var(--mist);font-weight:500}
-  .vsummary{color:var(--slate);font-size:14.9px;line-height:1.6}
-  .matchgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0;padding-top:18px;border-top:1px solid var(--border)}
-  .matchcell{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-sm);padding:11px 13px;transition:background .15s,box-shadow .15s}
-  .matchcell:hover{background:var(--surface);box-shadow:var(--sh-sm)}
-  .matchcell .mk{font-size:10.9px;text-transform:uppercase;letter-spacing:.05em;color:var(--mist);font-weight:700;margin-bottom:7px}
-  .matchcell .mv{font-size:14.9px;font-weight:600}
-  .ev-title{font-size:12.6px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--slate);margin-bottom:6px}
-  .evidence{margin:0;padding-left:18px;color:var(--ink);font-size:14.9px;line-height:1.6}
-  .evidence li{margin:3px 0}
-  .emptybox{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--mist);padding:48px 20px;gap:12px;font-size:14.9px;line-height:1.5}
-  .emptybox svg{opacity:.4}
-  /* badges */
-  .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:9999px;font-size:13.2px;font-weight:700;letter-spacing:.02em;white-space:nowrap;text-transform:capitalize}
-  .badge svg{width:12px;height:12px;flex:none}
-  .bg-match{background:var(--green-bg);color:var(--green)}
-  .bg-review{background:var(--amber-bg);color:var(--amber)}
-  .bg-dev{background:var(--red-bg);color:var(--red)}
-  .bg-neutral{background:var(--track);color:var(--slate)}
-  /* dimensions */
-  .dimsection{margin-top:22px}
-  .section-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px}
-  .section-head .card-title{margin:0}
-  .dimsummary{display:flex;gap:8px;flex-wrap:wrap}
-  .cnt{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:9999px;font-size:13.8px;font-weight:700}
-  .cnt svg{width:12px;height:12px}
-  .dimgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
-  .dim{background:var(--glass-strong);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--glass-brd);border-radius:var(--r);padding:16px 17px;box-shadow:var(--sh);transition:transform .18s,box-shadow .18s;animation:fadeUp .5s ease both}
-  .dim:hover{transform:translateY(-4px);box-shadow:var(--sh-lg)}
-  .dim-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:11px}
-  .dim-name{font-weight:700;font-size:16.1px}
-  .dim-scorerow{display:flex;align-items:baseline;gap:7px;margin-bottom:8px}
-  .dim-score{font-family:var(--mono);font-weight:700;font-size:27.6px;line-height:1}
-  .dim-max{font-size:11.5px;color:var(--mist);font-weight:500}
-  .dim-bar{height:6px;border-radius:9999px;background:var(--track);overflow:hidden;margin-bottom:11px}
-  .dim-bar i{display:block;height:100%;border-radius:9999px}
-  .dim-find{font-size:14.9px;font-weight:600;margin-bottom:5px;line-height:1.4}
-  .dim-rsn{font-size:14.4px;color:var(--slate);line-height:1.5}
-  .dim-conf{font-size:12.1px;color:var(--mist);margin-top:10px;font-family:var(--mono);border-top:1px solid var(--border);padding-top:9px}
-  .upc-num{font-family:var(--mono);font-size:21.8px;font-weight:600;letter-spacing:.02em;margin-bottom:8px}
-  /* graphical overview: radar + score bars */
-  .dim-overview{background:var(--glass-strong);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--glass-brd);border-radius:var(--r-lg);box-shadow:var(--sh);padding:20px 24px;margin-bottom:14px;animation:fadeUp .5s ease both;
-    display:grid;grid-template-columns:270px 1fr;gap:22px;align-items:center}
-  @media(max-width:720px){.dim-overview{grid-template-columns:1fr}}
-  .dim-radar-wrap{display:flex;flex-direction:column;align-items:center;gap:8px}
-  .dim-radar-cap{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mist);font-weight:700}
-  .dim-radar-wrap svg{max-width:100%;height:auto}
-  .dim-legend{display:flex;flex-direction:column;gap:4px;min-width:0}
-  .dim-legrow{display:grid;grid-template-columns:12px minmax(78px,120px) 1fr 34px;gap:11px;align-items:center;
-    cursor:pointer;border-radius:8px;padding:7px 8px;transition:background .12s}
-  .dim-legrow:hover{background:var(--panel)}
-  .dim-legdot{width:11px;height:11px;border-radius:3px}
-  .dim-legname{font-weight:600;font-size:14.4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .dim-legbar{height:8px;border-radius:9999px;background:var(--track);overflow:hidden}
-  .dim-legbar i{display:block;height:100%;border-radius:9999px;transition:width .6s cubic-bezier(.4,0,.2,1)}
-  .dim-legscore{font-family:var(--mono);font-weight:700;font-size:14.9px;text-align:right}
-  /* graphical dimension cards */
-  .gdim{padding:15px 17px;transition:box-shadow .18s,transform .18s}
-  .gdim.flash{box-shadow:0 0 0 2px var(--blue),var(--sh-lg)}
-  .gdim-top{display:flex;gap:14px;align-items:flex-start}
-  .gdim-info{min-width:0;flex:1}
-  .mini-gauge{flex:none}
-  .gdim .dim-head{margin-bottom:7px}
-  .gdim .dim-find{margin-bottom:9px}
-  .conf-meter{display:flex;align-items:center;gap:8px}
-  .conf-lab{font-size:10.9px;text-transform:uppercase;letter-spacing:.05em;color:var(--mist);font-weight:700;flex:none}
-  .conf-track{flex:1;height:5px;border-radius:9999px;background:var(--track);overflow:hidden;min-width:40px}
-  .conf-track i{display:block;height:100%;border-radius:9999px;background:var(--blue);transition:width .6s ease}
-  .conf-val{font-family:var(--mono);font-size:12.6px;font-weight:600;color:var(--slate);flex:none}
-  .dim-toggle{display:flex;align-items:center;gap:6px;width:100%;justify-content:flex-start;
-    margin-top:12px;padding:8px 0 0;border:none;border-top:1px solid var(--border);background:none;cursor:pointer;
-    font-family:inherit;font-size:12.6px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--blue)}
-  .dim-toggle svg{width:13px;height:13px;transition:transform .2s}
-  .dim-toggle[aria-expanded="true"] svg{transform:rotate(180deg)}
-  .gdim-rsn{margin-top:10px}
-  /* report */
-  .rep{margin-top:22px}
-  .rep h3{margin:0 0 14px;font-size:13.8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--slate)}
-  table.rt{width:100%;border-collapse:collapse;font-size:14.4px}
-  table.rt th,table.rt td{padding:9px 11px;border-bottom:1px solid var(--border);text-align:left}
-  table.rt th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--mist);font-weight:700}
-  table.rt td.num,table.rt th.num{text-align:right;font-family:var(--mono)}
-  table.rt tbody tr:hover{background:var(--panel)}
-  table.rt tfoot td{font-weight:700;border-top:2px solid var(--border-strong)}
-  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
-  .evals{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:16px}
-  .ev{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-sm);padding:11px 13px;transition:background .15s,box-shadow .15s}
-  .ev:hover{background:var(--surface);box-shadow:var(--sh-sm)}
-  .ev .k{font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--mist);font-weight:700}
-  .ev .v{font-size:18.4px;font-weight:700;font-family:var(--mono);margin-top:4px}
-  .muted{color:var(--mist)} .hidden{display:none!important}
-  .spin{width:16px;height:16px;border:2.5px solid var(--track);border-top-color:var(--accent-solid);border-radius:50%;animation:s .8s linear infinite;display:inline-block;vertical-align:middle}
-  @keyframes s{to{transform:rotate(360deg)}}
-  /* lightbox + modal */
-  .lb{position:fixed;inset:0;background:rgba(12,20,34,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:200;cursor:zoom-out;padding:28px}
-  .lb.open{display:flex}
-  .lb img{max-width:92vw;max-height:92vh;border-radius:12px;background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.5)}
-  .lb .lbclose{position:absolute;top:16px;right:22px;color:#fff;font-size:34.5px;line-height:1;cursor:pointer;opacity:.85}
-  .modal{position:fixed;inset:0;background:rgba(12,20,34,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;z-index:210;padding:24px}
-  .modal.open{display:flex}
-  .modalcard{background:var(--surface);border-radius:var(--r-lg);padding:24px;width:100%;max-width:470px;max-height:88vh;overflow:auto;box-shadow:var(--sh-lg);animation:pop .22s ease both}
-  .txt{font-family:inherit;font-size:16.1px;border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:10px 12px;width:100%;margin-top:5px;transition:border-color .15s,box-shadow .15s}
-  /* ===== case workspace ===== */
-  .casehdr{padding:20px 22px}
-  .ch-top{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:flex-start}
-  .ch-eyebrow{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--mist);font-weight:700;margin-bottom:3px}
-  .ch-case-select{font-family:var(--mono);font-size:21.5px;font-weight:700;color:var(--ink);background:transparent;border:none;padding:2px 4px 2px 0;cursor:pointer;min-width:0}
-  .ch-case-select:focus{outline:none;box-shadow:none;border:none}
-  .ch-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
-  .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:9999px;font-size:12.6px;font-weight:600;background:var(--panel);border:1px solid var(--border);color:var(--slate)}
-  .chip select{border:none;background:transparent;font-size:12.6px;font-weight:700;color:var(--ink);padding:0;min-width:0;cursor:pointer}
-  .chip select:focus{outline:none;box-shadow:none}
-  .chip-status{border-color:transparent;background:var(--green-bg);color:var(--green)}
-  .chip-status.st-amber{background:var(--amber-bg);color:var(--amber)}
-  .chip-status.st-red{background:var(--red-bg);color:var(--red)}
-  .ch-side{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
-  .ch-analyst{font-size:13.4px;color:var(--slate);display:flex;gap:7px;align-items:center}
-  .ch-analyst b{color:var(--ink)}
-  .ch-settings{display:flex;gap:18px;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:16px;padding-top:16px}
-  /* step badges */
-  .stepbadge{width:23px;height:23px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;font-size:12.6px;display:inline-flex;align-items:center;justify-content:center;margin-right:9px;flex:none;letter-spacing:0}
-  .card-title{display:flex;align-items:center}
-  /* readiness checklist (step 2 idle) */
-  .ckl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
-  .ckl li{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid var(--border);border-radius:12px;background:var(--panel);font-size:14.4px;font-weight:600;color:var(--slate)}
-  .ckl li.done{border-color:rgba(18,137,76,.35);background:var(--green-bg);color:var(--ink)}
-  .ck-ic{width:21px;height:21px;border-radius:50%;border:2px solid var(--border-strong);flex:none;display:flex;align-items:center;justify-content:center;color:#fff}
-  .ck-ic svg{width:11px;height:11px}
-  .ckl li.done .ck-ic{background:var(--green);border-color:var(--green)}
-  .ckl li .opt{margin-left:auto;font-size:10.6px;color:var(--mist);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-  .ckl-hint{font-size:13px;color:var(--mist);margin-top:12px;line-height:1.5}
-  /* pipeline progress (step 2 running/done) */
-  .pipe{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  @media(max-width:1020px){.pipe{grid-template-columns:1fr}}
-  .pipe-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel);font-size:13.8px;font-weight:600;color:var(--slate);min-width:0}
-  .pipe-row .pico{width:18px;height:18px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--green)}
-  .pipe-row .pico svg{width:14px;height:14px}
-  .pipe-row .pico .spin{width:13px;height:13px;border-width:2px}
-  .pipe-row.done{color:var(--ink)}
-  .pipe-row.queued{opacity:.62}
-  .pipe-row .lat{margin-left:auto;font-family:var(--mono);font-size:12.1px;color:var(--mist);flex:none}
-  .pipe-foot{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.8px;color:var(--mist);font-family:var(--mono);padding:2px 3px}
-  .runrow{display:flex;gap:12px;align-items:center;margin-top:16px;flex-wrap:wrap}
-  /* analysis card fills its column: panel grows, run row pins to the bottom */
-  .runcard{display:flex;flex-direction:column}
-  .runcard #runpanel{flex:1}
-  .runcard .runrow{margin-top:auto;padding-top:16px}
-  .qdot{width:9px;height:9px;border-radius:50%;border:2px solid var(--border-strong);display:inline-block}
-  .pipe-title{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mist);font-weight:700;margin:16px 0 9px}
-  .stagechips{display:flex;flex-wrap:wrap;gap:7px}
-  .stagechip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--border);border-radius:9999px;background:var(--panel);font-size:12.6px;font-weight:600;color:var(--slate)}
-  .stagechip .qdot{width:7px;height:7px}
-  /* compact verdict recap in the analysis panel once a run completes */
-  .done-recap{display:flex;align-items:center;gap:13px;margin-top:14px;padding:13px 16px;border:1px solid var(--border);border-radius:12px;background:var(--panel);flex-wrap:wrap}
-  .done-recap .dr-score{font-family:var(--mono);font-weight:700;font-size:23px;line-height:1}
-  .done-recap .dr-link{margin-left:auto;color:var(--accent-deep);font-weight:700;font-size:13.4px;text-decoration:none;white-space:nowrap}
-  /* finding */
-  .finding-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
-  .runmeta{font-size:12.4px;color:var(--mist);font-family:var(--mono);margin-top:7px;line-height:1.6;word-break:break-word}
-  .finding-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:16px;font-size:12.6px;color:var(--slate);font-weight:600}
-  .legend .lg{display:inline-flex;align-items:center;gap:7px}
-  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
-  .compare{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:start;margin-top:10px}
-  @media(max-width:720px){.compare{grid-template-columns:1fr}}
-  .cmp-vs{font-weight:800;color:var(--mist);font-size:13px;letter-spacing:.06em;align-self:center;padding:0 3px}
-  .cmp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-  .cmp-grid .ref img{height:86px}
-  .disclaimer{font-size:12.6px;color:var(--mist);text-align:center;margin-top:20px;border-top:1px solid var(--border);padding-top:15px;line-height:1.55}
-  /* ===== login gate — simple light card on a dark backdrop ===== */
-  .loginview{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;padding:22px;
-    background:radial-gradient(1200px 700px at 50% -8%,#1e2740,transparent 60%),#12161f}
-  .login-form{background:#fff;color:#101a2b;padding:34px 32px 28px;display:flex;flex-direction:column;justify-content:center;
-    width:100%;max-width:398px;border-radius:22px;box-shadow:0 30px 70px rgba(5,8,22,.55);animation:pop .3s ease both}
-  .ls-brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
-  .ls-brand .wm{width:40px;height:40px;border-radius:11px;background:var(--accent);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center}
-  .ls-brand h1{font-size:20px;margin:0;font-weight:800;letter-spacing:.14em;line-height:1;background:var(--accent);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  .ls-brand .sub{font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:#8a94a8;margin-top:4px}
-  .login-h{font-size:22px;font-weight:800;margin:0 0 4px;color:#101a2b}
-  .login-p{font-size:14px;color:#586579;margin:0 0 22px}
-  .sso{display:flex;flex-direction:column;gap:10px}
-  .sso-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px 14px;border:1px solid #dfe5ee;border-radius:12px;background:#fff;color:#1a2b3c;font-family:inherit;font-size:14.5px;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s}
-  .sso-btn:hover{background:#f5f7fc;border-color:#c9d2e0}
-  .sso-btn svg{width:18px;height:18px;flex:none}
-  .or{display:flex;align-items:center;gap:12px;margin:18px 0;color:#9aa6ba;font-size:11.6px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-  .or::before,.or::after{content:"";flex:1;height:1px;background:#e6eaf2}
-  .login-field{display:block;margin-bottom:14px}
-  .login-field>span{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#586579;margin-bottom:7px}
-  .login-form .txt{margin-top:0;background:#fff;border:1px solid #dfe5ee;color:#101a2b}
-  .login-form .txt:focus{border-color:var(--accent-solid);box-shadow:0 0 0 3px rgba(47,95,224,.18)}
-  .login-form .txt::placeholder{color:#aab4c5}
-  .login-btn{width:100%;margin-top:4px;padding:13px;font-size:16px;display:flex;align-items:center;justify-content:center}
-  .login-err{color:#d43d2b;font-size:13.4px;margin-top:11px;min-height:17px}
-  .login-note{font-size:12px;color:#8a9bb5;margin-top:18px;text-align:center;line-height:1.55}
-  /* ===== app shell ===== */
-  .appshell{display:flex;min-height:100vh;align-items:stretch}
-  .sidebar{position:sticky;top:0;align-self:flex-start;height:100vh;width:238px;flex:none;display:flex;flex-direction:column;padding:20px 15px;
-    background:var(--glass-strong);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-right:1px solid var(--glass-brd);z-index:120}
-  .sb-brand{display:flex;align-items:center;gap:11px;padding:6px 8px 20px}
-  .sb-brand .wm{width:38px;height:38px;border-radius:11px;font-size:15px}
-  .sb-brand h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.13em;line-height:1;background:var(--accent);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  .sb-brand .sub{font-size:8.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--slate);margin-top:4px}
-  .sb-lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--mist);padding:6px 10px 8px}
-  .sb-nav{display:flex;flex-direction:column;gap:3px}
-  .nav-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:var(--r-sm);border:none;background:none;cursor:pointer;
-    font-family:inherit;font-size:15px;font-weight:600;color:var(--slate);text-align:left;width:100%;transition:background .15s,color .15s}
-  .nav-item svg{width:19px;height:19px;flex:none;opacity:.85}
-  .nav-item:hover{background:var(--panel);color:var(--ink)}
-  .nav-item.active{background:var(--blue-tint);color:var(--accent-deep)}
-  .nav-item.active svg{opacity:1}
-  .nav-item .nav-dot{margin-left:auto;width:8px;height:8px;border-radius:50%;background:var(--red);opacity:0;transition:opacity .2s}
-  .nav-item.hasnew .nav-dot{opacity:1}
-  .sb-spacer{flex:1}
-  .sb-foot{border-top:1px solid var(--border);padding-top:14px;display:flex;flex-direction:column;gap:12px}
-  .sb-user{display:flex;align-items:center;gap:10px;min-width:0}
-  .sb-avatar{width:36px;height:36px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;flex:none;box-shadow:var(--sh-brand)}
-  .sb-user .u-meta{min-width:0}
-  .sb-user .u-name{font-size:13.6px;font-weight:700;color:var(--ink);line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sb-user .u-role{font-size:11.4px;color:var(--mist);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sb-logout{background:none;border:1px solid var(--border-strong);border-radius:9px;color:var(--slate);font-family:inherit;font-size:13px;font-weight:600;padding:8px;cursor:pointer;transition:.15s}
-  .sb-logout:hover{color:var(--red);border-color:var(--red)}
-  /* branded coloured sidebar (fixed deep-indigo in both themes) */
-  .sidebar{background:#171d2b;border-right:1px solid rgba(255,255,255,.08);box-shadow:none}
-  .sidebar .sb-brand h1{-webkit-text-fill-color:#fff;color:#fff}
-  .sidebar .sb-brand .sub{color:rgba(255,255,255,.5)}
-  .sidebar .sb-lbl{color:rgba(255,255,255,.4)}
-  .sidebar .nav-item{color:rgba(255,255,255,.72)}
-  .sidebar .nav-item:hover{background:rgba(255,255,255,.07);color:#fff}
-  .sidebar .nav-item.active{background:rgba(255,255,255,.1);color:#fff;box-shadow:inset 3px 0 0 0 var(--accent)}
-  .sidebar .nav-item.active svg{opacity:1}
-  .sidebar .sb-foot{border-top-color:rgba(255,255,255,.12)}
-  .sidebar .sb-user .u-name{color:#fff}
-  .sidebar .sb-user .u-role{color:rgba(255,255,255,.54)}
-  .sidebar .sb-logout{color:rgba(255,255,255,.74);border-color:rgba(255,255,255,.2)}
-  .sidebar .sb-logout:hover{color:#fff;border-color:#ff8a7a}
-  .sidebar .themebtn{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18);color:#fff}
-  .sidebar .themebtn:hover{background:rgba(255,255,255,.16)}
+  body{margin:0;font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--canvas);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+  .mono{font-family:var(--mono)}
+  .muted{color:var(--mut)} .hidden{display:none!important}
+  a{color:inherit}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes spinr{to{transform:rotate(-360deg)}}
+  @keyframes pulse{0%,100%{opacity:.4;transform:scale(1)}50%{opacity:1;transform:scale(1.18)}}
+
+  /* ---- app shell ---- */
+  .app{display:flex;min-height:100vh;align-items:stretch}
+  .sidebar{width:220px;flex:none;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 12px;position:sticky;top:0;height:100vh;z-index:40}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 18px}
+  .brand .wm{width:32px;height:32px;border-radius:9px;background:var(--accent);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;letter-spacing:.02em}
+  .brand b{font-size:15px;font-weight:600;letter-spacing:.02em;display:block;line-height:1.1}
+  .brand .sub{font-size:10px;color:var(--mut);letter-spacing:.06em;text-transform:uppercase}
+  .navlbl{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);padding:8px 10px 6px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:var(--r-sm);border:none;background:none;cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:500;color:var(--sec);text-align:left;width:100%;transition:background .15s,color .15s}
+  .nav-item i{font-size:18px;flex:none;opacity:.85}
+  .nav-item:hover{background:#dbe2ee;color:var(--ink)}
+  .nav-item.active{background:var(--accent-weak);color:var(--ink)}
+  .nav-item .dot{margin-left:auto;width:7px;height:7px;border-radius:50%;background:var(--red);opacity:0}
+  .nav-item.hasnew .dot{opacity:1}
+  .sb-foot{margin-top:auto;border-top:1px solid var(--border);padding-top:12px;display:flex;align-items:center;gap:9px}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--accent-weak);color:#41506a;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none}
+  .u-name{font-size:12.5px;font-weight:500;line-height:1.2}
+  .u-role{font-size:10.5px;color:var(--mut)}
   .maincol{flex:1;min-width:0;display:flex;flex-direction:column}
-  .topbar{position:sticky;top:0;z-index:45;height:60px;display:flex;align-items:center;gap:14px;padding:0 26px;
-    background:var(--card);border-bottom:1px solid var(--border)}
-  html[data-theme="dark"] .topbar{background:var(--card)}
-  .topbar h2{font-size:18.5px;font-weight:700;margin:0}
-  .topbar .spacer{margin-left:auto}
-  .menubtn{display:none;width:38px;height:38px;border-radius:10px;border:1px solid var(--glass-brd);background:var(--glass-strong);color:var(--ink);cursor:pointer;font-size:18px;align-items:center;justify-content:center}
-  .maincol>main{width:100%}
-  .page{animation:fadeUp .4s ease both}
-  .sb-backdrop{display:none;position:fixed;inset:0;background:rgba(12,20,34,.4);z-index:110}
+  .topbar{height:56px;display:flex;align-items:center;gap:10px;padding:0 22px;border-bottom:1px solid var(--border);background:var(--canvas);position:sticky;top:0;z-index:30}
+  .crumb{font-size:12.5px;color:var(--mut);display:flex;align-items:center;gap:8px}
+  .tb-right{margin-left:auto;display:flex;align-items:center;gap:16px;color:var(--mut)}
+  .tb-right i{font-size:18px;cursor:pointer}
+  .menubtn{display:none;background:none;border:none;color:var(--sec);font-size:20px;cursor:pointer;padding:0}
+  .page{padding:22px;max-width:1180px;width:100%;margin:0 auto;animation:fade .35s ease both}
+  .page-h{font-size:19px;font-weight:600;margin:0 0 2px}
+  .page-sub{font-size:13px;color:var(--mut);margin-bottom:18px}
+
+  /* ---- generic ---- */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh)}
+  .pad{padding:18px}
+  .sect-lbl{font-size:12px;font-weight:600;color:var(--sec);margin-bottom:12px}
+  .grid2{display:grid;grid-template-columns:1.55fr 1fr;gap:14px}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+  .btn{border:none;background:var(--accent);color:#fff;font-family:inherit;font-size:13px;font-weight:600;padding:10px 16px;border-radius:var(--r-sm);cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:background .15s,transform .1s}
+  .btn:hover{background:var(--accent-hover)} .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn i{font-size:16px}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+  .btn.ghost:hover{background:var(--panel)}
+  .btn.sm{padding:7px 12px;font-size:12.5px}
+  .btn.block{width:100%;justify-content:center;padding:12px}
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:4px 11px;border-radius:9999px}
+  .b-red{background:var(--red-bg);color:var(--red-deep)} .b-amber{background:var(--amber-bg);color:var(--amber)}
+  .b-green{background:var(--green-bg);color:var(--green)} .b-gray{background:var(--accent-weak);color:var(--sec)}
+
+  /* ---- evidence / inputs ---- */
+  .lbl{font-size:11.5px;color:var(--mut);margin-bottom:7px}
+  .opt{color:#b3bccb}
+  .drop{border:1.5px dashed var(--line);border-radius:10px;background:var(--panel);padding:16px;text-align:center;color:var(--mut);cursor:pointer;transition:.15s}
+  .drop:hover,.drop.over{border-color:var(--accent);background:#eef2f8;color:var(--sec)}
+  .drop i{font-size:20px}
+  .drop .t{font-size:12.5px;margin-top:5px;color:var(--sec)}
+  .drop .s{font-size:11px;margin-top:1px}
+  .drop b{color:var(--accent);font-weight:600}
+  .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
+  .thumb{width:52px;height:52px;border-radius:8px;overflow:hidden;background:#eaeef5;border:1px solid var(--border);position:relative}
+  .thumb img{width:100%;height:100%;object-fit:cover;display:block;cursor:zoom-in}
+  .thumb .rm{position:absolute;top:2px;right:2px;width:16px;height:16px;border:none;border-radius:50%;background:rgba(15,20,30,.6);color:#fff;font-size:11px;line-height:1;cursor:pointer;padding:0}
+  select{font-family:inherit;font-size:13px;border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;background:var(--card);color:var(--ink);width:100%}
+  select:focus,input:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+  .row{display:flex;gap:8px;align-items:center}
+  .engine{display:flex;flex-direction:column;gap:6px}
+  .eng{font-size:12.5px;padding:9px 11px;border-radius:var(--r-sm);border:1px solid var(--border);color:var(--sec);cursor:pointer;display:flex;align-items:center;gap:8px;background:var(--card);transition:.15s;font-family:inherit;text-align:left;width:100%}
+  .eng:hover:not(:disabled){border-color:var(--line);color:var(--ink)}
+  .eng i{font-size:16px}
+  .eng.on{border:1.5px solid var(--accent);color:var(--ink);font-weight:600}
+  .eng:disabled{opacity:.5;cursor:not-allowed}
+  .eng .tag{margin-left:auto;font-size:10px;font-weight:600;color:var(--mut)}
+  .ckl{display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+  .ckl .ck{display:flex;align-items:center;gap:8px}
+  .ckl .ck i{font-size:16px}
+  .ck.ok{color:var(--ink)} .ck.ok i{color:var(--green)}
+  .ck.no{color:var(--mut)}
+
+  /* ---- processing ---- */
+  .proc{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:44px 0 52px;animation:fade .4s ease both}
+  .core{position:relative;width:150px;height:150px}
+  .core .halo{position:absolute;inset:34px;border-radius:50%;background:#e4e9f2}
+  .core svg{position:absolute;inset:0}
+  .r1{transform-box:fill-box;transform-origin:center;animation:spin 3s linear infinite}
+  .r2{transform-box:fill-box;transform-origin:center;animation:spinr 4.6s linear infinite}
+  .pc{transform-box:fill-box;transform-origin:center;animation:pulse 1.6s ease-in-out infinite}
+  .proc h3{font-size:16px;font-weight:600;margin:22px 0 6px}
+  .proc .st{font-size:13px;color:var(--sec);min-height:18px}
+  .pbar{width:320px;max-width:80%;height:6px;border-radius:9999px;background:#e0e5ee;overflow:hidden;margin-top:18px}
+  .pbar i{display:block;height:100%;background:var(--accent);border-radius:9999px;width:6%;transition:width .6s ease}
+  .pchips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:20px;max-width:440px}
+  .pchip{font-size:11.5px;padding:5px 11px;border-radius:9999px;background:#eaeef5;color:var(--mut);transition:.3s}
+  .pchip.on{background:var(--green-bg);color:var(--green)}
+  .pchip.now{background:#e6e8fb;color:#3a3560}
+
+  /* ---- results ---- */
+  .rhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+  @media(max-width:680px){.metrics{grid-template-columns:repeat(2,1fr)}}
+  .metric{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px}
+  .metric .k{font-size:11px;color:var(--mut)}
+  .metric .v{font-family:var(--mono);font-size:22px;font-weight:600;margin-top:3px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  thead th{text-align:left;font-weight:500;color:var(--mut);padding:9px 12px;background:var(--panel);font-size:11.5px}
+  th.num,td.num{text-align:right;font-family:var(--mono)}
+  tbody td{padding:9px 12px;border-top:1px solid var(--border-2)}
+  tfoot td{padding:9px 12px;border-top:2px solid var(--line)}
+  .tablewrap{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card)}
+  tbody tr.hl{background:#f8fafd}
+  .verdict{display:flex;gap:18px;align-items:center}
+  .vsum{font-size:13px;color:var(--sec);line-height:1.6}
+  .keyev{margin:12px 0 0;padding-left:18px;font-size:13px;color:var(--ink);line-height:1.6}
+  .keyev li{margin:3px 0}
+  .drow-x{display:grid;grid-template-columns:160px 1fr 44px;gap:12px;align-items:center;padding:10px 14px;border-top:1px solid var(--border-2)}
+  .drow-x:first-child{border-top:none}
+  .dbar{height:5px;border-radius:9999px;background:#e6ebf3;overflow:hidden}
+  .dbar i{display:block;height:100%;border-radius:9999px}
+  .errbox{background:var(--red-bg);border:1px solid #f0d6d5;color:var(--red-deep);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.5}
+
+  /* ---- lightbox / modal ---- */
+  .lb{position:fixed;inset:0;background:rgba(15,20,30,.75);display:none;align-items:center;justify-content:center;z-index:200;cursor:zoom-out;padding:28px}
+  .lb.open{display:flex}
+  .lb img{max-width:92vw;max-height:92vh;border-radius:10px;background:#fff}
+  .modal{position:fixed;inset:0;background:rgba(15,20,30,.5);display:none;align-items:center;justify-content:center;z-index:210;padding:24px}
+  .modal.open{display:flex}
+  .modalcard{background:var(--card);border-radius:var(--r);padding:22px;width:100%;max-width:460px;max-height:88vh;overflow:auto;box-shadow:var(--sh-md);animation:fade .2s ease both}
+  .txt{font-family:inherit;font-size:13px;border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;width:100%;margin-top:5px;background:var(--card);color:var(--ink)}
+  .spin{width:14px;height:14px;border:2px solid #d7dde8;border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;vertical-align:-2px}
+  .sb-backdrop{display:none;position:fixed;inset:0;background:rgba(15,20,30,.4);z-index:35}
   .sb-backdrop.open{display:block}
   @media(max-width:760px){
-    .sidebar{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--sh-lg)}
+    .sidebar{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .25s ease}
     .sidebar.open{transform:none}
-    .menubtn{display:flex}
-    .runbar{left:0!important}
+    .menubtn{display:block}
   }
-  @media(min-width:761px){.runbar{left:238px}}
-  @media(max-width:840px){.grid2{grid-template-columns:1fr}.matchgrid{grid-template-columns:1fr}.evals{grid-template-columns:repeat(3,1fr)}.btn.run{margin-left:0}}
-  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-
-<!-- ===== login gate ===== -->
-<div class="loginview" id="loginview">
-  <form class="login-form" id="lg_form" autocomplete="on">
-    <div class="ls-brand">
-      <div class="wm">VF</div>
-      <div><h1>VERITAS</h1><div class="sub">Counterfeit Intelligence</div></div>
-    </div>
-    <div class="login-h">Sign in</div>
-    <div class="login-p">Access your workspace.</div>
-    <div class="sso">
-      <button type="button" class="sso-btn" id="sso_google">
-        <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>
-        Continue with Google
-      </button>
-      <button type="button" class="sso-btn" id="sso_ms">
-        <svg viewBox="0 0 24 24"><path fill="#F25022" d="M2 2h9.5v9.5H2z"/><path fill="#7FBA00" d="M12.5 2H22v9.5h-9.5z"/><path fill="#00A4EF" d="M2 12.5h9.5V22H2z"/><path fill="#FFB900" d="M12.5 12.5H22V22h-9.5z"/></svg>
-        Continue with Microsoft
-      </button>
-    </div>
-    <div class="or">or</div>
-    <label class="login-field"><span>Work email</span><input id="lg_email" class="txt" type="email" placeholder="you@vfcorp.com" autocomplete="username" autofocus></label>
-    <label class="login-field" style="margin-bottom:6px"><span>Password</span><input id="lg_pw" class="txt" type="password" placeholder="••••••••" autocomplete="current-password"></label>
-    <div style="text-align:right;margin-bottom:14px"><a href="#" id="lg_forgot" style="font-size:12.6px;color:var(--accent-deep);font-weight:600;text-decoration:none">Forgot password?</a></div>
-    <button type="submit" class="btn login-btn" id="lg_btn">Sign in</button>
-    <div class="login-err" id="lg_err"></div>
-    <div class="login-note">© 2026 VF Corporation · Internal use only</div>
-  </form>
-</div>
-
-<!-- ===== app shell ===== -->
-<div class="appshell hidden" id="appshell">
-  <div class="sb-backdrop" id="sbbackdrop"></div>
+<div class="app">
+  <div class="sb-backdrop" id="sbback"></div>
   <aside class="sidebar" id="sidebar">
-    <div class="sb-brand">
-      <div class="wm">VF</div>
-      <div><h1>VERITAS</h1><div class="sub">Counterfeit Intelligence</div></div>
+    <div class="brand"><div class="wm">VF</div><div><b>Veritas</b><span class="sub">Counterfeit Intel</span></div></div>
+    <div class="navlbl">Workspace</div>
+    <div class="nav" id="nav">
+      <button class="nav-item" data-page="dashboard"><i class="ti ti-layout-dashboard"></i>Dashboard</button>
+      <button class="nav-item" data-page="cases"><i class="ti ti-folders"></i>Cases</button>
+      <button class="nav-item active" data-page="analysis"><i class="ti ti-scan"></i>Analysis</button>
+      <button class="nav-item" data-page="reports"><i class="ti ti-file-text"></i>Reports<span class="dot"></span></button>
+      <button class="nav-item" data-page="models"><i class="ti ti-cpu"></i>Models</button>
     </div>
-    <div class="sb-lbl">Workspace</div>
-    <nav class="sb-nav">
-      <button type="button" class="nav-item active" data-page="analysis">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-        <span>Case analysis</span><span class="nav-dot"></span>
-      </button>
-      <button type="button" class="nav-item" data-page="report">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        <span>Run report</span><span class="nav-dot"></span>
-      </button>
-    </nav>
-    <div class="sb-spacer"></div>
     <div class="sb-foot">
-      <button type="button" class="themebtn" id="themetoggle" title="Toggle light / dark" aria-label="Toggle light / dark theme" style="align-self:flex-start">🌙</button>
-      <div class="sb-user">
-        <div class="sb-avatar" id="uavatar">A</div>
-        <div class="u-meta"><div class="u-name" id="uname">Alex Morgan</div><div class="u-role" id="uemail">alex.morgan@vfcorp.com</div></div>
-      </div>
-      <button type="button" class="sb-logout" id="logout">Sign out</button>
+      <div class="avatar">AM</div>
+      <div style="min-width:0"><div class="u-name">A. Morgan</div><div class="u-role">Brand-protection analyst</div></div>
     </div>
   </aside>
 
   <div class="maincol">
     <div class="topbar">
-      <button type="button" class="menubtn" id="menubtn" aria-label="Toggle menu">☰</button>
-      <h2 id="pagetitle">Case analysis</h2>
-      <span class="spacer"></span>
-      <div class="modepill" id="mode">checking…</div>
-    </div>
-
-    <main>
-      <section id="page-analysis" class="page">
-      <div class="card casehdr">
-        <div class="ch-top">
-          <div class="ch-main">
-            <div class="ch-eyebrow">Case</div>
-            <select id="case" class="ch-case-select">
-              <option value="VF-2026-0412">VF-2026-0412</option>
-              <option value="VF-2026-0384">VF-2026-0384</option>
-              <option value="VF-2026-0395">VF-2026-0395</option>
-              <option value="VF-2026-0371">VF-2026-0371</option>
-            </select>
-            <div class="ch-chips">
-              <label class="chip">Brand
-                <select id="brand">
-                  <option value="TNF">The North Face</option>
-                  <option value="TBL">Timberland</option>
-                  <option value="VANS">Vans</option>
-                </select>
-              </label>
-              <span class="chip" id="ch-origin">—</span>
-              <span class="chip chip-status" id="ch-status">Active</span>
-              <span class="chip" id="ch-opened">Opened —</span>
-            </div>
-          </div>
-          <div class="ch-side">
-            <div class="ch-analyst"><span>Analyst</span><b id="ch-analyst">Alex Morgan</b></div>
-            <button type="button" class="btn ghost sm" id="settingsbtn">⚙ Analysis settings</button>
-          </div>
-        </div>
-        <div class="ch-settings hidden" id="chsettings">
-          <label class="fld">Engine
-            <div class="seg" id="engine">
-              <button type="button" class="seg-btn active" data-prov="openai">OpenAI · GPT-5.5</button>
-              <button type="button" class="seg-btn" data-prov="gemini">Gemini 3 Pro · OpenRouter</button>
-              <button type="button" class="seg-btn" data-prov="kimi">Kimi · OpenRouter</button>
-              <button type="button" class="seg-btn" data-prov="all">Compare all</button>
-            </div>
-          </label>
-          <label class="fld">References
-            <div class="seg" id="refsrc">
-              <button type="button" class="seg-btn active" data-src="product">Product</button>
-              <button type="button" class="seg-btn" data-src="google">Google reverse</button>
-            </div>
-          </label>
-        </div>
-      </div>
-
-  <div class="grid2">
-    <section class="card">
-      <div class="card-title"><span class="stepbadge">1</span>Evidence</div>
-      <div class="ev-grid">
-        <div>
-          <div class="eyebrow">Suspect product photos</div>
-          <div class="drop" id="drop"><div id="dropmsg">Drop product photos<br><span class="muted" style="font-size:12.6px">or click to browse · add several angles</span></div></div>
-          <input type="file" id="file" accept="image/*" multiple class="hidden">
-          <div class="refs" id="prodgallery"></div>
-        </div>
-        <div>
-          <div class="eyebrow">UPC / barcode image</div>
-          <div class="drop" id="updrop"><div id="updropmsg">Drop a UPC / barcode photo<br><span class="muted" style="font-size:12.6px">click to browse · the model reads the number</span></div></div>
-          <input type="file" id="upfile" accept="image/*" class="hidden">
-          <label class="fld" id="prodpickwrap" style="margin-top:14px">Reference product
-            <div class="prodrow">
-              <select id="prodpick"></select>
-              <button type="button" class="btn ghost" id="addprod" style="white-space:nowrap;flex:0 0 auto;">+ Add</button>
-            </div>
-          </label>
-        </div>
-        <div class="ev-full">
-          <div class="eyebrow" id="refseyebrow">Authentic references</div>
-          <div class="refs" id="refs"><span class="muted" style="font-size:13.8px;grid-column:1/-1">Select a product to load references.</span></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="card runcard">
-      <div class="card-title"><span class="stepbadge">2</span>Analysis</div>
-      <div id="runpanel"></div>
-      <div class="runrow">
-        <button class="btn run" id="run">Run AI analysis</button>
-        <span id="status" class="muted" style="font-size:14.4px"></span>
-      </div>
-    </section>
-  </div>
-
-  <section id="finding" class="hidden">
-    <div class="card" style="margin-top:18px">
-      <div class="finding-head">
-        <div>
-          <div class="card-title" style="margin:0"><span class="stepbadge">3</span>Forensic finding</div>
-          <div class="runmeta" id="runmeta"></div>
-        </div>
-        <div class="finding-actions hidden" id="exportbar">
-          <span class="muted" id="expcount" style="font-size:12.8px">0 saved</span>
-          <span class="exp-toast" id="exptoast"></span>
-          <button type="button" class="exp-clear hidden" id="expclear">clear log</button>
-          <button type="button" class="btn ghost sm" id="expsave" disabled>＋ Save to log</button>
-          <button type="button" class="btn sm" id="expdl" disabled>⬇ Download Excel</button>
-        </div>
-      </div>
-      <div class="finding-actions" id="benchbar" style="justify-content:flex-end;margin:-4px 0 14px">
-        <span class="muted" id="benchcount" style="font-size:12.8px">0 comparisons logged</span>
-        <button type="button" class="exp-clear hidden" id="benchclear">clear</button>
-        <button type="button" class="btn ghost sm" id="benchdl" disabled>⬇ Download comparison CSV</button>
-      </div>
-      <div id="verdict"></div>
-      <div class="legend">
-        <span class="lg"><i style="background:var(--green)"></i>0–30 Match</span>
-        <span class="lg"><i style="background:var(--amber)"></i>31–60 Review</span>
-        <span class="lg"><i style="background:var(--red)"></i>61–100 Deviation</span>
-        <span class="muted" style="font-weight:500">· counterfeit probability</span>
-      </div>
-      <div class="divider"></div>
-      <div class="eyebrow">Suspect vs authentic reference</div>
-      <div class="compare">
-        <div><div class="eyebrow" style="color:var(--red)">Suspect</div><div class="cmp-grid" id="cmp-suspect"></div></div>
-        <div class="cmp-vs">VS</div>
-        <div><div class="eyebrow" style="color:var(--green)">Reference</div><div class="cmp-grid" id="cmp-ref"></div></div>
+      <button class="menubtn" id="menubtn"><i class="ti ti-menu-2"></i></button>
+      <div class="crumb"><span id="crumbtop">Analysis</span></div>
+      <div class="tb-right">
+        <span class="badge b-gray" id="modepill" style="font-size:11px">checking…</span>
+        <i class="ti ti-search"></i>
+        <div class="avatar" style="width:28px;height:28px">AM</div>
       </div>
     </div>
 
-    <section class="dimsection hidden" id="dimsection">
-      <div class="section-head">
-        <div class="card-title">Forensic dimensions</div>
-        <div class="dimsummary" id="dimsummary"></div>
-      </div>
-      <div class="dim-overview" id="dimoverview"></div>
-      <div class="dimgrid" id="dims"></div>
-    </section>
+    <!-- ============ ANALYSIS ============ -->
+    <section class="page" id="page-analysis">
+      <div id="v-input">
+        <div class="page-h">New analysis</div>
+        <div class="page-sub" id="caseline">Upload the suspect evidence, pick a reference, and choose your engine.</div>
+        <div class="grid2">
+          <div class="card pad">
+            <div class="sect-lbl">Evidence</div>
+            <div class="lbl">Suspect product photos</div>
+            <div class="drop" id="drop"><i class="ti ti-upload"></i><div class="t">Drop photos or <b>browse</b></div><div class="s">add several angles</div></div>
+            <input type="file" id="file" accept="image/*" multiple class="hidden">
+            <div class="thumbs" id="prodgallery"></div>
+            <div class="lbl" style="margin-top:15px">UPC / barcode image <span class="opt">· optional</span></div>
+            <div class="drop" id="updrop"><i class="ti ti-barcode"></i><div class="t">Drop a barcode photo — the model reads the code</div></div>
+            <input type="file" id="upfile" accept="image/*" class="hidden">
+            <div class="lbl" style="margin-top:15px" id="refseyebrow">Reference product</div>
+            <div class="row" id="refrow">
+              <select id="prodpick" style="flex:1"></select>
+              <button class="btn ghost sm" id="addprod" style="white-space:nowrap"><i class="ti ti-plus"></i>Add</button>
+            </div>
+            <div class="row" id="refsrcrow" style="margin-top:9px;gap:6px">
+              <button class="eng on" data-src="product" style="padding:6px 10px;width:auto">Product catalog</button>
+              <button class="eng" data-src="google" style="padding:6px 10px;width:auto">Google reverse</button>
+            </div>
+            <div class="thumbs" id="refs"></div>
+          </div>
 
-    <section class="card hidden" id="comparecard" style="margin-top:20px"></section>
-
-    <div class="disclaimer">AI-assisted assessment — findings are advisory and require analyst confirmation before enforcement action.</div>
-  </section>
-      </section><!-- /page-analysis -->
-
-      <section id="page-report" class="page hidden">
-        <div id="reportempty" class="card">
-          <div class="emptybox">
-            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-            <div>No run yet. Head to <b>Analysis</b>, run an assessment, and its token usage, cost &amp; eval metrics will appear here.</div>
+          <div class="card pad" style="display:flex;flex-direction:column">
+            <div class="sect-lbl">Engine</div>
+            <div class="engine" id="engine">
+              <button class="eng" data-prov="openai"><i class="ti ti-sparkles"></i>OpenAI · GPT-5.5</button>
+              <button class="eng" data-prov="gemini"><i class="ti ti-diamond"></i>Gemini 3.1 Pro</button>
+              <button class="eng" data-prov="kimi"><i class="ti ti-bolt"></i>Kimi K2.6</button>
+              <button class="eng on" data-prov="all"><i class="ti ti-arrows-split-2"></i>Compare all</button>
+            </div>
+            <div class="lbl" style="margin:16px 0 8px">Readiness</div>
+            <div class="ckl" id="checklist"></div>
+            <button class="btn block" id="run" style="margin-top:auto"><i class="ti ti-player-play"></i>Run analysis</button>
+            <div id="runerr" style="margin-top:10px"></div>
           </div>
         </div>
-        <section class="card rep hidden" id="repcard">
-          <h3 style="margin-bottom:4px">Run report — token usage, cost &amp; evals</h3>
-          <div class="runmeta" id="repmeta" style="margin:0 0 16px"></div>
-          <table class="rt" id="rt"><thead><tr>
-            <th>Agent</th><th>Model</th><th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th><th class="num">Latency</th><th>Status</th>
-          </tr></thead><tbody></tbody><tfoot></tfoot></table>
-          <div class="evals" id="evals"></div>
-          <div class="muted" id="repnote" style="font-size:13.2px;margin-top:14px;line-height:1.5"></div>
-        </section>
-      </section><!-- /page-report -->
-    </main>
-  </div><!-- /maincol -->
-</div><!-- /appshell -->
+      </div>
 
-<div class="runbar" id="runbar" aria-hidden="true">
-  <div class="runbar-inner">
-    <div class="runbar-ctx" id="runbarctx"><span class="rbdot"></span><span>Add a suspect photo to run</span></div>
-    <div class="runbar-act">
-      <span id="runbarstatus" class="muted" style="font-size:14.4px"></span>
-      <button type="button" class="btn run" id="runbarbtn" style="padding:11px 28px;font-size:15.5px">Run AI analysis</button>
-    </div>
+      <div id="v-proc" class="hidden">
+        <div class="proc">
+          <div class="core">
+            <div class="halo"></div>
+            <svg width="150" height="150" viewBox="0 0 150 150">
+              <circle cx="75" cy="75" r="60" fill="none" stroke="#dfe4ee" stroke-width="2"/>
+              <circle class="r1" cx="75" cy="75" r="60" fill="none" stroke="#1f2937" stroke-width="3" stroke-linecap="round" stroke-dasharray="70 300"/>
+              <circle class="r2" cx="75" cy="75" r="46" fill="none" stroke="#5b5bd6" stroke-width="3" stroke-linecap="round" stroke-dasharray="45 245"/>
+              <circle cx="75" cy="75" r="32" fill="none" stroke="#e6ebf3" stroke-width="2"/>
+              <circle class="pc" cx="75" cy="75" r="9" fill="#1f2937"/>
+            </svg>
+          </div>
+          <h3>Analyzing the suspect article</h3>
+          <div class="st" id="procstatus">Curating authentic references…</div>
+          <div class="pbar"><i id="procbar"></i></div>
+          <div class="pchips" id="procchips"></div>
+        </div>
+      </div>
+
+      <div id="v-result" class="hidden"></div>
+    </section>
+
+    <!-- ============ DASHBOARD ============ -->
+    <section class="page hidden" id="page-dashboard">
+      <div class="page-h">Dashboard</div>
+      <div class="page-sub">Brand-protection overview.</div>
+      <div class="metrics" id="dashmetrics"></div>
+      <div class="card pad">
+        <div class="sect-lbl">Start</div>
+        <div style="font-size:13px;color:var(--sec);margin-bottom:14px">Open a case and run a multi-engine authentication.</div>
+        <button class="btn" onclick="go('analysis')"><i class="ti ti-scan"></i>New analysis</button>
+      </div>
+    </section>
+
+    <!-- ============ CASES ============ -->
+    <section class="page hidden" id="page-cases">
+      <div class="page-h">Cases</div>
+      <div class="page-sub">Select a case to analyze.</div>
+      <div class="tablewrap"><table><thead><tr><th>Case</th><th>Brand</th><th>Origin</th><th>Status</th><th></th></tr></thead><tbody id="casesbody"></tbody></table></div>
+    </section>
+
+    <!-- ============ REPORTS ============ -->
+    <section class="page hidden" id="page-reports">
+      <div class="page-h">Reports</div>
+      <div class="page-sub">Run report and the engine-comparison log.</div>
+      <div class="card pad" style="margin-bottom:14px">
+        <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div class="sect-lbl" style="margin:0">Comparison log <span class="muted" id="benchcount" style="font-weight:400">· 0 runs</span></div>
+          <div class="row">
+            <button class="btn ghost sm hidden" id="benchclear">Clear</button>
+            <button class="btn sm" id="benchdl" disabled><i class="ti ti-download"></i>Download CSV</button>
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:8px">Every run appends a row per engine (score, per-dimension, cost, latency) for the 50-case comparison.</div>
+      </div>
+      <div id="reportcard"></div>
+    </section>
+
+    <!-- ============ MODELS ============ -->
+    <section class="page hidden" id="page-models">
+      <div class="page-h">Models</div>
+      <div class="page-sub">Engine availability and pricing (USD per 1M tokens).</div>
+      <div class="tablewrap"><table><thead><tr><th>Engine</th><th>Model</th><th>Status</th><th class="num">Input</th><th class="num">Output</th></tr></thead><tbody id="modelsbody"></tbody></table></div>
+    </section>
+
   </div>
 </div>
 
-<div class="lb" id="lightbox"><span class="lbclose">×</span><img id="lbimg" alt="preview"></div>
+<div class="lb" id="lightbox"><img id="lbimg" alt="preview"></div>
 
 <div class="modal" id="addmodal">
   <div class="modalcard" onclick="event.stopPropagation()">
-    <div style="font-size:18.4px;font-weight:700;margin-bottom:16px;">Add product</div>
-    <label class="fld" style="margin-bottom:12px;text-transform:none;letter-spacing:0;font-size:13.8px;">Name<input id="np_name" class="txt" placeholder="e.g. The North Face 1996 Nuptse"></label>
-    <label class="fld" style="margin-bottom:12px;text-transform:none;letter-spacing:0;font-size:13.8px;">Brand<input id="np_brand" class="txt" placeholder="e.g. TNF"></label>
-    <div class="eyebrow">Authentic images — add multiple views</div>
-    <div class="drop" id="np_drop" style="min-height:82px"><div>Drop authentic photos<br><span class="muted" style="font-size:12.6px">or click to browse</span></div></div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:14px">Add reference product</div>
+    <div class="lbl">Name<input id="np_name" class="txt" placeholder="Men's Denali X Jacket"></div>
+    <div class="lbl" style="margin-top:10px">Brand<input id="np_brand" class="txt" placeholder="TNF"></div>
+    <div class="lbl" style="margin-top:12px">Authentic images</div>
+    <div class="drop" id="np_drop"><i class="ti ti-upload"></i><div class="t">Drop authentic photos or <b>browse</b></div></div>
     <input type="file" id="np_file" accept="image/*" multiple class="hidden">
-    <div class="refs" id="np_gallery"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
-      <button type="button" class="btn ghost" id="np_cancel">Cancel</button>
-      <button type="button" class="btn" id="np_save">Save product</button>
+    <div class="thumbs" id="np_gallery"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn ghost sm" id="np_cancel">Cancel</button>
+      <button class="btn sm" id="np_save">Save product</button>
     </div>
-    <div id="np_status" class="muted" style="font-size:13.8px;margin-top:10px;"></div>
+    <div id="np_status" class="muted" style="font-size:12px;margin-top:9px"></div>
   </div>
 </div>
 
 <script>
-// Same-origin when served by the backend (deploy); the :8000 backend in local two-server dev.
 const API = (location.port === '8753') ? 'http://127.0.0.1:8000' : '';
-let suspectImgs = [], upcB64 = null, provider = 'openai', refSource = 'product';
-let LIVE_PROVIDERS = ['openai'];
-let activeEngine = 'openai';
-const ENGINE_LABEL = {openai:'GPT-5.5', gemini:'Gemini 3.1 Pro', kimi:'Kimi'};
-const engineName = p => ENGINE_LABEL[p] || p;
-let products = [], productId = '', npImgs = [];
-let lastRun = null, exportOn = false, currentPage = 'analysis', runInView = true;
-let runpanelState = 'idle', pipeTimer = null, pipeT0 = 0;
-
 const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+let suspectImgs=[], upcB64=null, provider='all', refSource='product';
+let products=[], productId='', npImgs=[];
+let LIVE_PROVIDERS=[], MODE={}, activeEngine='all', lastReport=null;
 
-// ---- auth gate (demo / presentational — real auth needs a backend session) ----
-const AUTH_KEY = 'veritas-auth';
-function showApp(user){
-  $('#loginview').classList.add('hidden');
-  $('#appshell').classList.remove('hidden');
-  if(user){
-    const nm = user.name || (user.email||'').split('@')[0] || 'Analyst';
-    $('#uname').textContent = nm;
-    $('#uemail').textContent = user.email || '';
-    $('#uavatar').textContent = (nm.trim()[0] || 'A').toUpperCase();
-    const ca=$('#ch-analyst'); if(ca) ca.textContent = nm;
-  }
-  if(typeof refreshRunbar==='function') refreshRunbar();
-}
-function finishLogin(user){
-  try{ sessionStorage.setItem(AUTH_KEY, JSON.stringify(user)); }catch(e){}
-  showApp(user);
-  const b=$('#lg_btn'); if(b){ b.disabled=false; b.textContent='Sign in'; }
-}
-function doLogin(){
-  const err=$('#lg_err'); err.style.color='';
-  const email = $('#lg_email').value.trim(), pw = $('#lg_pw').value;
-  if(!email || !pw){ err.textContent = 'Enter your email and password.'; return; }
-  err.textContent='';
-  const name = email.split('@')[0].replace(/[._-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-  const b=$('#lg_btn'); b.disabled=true; b.innerHTML='<span class="spin" style="border-top-color:#fff;margin-right:8px"></span>Signing in…';
-  setTimeout(()=>finishLogin({ email, name }), 450);
-}
-function ssoLogin(){
-  const b=$('#lg_btn'); if(b){ b.disabled=true; }
-  setTimeout(()=>finishLogin({ email:'alex.morgan@vfcorp.com', name:'Alex Morgan' }), 350);
-}
-$('#lg_form').addEventListener('submit', e=>{ e.preventDefault(); doLogin(); });
-$('#lg_forgot').onclick = e=>{ e.preventDefault(); const el=$('#lg_err'); el.style.color='var(--slate)'; el.textContent='Password resets are handled by your VF workspace admin.'; };
-{ const g=$('#sso_google'), m=$('#sso_ms'); if(g) g.onclick=ssoLogin; if(m) m.onclick=ssoLogin; }
-$('#logout').onclick = ()=>{ try{ sessionStorage.removeItem(AUTH_KEY); }catch(e){} location.reload(); };
-(function(){ let u=null; try{ u=JSON.parse(sessionStorage.getItem(AUTH_KEY)||'null'); }catch(e){} if(u) showApp(u); })();
+const CASES=[
+  {id:'VF-2026-0412',brand:'TNF',brandName:'The North Face',origin:'Shenzhen, CN',status:'Active'},
+  {id:'VF-2026-0384',brand:'TNF',brandName:'The North Face',origin:'Yiwu, CN',status:'Open'},
+  {id:'VF-2026-0395',brand:'TNF',brandName:'The North Face',origin:'Hanoi, VN',status:'Open'},
+  {id:'VF-2026-0371',brand:'TNF',brandName:'The North Face',origin:'Fuzhou, CN',status:'Open'},
+];
+let caseId=CASES[0].id, brand='TNF';
+const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
+const engineName=p=>ENGINE_LABEL[p]||p;
+const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
+const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)'}[b]);
+const verdictLabel=b=>({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit'}[b]||'—');
+const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray'}[b]||'b-gray');
+function caseName(){ return "Men's Denali X Jacket"; }
 
-// ---- sidebar nav (single-page view switching) ----
-function gotoPage(p){
-  currentPage = p;
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.page===p));
-  document.querySelectorAll('.page').forEach(s=>s.classList.toggle('hidden', s.id !== 'page-'+p));
-  $('#pagetitle').textContent = (p==='report') ? 'Run report' : 'Case analysis';
-  if(p==='report'){ const ni=document.querySelector('.nav-item[data-page="report"]'); if(ni) ni.classList.remove('hasnew'); }
-  window.scrollTo(0,0);
-  if(typeof refreshRunbar==='function') refreshRunbar();
+/* ---------- navigation ---------- */
+function go(page){
+  $$('#nav .nav-item').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
+  $$('.page').forEach(p=>p.classList.add('hidden'));
+  $('#page-'+page).classList.remove('hidden');
+  $('#crumbtop').textContent=page.charAt(0).toUpperCase()+page.slice(1);
+  $('#sidebar').classList.remove('open'); $('#sbback').classList.remove('open');
+  if(page==='reports') renderReportPage();
+  if(page==='dashboard') renderDashboard();
 }
-document.querySelectorAll('.nav-item').forEach(n=>n.onclick=()=>{
-  if(n.dataset.page) gotoPage(n.dataset.page);
-  $('#sidebar').classList.remove('open'); $('#sbbackdrop').classList.remove('open');
-});
-$('#menubtn').onclick = ()=>{ $('#sidebar').classList.toggle('open'); $('#sbbackdrop').classList.toggle('open'); };
-$('#sbbackdrop').onclick = ()=>{ $('#sidebar').classList.remove('open'); $('#sbbackdrop').classList.remove('open'); };
+$$('#nav .nav-item').forEach(b=>b.onclick=()=>go(b.dataset.page));
+$('#menubtn').onclick=()=>{ $('#sidebar').classList.toggle('open'); $('#sbback').classList.toggle('open'); };
+$('#sbback').onclick=()=>{ $('#sidebar').classList.remove('open'); $('#sbback').classList.remove('open'); };
 
-// ---- case header (display metadata only — case_id sent to the API is unchanged) ----
-const CASES = {
-  'VF-2026-0412': {origin:'Shenzhen, CN', status:'Active',       opened:'Jun 28, 2026'},
-  'VF-2026-0384': {origin:'Yiwu, CN',     status:'Active',       opened:'Jun 12, 2026'},
-  'VF-2026-0395': {origin:'Hanoi, VN',    status:'Under review', opened:'Jun 19, 2026'},
-  'VF-2026-0371': {origin:'Fuzhou, CN',   status:'Escalated',    opened:'May 30, 2026'},
-};
-function syncCaseHeader(){
-  const c = CASES[$('#case').value] || {};
-  $('#ch-origin').textContent = c.origin || '—';
-  const st = $('#ch-status'); st.textContent = c.status || 'Active';
-  st.className = 'chip chip-status' + (c.status==='Under review' ? ' st-amber' : c.status==='Escalated' ? ' st-red' : '');
-  $('#ch-opened').textContent = 'Opened ' + (c.opened || '—');
-}
-$('#case').onchange = syncCaseHeader;
-syncCaseHeader();
-$('#settingsbtn').onclick = ()=> $('#chsettings').classList.toggle('hidden');
+/* ---------- health / mode ---------- */
+fetch(API+'/api/health').then(r=>r.json()).then(h=>{
+  MODE=h.mode||{};
+  LIVE_PROVIDERS=['openai','gemini','kimi'].filter(p=>MODE[p]==='live');
+  const anyLive=LIVE_PROVIDERS.length>0;
+  const pill=$('#modepill');
+  pill.textContent = anyLive ? ('Live · '+LIVE_PROVIDERS.map(engineName).join(', ')) : (MODE.allow_mock?'Mock mode':'No engines configured');
+  pill.className='badge '+(anyLive?'b-green':'b-amber');
+  [['openai',MODE.openai_model||'GPT-5.5'],['gemini',MODE.gemini_label||'Gemini 3.1 Pro'],['kimi',MODE.kimi_label||'Kimi K2.6']].forEach(([p,lbl])=>{
+    const b=$('.eng[data-prov="'+p+'"]'); if(!b) return; ENGINE_LABEL[p]=lbl;
+    b.lastChild.nodeValue=' '+lbl;
+    if(MODE[p]!=='live'){ b.disabled=true; b.insertAdjacentHTML('beforeend','<span class="tag">set key</span>'); }
+  });
+  if(MODE.serpapi!=='live'){ const g=$('.eng[data-src="google"]'); if(g){ g.disabled=true; g.textContent='Google reverse (set key)'; } }
+  renderModels();
+}).catch(()=>{ const pill=$('#modepill'); pill.textContent='backend offline'; pill.className='badge b-amber'; renderModels(); });
 
-// ---- step 2 panel: readiness checklist → live pipeline → completion summary ----
-const CK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-function updateChecklist(){
-  if(runpanelState !== 'idle') return;
-  const prod = (products.find(p=>p.id===productId)||{}).name;
-  const items = [
-    {ok: suspectImgs.length>0, t: suspectImgs.length ? suspectImgs.length+' suspect photo'+(suspectImgs.length>1?'s':'')+' attached' : 'Add suspect product photos'},
-    {ok: refSource==='google' || !!productId, t: refSource==='google' ? 'References: Google reverse-image at run time' : (prod ? 'Reference: '+prod : 'Select a reference product')},
-    {ok: !!upcB64, t: upcB64 ? 'UPC / barcode attached' : 'Add a UPC / barcode photo', opt:true},
-  ];
-  const stages = ['Reference curation','Logo agent','Stitching agent','Hardware agent','Label agent','Material agent','UPC / tag tool','Aggregator','Adversarial verifier'];
-  $('#runpanel').innerHTML = '<ul class="ckl">' + items.map(i=>
-    `<li${i.ok?' class="done"':''}><span class="ck-ic">${i.ok?CK:''}</span><span>${i.t}</span>${i.opt?'<span class="opt">optional</span>':''}</li>`
-  ).join('') + '</ul>'
-  + '<div class="pipe-title">Pipeline · 9 stages</div>'
-  + '<div class="stagechips">' + stages.map(s=>`<span class="stagechip"><span class="qdot"></span>${s}</span>`).join('') + '</div>'
-  + '<div class="ckl-hint">Dimension agents + the UPC tool run in parallel, then an aggregator and an adversarial verifier.</div>';
-}
-function renderPipelineRunning(){
-  const stages = ['Reference curation','Logo agent','Stitching agent','Hardware agent','Label agent','Material agent','UPC / tag tool','Aggregator','Adversarial verifier'];
-  $('#runpanel').innerHTML = '<div class="pipe">' + stages.map(s=>
-    `<div class="pipe-row"><span class="pico"><span class="spin"></span></span><span>${s}</span></div>`
-  ).join('') + `<div class="pipe-foot"><span>agents run in parallel — stages resolve together</span><span id="pipeelapsed">0.0s</span></div></div>`;
-  pipeT0 = Date.now();
-  clearInterval(pipeTimer);
-  pipeTimer = setInterval(()=>{ const el=$('#pipeelapsed'); if(el) el.textContent = ((Date.now()-pipeT0)/1000).toFixed(1)+'s'; }, 100);
-}
-function renderPipelineDone(rep){
-  clearInterval(pipeTimer);
-  runpanelState = 'done';
-  if(!rep || !rep.rows){ $('#runpanel').innerHTML=''; return; }
-  $('#runpanel').innerHTML = '<div class="pipe">' + rep.rows.map(r=>
-    `<div class="pipe-row done"><span class="pico">${CK}</span><span>${r.agent}</span><span class="lat">${(r.latency_ms/1000).toFixed(1)}s</span></div>`
-  ).join('') + `<div class="pipe-foot"><span>completed in ${(rep.totals.wall_ms/1000).toFixed(1)}s · $${rep.totals.cost.toFixed(4)}</span><span><a href="#finding" style="color:var(--accent-deep);font-weight:700;text-decoration:none" onclick="document.querySelector('#finding').scrollIntoView({behavior:'smooth'});return false">view finding ↓</a></span></div></div>`;
-}
-function pipelineFailed(){
-  clearInterval(pipeTimer);
-  runpanelState = 'idle';
-  updateChecklist();
-}
-
-// ---- theme toggle (persisted) ----
-function applyTheme(t){ document.documentElement.setAttribute('data-theme',t); const b=$('#themetoggle'); if(b) b.textContent = t==='dark' ? '☀️' : '🌙'; }
-applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
-$('#themetoggle').onclick=()=>{ const cur = document.documentElement.getAttribute('data-theme')==='dark' ? 'light' : 'dark'; try{ localStorage.setItem('veritas-theme',cur); }catch(e){} applyTheme(cur); };
-const band = s => s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
-// resolve band colours from the active theme's tokens so charts match the design system in both modes
-const bandColor = b => {
-  const map={authentic:'--green',caution:'--amber',counterfeit:'--red',neutral:'--mist'};
-  const v=getComputedStyle(document.documentElement).getPropertyValue(map[b]||'--mist').trim();
-  return v || '#8A9BB5';
-};
-
-// verdict icons + mapping
-const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-const ALERT='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
-const XI='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-const CHEV='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
-function vinfo(b){ return ({authentic:{l:'Match',c:'bg-match',i:CHECK},caution:{l:'Review',c:'bg-review',i:ALERT},counterfeit:{l:'Deviation',c:'bg-dev',i:XI}})[b] || {l:'N/A',c:'bg-neutral',i:''}; }
-
-// ---- health / mode badge ----
-fetch(API+"/api/health").then(r=>r.json()).then(h=>{
-  const m=h.mode;
-  $('#mode').textContent = (m.openai==='live'||m.gemini==='live')
-    ? `LIVE · OpenAI ${m.openai==='live'?'✓':'✕'} · Gemini ${m.gemini==='live'?'✓':'✕'}` : 'MOCK MODE · no API keys';
-  const ob=document.querySelector('.seg-btn[data-prov="openai"]'), gb=document.querySelector('.seg-btn[data-prov="gemini"]');
-  const kb=document.querySelector('.seg-btn[data-prov="kimi"]');
-  ob.textContent = 'OpenAI · ' + (m.openai_model || 'GPT-5.5');
-  if(m.openai==='live'){ ENGINE_LABEL.openai = m.openai_model || 'GPT-5.5'; }
-  if(m.gemini==='live'){ gb.textContent=(m.gemini_label||'Gemini 3.1 Pro')+' · OpenRouter'; gb.title=m.gemini_model||''; ENGINE_LABEL.gemini = m.gemini_label||'Gemini 3.1 Pro'; }
-  else { gb.disabled=true; gb.textContent='Gemini · OpenRouter (set key)'; gb.title='Set OPENROUTER_API_KEY in backend/.env and restart'; }
-  if(kb){
-    if(m.kimi==='live'){ kb.textContent=(m.kimi_label||'Kimi')+' · router'; kb.title=m.kimi_model||''; ENGINE_LABEL.kimi = m.kimi_label||'Kimi'; }
-    else { kb.disabled=true; kb.textContent='Kimi · router (set key)'; kb.title='Set KIMI_API_KEY (or OPENROUTER_API_KEY) in backend/.env and restart'; }
-  }
-  // record which engines are live so "Compare all" runs only the available ones
-  LIVE_PROVIDERS = ['openai','gemini','kimi'].filter(p=>m[p]==='live');
-  if(m.allow_mock && !LIVE_PROVIDERS.length) LIVE_PROVIDERS = ['openai'];
-  const gs=document.querySelector('.seg-btn[data-src="google"]');
-  if(m.serpapi!=='live'){ gs.disabled=true; gs.textContent='Google reverse (set key)'; gs.title='Set SERPAPI_API_KEY in backend/.env and restart'; }
-  if(m.supabase!=='live'){ const pb=document.querySelector('.seg-btn[data-src="product"]'); pb.disabled=true; pb.textContent='Product (no db)'; pb.classList.remove('active'); gs.classList.add('active'); refSource='google'; onRefSourceChange(); }
-}).catch(()=>{ $('#mode').textContent='backend offline (start uvicorn :8000)'; });
-// segmented toggles (scoped per group so engine + reference selections are independent)
-function wireSeg(groupId, attr, setFn){
-  const grp=document.getElementById(groupId);
-  grp.querySelectorAll('.seg-btn').forEach(b=>b.onclick=()=>{ if(b.disabled) return; setFn(b.dataset[attr]); grp.querySelectorAll('.seg-btn').forEach(x=>x.classList.toggle('active',x===b)); });
-}
-wireSeg('engine','prov', v=>provider=v);
-wireSeg('refsrc','src', v=>{ refSource=v; onRefSourceChange(); });
-
-// ---- product catalog (Supabase) ----
+/* ---------- engine + refsrc toggles ---------- */
+$('#engine').addEventListener('click',e=>{ const b=e.target.closest('.eng'); if(!b||b.disabled) return;
+  provider=b.dataset.prov; $$('#engine .eng').forEach(x=>x.classList.toggle('on',x===b)); });
+$('#refsrcrow').addEventListener('click',e=>{ const b=e.target.closest('.eng'); if(!b||b.disabled) return;
+  refSource=b.dataset.src; $$('#refsrcrow .eng').forEach(x=>x.classList.toggle('on',x===b)); onRefSourceChange(); });
 function onRefSourceChange(){
-  $('#prodpickwrap').style.display = (refSource==='product') ? '' : 'none';
-  if(refSource==='product'){ showProductRefs(); }
-  else { $('#refseyebrow').textContent='Authentic references · Google reverse-image'; $('#refs').innerHTML='<span class="muted" style="font-size:13.8px;grid-column:1/-1">Google Lens fetches product-only authentic images at run time.</span>'; }
+  $('#refrow').style.display = refSource==='product' ? '' : 'none';
+  if(refSource==='product'){ showProductRefs(); } else { $('#refs').innerHTML=''; }
   updateChecklist();
 }
-function showProductRefs(){
-  const p=products.find(x=>x.id===productId);
-  if(!p){ $('#refseyebrow').textContent='Authentic references · product'; $('#refs').innerHTML='<span class="muted" style="font-size:13.8px;grid-column:1/-1">No product selected — click <b>+ Add</b> to create one.</span>'; return; }
-  $('#refseyebrow').textContent='Authentic references · '+p.name+' ('+(p.images||[]).length+')';
-  $('#refs').innerHTML=(p.images||[]).map((fn,i)=>`<div class="ref"><img src="${API}/api/products/${p.id}/img/${fn}" onerror="this.style.opacity=.15"><span>ref ${i+1}</span></div>`).join('');
+
+/* ---------- checklist ---------- */
+function updateChecklist(){
+  const hasRef = refSource==='google' || !!productId;
+  const items=[
+    [suspectImgs.length>0, suspectImgs.length?(suspectImgs.length+' suspect photo'+(suspectImgs.length>1?'s':'')+' added'):'Add suspect photos',false],
+    [hasRef, refSource==='google'?'Google reference source':'Reference selected',false],
+    [!!upcB64, upcB64?'UPC image added':'UPC image (optional)',true],
+  ];
+  $('#checklist').innerHTML=items.map(([ok,txt,opt])=>
+    `<div class="ck ${ok?'ok':'no'}"><i class="ti ti-${ok?'circle-check':(opt?'circle-dashed':'circle')}"></i>${txt}</div>`).join('');
+  $('#run').disabled = !(suspectImgs.length>0 && hasRef);
 }
+
+/* ---------- products ---------- */
 async function loadProducts(){
   try{
     const d=await fetch(API+'/api/products').then(r=>r.json());
     products=d.products||[];
-    const sel=$('#prodpick');
-    sel.innerHTML = products.length ? products.map(p=>`<option value="${p.id}">${p.name}${p.brand?' · '+p.brand:''}</option>`).join('') : '<option value="">no products — click + Add</option>';
+    $('#prodpick').innerHTML = products.length ? products.map(p=>`<option value="${p.id}">${p.name}${p.brand?' · '+p.brand:''}</option>`).join('') : '<option value="">no products — Add one</option>';
     productId = products.length ? products[0].id : '';
     if(refSource==='product') showProductRefs();
-  }catch(e){ $('#prodpick').innerHTML='<option value="">(unavailable)</option>'; }
+  }catch(e){ $('#prodpick').innerHTML='<option value="">(catalog unavailable)</option>'; }
   updateChecklist();
 }
-$('#prodpick').onchange=()=>{ productId=$('#prodpick').value; showProductRefs(); updateRunbar(); updateChecklist(); };
+$('#prodpick').onchange=()=>{ productId=$('#prodpick').value; showProductRefs(); updateChecklist(); };
+function showProductRefs(){
+  const p=products.find(x=>x.id===productId);
+  if(!p){ $('#refs').innerHTML=''; return; }
+  $('#refs').innerHTML=(p.images||[]).map(fn=>`<div class="thumb"><img src="${API}/api/products/${p.id}/img/${fn}" onerror="this.style.opacity=.15"></div>`).join('');
+}
+loadProducts();
 
-// add-product modal
-const npDrop=$('#np_drop'), npFile=$('#np_file');
-npDrop.onclick=()=>npFile.click(); dragify(npDrop);
-function renderNp(){ $('#np_gallery').innerHTML=npImgs.map((b,i)=>`<div class="ref" style="position:relative"><img src="data:image/jpeg;base64,${b}"><span>${i+1}</span><button data-i="${i}" class="rmimg" style="position:absolute;top:2px;right:2px;width:17px;height:17px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:13.8px;line-height:1;cursor:pointer;padding:0;">×</button></div>`).join(''); document.querySelectorAll('#np_gallery .rmimg').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); npImgs.splice(+b.dataset.i,1); renderNp(); }); }
+/* ---------- uploads ---------- */
+function downscale(f,cb){ const img=new Image(),url=URL.createObjectURL(f);
+  img.onload=()=>{ const max=1024,sc=Math.min(1,max/Math.max(img.width,img.height));
+    const c=document.createElement('canvas'); c.width=img.width*sc; c.height=img.height*sc;
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
+    cb(c.toDataURL('image/jpeg',0.85).split(',')[1]); }; img.src=url; }
+function dragify(el){ ['dragenter','dragover'].forEach(e=>el.addEventListener(e,ev=>{ev.preventDefault();el.classList.add('over')}));
+  ['dragleave','drop'].forEach(e=>el.addEventListener(e,ev=>{ev.preventDefault();el.classList.remove('over')})); }
+function renderProdGallery(){
+  $('#prodgallery').innerHTML=suspectImgs.map((b,i)=>`<div class="thumb"><img src="data:image/jpeg;base64,${b}"><button class="rm" data-i="${i}">×</button></div>`).join('');
+  $$('#prodgallery .rm').forEach(btn=>btn.onclick=e=>{ e.stopPropagation(); suspectImgs.splice(+btn.dataset.i,1); renderProdGallery(); updateChecklist(); });
+}
+function addFiles(files){ [...files].forEach(f=>downscale(f,b=>{ suspectImgs.push(b); renderProdGallery(); updateChecklist(); })); }
+const drop=$('#drop'),file=$('#file'); drop.onclick=()=>file.click(); dragify(drop);
+drop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length) addFiles(ev.dataTransfer.files); });
+file.onchange=()=>{ if(file.files.length) addFiles(file.files); file.value=''; };
+const udrop=$('#updrop'),ufile=$('#upfile'); udrop.onclick=()=>ufile.click(); dragify(udrop);
+function setUpc(f){ downscale(f,b=>{ upcB64=b; udrop.innerHTML='<i class="ti ti-circle-check" style="color:var(--green)"></i><div class="t">UPC image added — click to replace</div>'; updateChecklist(); }); }
+udrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files[0]) setUpc(ev.dataTransfer.files[0]); });
+ufile.onchange=()=>{ if(ufile.files[0]) setUpc(ufile.files[0]); ufile.value=''; };
+
+/* lightbox */
+function openLb(src){ if(!src) return; $('#lbimg').src=src; $('#lightbox').classList.add('open'); }
+$('#lightbox').onclick=()=>{ $('#lightbox').classList.remove('open'); $('#lbimg').removeAttribute('src'); };
+document.addEventListener('click',e=>{ if(e.target.tagName==='IMG' && e.target.closest('.thumb')) openLb(e.target.src); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ $('#lightbox').classList.remove('open'); $('#addmodal').classList.remove('open'); } });
+
+/* add-product modal */
+const npDrop=$('#np_drop'),npFile=$('#np_file'); npDrop.onclick=()=>npFile.click(); dragify(npDrop);
+function renderNp(){ $('#np_gallery').innerHTML=npImgs.map((b,i)=>`<div class="thumb"><img src="data:image/jpeg;base64,${b}"><button class="rm" data-i="${i}">×</button></div>`).join('');
+  $$('#np_gallery .rm').forEach(b=>b.onclick=e=>{ e.stopPropagation(); npImgs.splice(+b.dataset.i,1); renderNp(); }); }
 function addNp(files){ [...files].forEach(f=>downscale(f,b=>{ npImgs.push(b); renderNp(); })); }
 npDrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length) addNp(ev.dataTransfer.files); });
 npFile.onchange=()=>{ if(npFile.files.length) addNp(npFile.files); npFile.value=''; };
@@ -864,457 +460,208 @@ $('#addprod').onclick=()=>{ npImgs=[]; $('#np_name').value=''; $('#np_brand').va
 $('#np_cancel').onclick=()=>$('#addmodal').classList.remove('open');
 $('#addmodal').onclick=()=>$('#addmodal').classList.remove('open');
 $('#np_save').onclick=async()=>{
-  const name=$('#np_name').value.trim();
-  if(!name){ $('#np_status').textContent='Enter a name.'; return; }
+  const name=$('#np_name').value.trim(); if(!name){ $('#np_status').textContent='Enter a name.'; return; }
   if(!npImgs.length){ $('#np_status').textContent='Add at least one image.'; return; }
-  $('#np_save').disabled=true; $('#np_status').innerHTML='<span class="spin"></span> saving to Supabase…';
-  try{
-    const r=await fetch(API+'/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,brand:$('#np_brand').value.trim(),images:npImgs})});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const p=await r.json();
-    await loadProducts();
-    $('#prodpick').value=p.id; productId=p.id; showProductRefs();
-    $('#addmodal').classList.remove('open');
-  }catch(e){ $('#np_status').innerHTML='<span style="color:var(--red)">Error: '+e.message+'</span>'; }
+  $('#np_save').disabled=true; $('#np_status').innerHTML='<span class="spin"></span> saving…';
+  try{ const r=await fetch(API+'/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,brand:$('#np_brand').value.trim(),images:npImgs})});
+    if(!r.ok) throw new Error('HTTP '+r.status); const p=await r.json(); await loadProducts(); $('#prodpick').value=p.id; productId=p.id; showProductRefs(); updateChecklist(); $('#addmodal').classList.remove('open');
+  }catch(e){ $('#np_status').innerHTML='<span style="color:var(--red)">'+e.message+'</span>'; }
   $('#np_save').disabled=false;
 };
-loadProducts();
 
-// ---- click-to-preview lightbox ----
-function openLb(src){ if(!src) return; $('#lbimg').src=src; $('#lightbox').classList.add('open'); }
-function closeLb(){ $('#lightbox').classList.remove('open'); $('#lbimg').removeAttribute('src'); }
-$('#lightbox').onclick=closeLb;
-document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeLb(); });
-document.addEventListener('click', e=>{ const t=e.target; if(t.tagName==='IMG' && (t.closest('#refs')||t.closest('#prodgallery'))) openLb(t.src); });
-document.addEventListener('click', e=>{ const t=e.target; if(t.tagName==='IMG' && t.closest('#updrop')){ openLb(t.src); e.stopPropagation(); } }, true);
-
-// ---- image uploads (client-side downscale to base64) ----
-function downscale(f, cb){
-  const img=new Image(), url=URL.createObjectURL(f);
-  img.onload=()=>{ const max=1024,sc=Math.min(1,max/Math.max(img.width,img.height));
-    const c=document.createElement('canvas'); c.width=img.width*sc; c.height=img.height*sc;
-    c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(url);
-    cb(c.toDataURL('image/jpeg',0.85).split(',')[1]); };
-  img.src=url;
+/* ---------- run ---------- */
+const STAGES=['Reference curation','Logo','Stitching','Hardware','Label','Material','UPC / tag','Aggregator','Verifier'];
+const MSG=['Curating authentic references…','Analyzing logo geometry…','Inspecting stitching…','Checking hardware…','Reading the care label…','Assessing material…','Reading the UPC code…','Aggregating signals…','Verifying the verdict…'];
+let procTimer=null;
+function showProc(){
+  $('#v-input').classList.add('hidden'); $('#v-result').classList.add('hidden'); $('#v-proc').classList.remove('hidden');
+  $('#procchips').innerHTML=STAGES.map(s=>`<span class="pchip">${s}</span>`).join('');
+  const chips=$$('#procchips .pchip'); let i=0; $('#procbar').style.width='6%';
+  clearInterval(procTimer);
+  procTimer=setInterval(()=>{
+    if(i>0&&chips[i-1]) chips[i-1].className='pchip on';
+    if(i<STAGES.length){ chips[i].className='pchip now'; $('#procstatus').textContent=MSG[i]; $('#procbar').style.width=(8+i/STAGES.length*84)+'%'; i++; }
+    else { i=Math.floor(STAGES.length*0.5); }
+  },900);
 }
-function dragify(drop){
-  ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over')}));
-  ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over')}));
-}
-function renderProdGallery(){
-  $('#prodgallery').innerHTML = suspectImgs.map((b,i)=>`<div class="ref" style="position:relative"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span><button data-i="${i}" class="rmimg" style="position:absolute;top:2px;right:2px;width:17px;height:17px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:13.8px;line-height:1;cursor:pointer;padding:0;">×</button></div>`).join('');
-  document.querySelectorAll('#prodgallery .rmimg').forEach(btn=>btn.onclick=(e)=>{ e.stopPropagation(); suspectImgs.splice(+btn.dataset.i,1); renderProdGallery(); });
-  updateRunbar(); updateChecklist();
-}
-function addProductFiles(files){ [...files].forEach(f=>downscale(f,b=>{ suspectImgs.push(b); renderProdGallery(); })); }
-const pdrop=$('#drop'), pfile=$('#file');
-pdrop.onclick=()=>pfile.click(); dragify(pdrop);
-pdrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files.length) addProductFiles(ev.dataTransfer.files); });
-pfile.onchange=()=>{ if(pfile.files.length) addProductFiles(pfile.files); pfile.value=''; };
-const udrop=$('#updrop'), ufile=$('#upfile');
-udrop.onclick=()=>ufile.click(); dragify(udrop);
-function setUpc(f){ downscale(f,b=>{ upcB64=b; updateChecklist(); udrop.style.position='relative'; udrop.innerHTML=''; const el=new Image(); el.src='data:image/jpeg;base64,'+b; el.style.maxHeight='100%'; udrop.appendChild(el);
-  const rep=document.createElement('button'); rep.textContent='replace'; rep.style.cssText='position:absolute;bottom:4px;right:4px;font:11px/1 inherit;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:5px;padding:3px 7px;cursor:pointer;z-index:2;'; rep.onclick=(e)=>{ e.stopPropagation(); ufile.click(); }; udrop.appendChild(rep); }); }
-udrop.addEventListener('drop',ev=>{ if(ev.dataTransfer.files[0]) setUpc(ev.dataTransfer.files[0]); });
-ufile.onchange=()=>{ if(ufile.files[0]) setUpc(ufile.files[0]); ufile.value=''; };
-
-// ---- run analysis ----
+function stopProc(){ clearInterval(procTimer); $('#procbar').style.width='100%'; }
 async function readErr(r){ try{ const j=await r.json(); return j.detail||('HTTP '+r.status); }catch(_){ return 'HTTP '+r.status; } }
 
-async function runAnalysis(){
-  if(provider==='all') return runCompare();
-  activeEngine=provider;
-  const case_id=$('#case').value, brand=$('#brand').value;
-  const runBtns=[$('#run'),$('#runbarbtn')], rbs=$('#runbarstatus');
-  runBtns.forEach(b=>{ if(b) b.disabled=true; });
-  const msg='<span class="spin"></span> running on '+engineName(provider)+'…';
-  $('#status').innerHTML=msg; if(rbs) rbs.innerHTML=msg;
-  runpanelState='running'; renderPipelineRunning();
+$('#run').onclick=async()=>{
+  $('#runerr').innerHTML=''; showProc();
+  const body={case_id:caseId,brand,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64};
   try{
-    const r=await fetch(API+"/api/analyze",{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({case_id,brand,provider,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64})});
-    if(!r.ok) throw new Error(await readErr(r));
-    const data=await r.json();
-    renderPipelineDone(data.report);
-    render(data);
-    benchAppend([benchRow(engineName(provider), case_id, data)]);
-    lastRun={ data, engine:engineName(provider),
-      product:(products.find(p=>p.id===productId)||{}).name||'',
-      product_id:(refSource==='product'?productId:'')||'',
-      suspect_images:suspectImgs.slice(), upc_image:upcB64 };
-    if(exportOn){ $('#expsave').disabled=false; }
-    $('#status').textContent=''; if(rbs) rbs.textContent='';
-  }catch(e){ pipelineFailed(); const err='<span style="color:var(--red)">Error: '+e.message+'</span>'; $('#status').innerHTML=err; if(rbs) rbs.innerHTML=err; }
-  runBtns.forEach(b=>{ if(b) b.disabled=false; });
+    if(provider==='all'){
+      const provs=(LIVE_PROVIDERS.length?LIVE_PROVIDERS:['openai']).slice();
+      const r=await fetch(API+'/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,providers:provs})});
+      if(!r.ok) throw new Error(await readErr(r)); const data=await r.json();
+      stopProc(); renderCompare(data,provs);
+      benchAppend(provs.filter(p=>data.results[p]&&data.results[p].ok).map(p=>benchRow(engineName(p),caseId,data.results[p])));
+    } else {
+      activeEngine=provider;
+      const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,provider})});
+      if(!r.ok) throw new Error(await readErr(r)); const data=await r.json();
+      stopProc(); renderSingle(data); lastReport={report:data.report,mode:data.mode,engine:engineName(provider)};
+      benchAppend([benchRow(engineName(provider),caseId,data)]);
+    }
+    $('#nav .nav-item[data-page="reports"]').classList.add('hasnew');
+    $('#v-proc').classList.add('hidden'); $('#v-result').classList.remove('hidden');
+  }catch(e){
+    clearInterval(procTimer); $('#v-proc').classList.add('hidden'); $('#v-input').classList.remove('hidden');
+    $('#runerr').innerHTML=`<div class="errbox">Run failed — ${e.message}</div>`;
+  }
+};
+function backToInput(){ $('#v-result').classList.add('hidden'); $('#v-proc').classList.add('hidden'); $('#v-input').classList.remove('hidden'); }
+
+/* ---------- render: single engine ---------- */
+function gauge(score,size){
+  const b=band(score),col=bandColor(b),R=size/2-8,C=2*Math.PI*R,cx=size/2,arc=score==null?0:score/100*C;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="flex:none">
+    <circle cx="${cx}" cy="${cx}" r="${R}" fill="none" stroke="#e6ebf3" stroke-width="8"/>
+    <circle cx="${cx}" cy="${cx}" r="${R}" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round" stroke-dasharray="${arc} ${C}" transform="rotate(-90 ${cx} ${cx})"/>
+    <text x="${cx}" y="${cx-2}" text-anchor="middle" font-size="${(size*0.28).toFixed(0)}" font-weight="600" font-family="IBM Plex Mono,monospace" fill="#1b2432">${score??'—'}</text>
+    <text x="${cx}" y="${(cx+size*0.13).toFixed(0)}" text-anchor="middle" font-size="${(size*0.09).toFixed(0)}" fill="#8b96a6">/100</text></svg>`;
+}
+function dimRows(dims){
+  return dims.map(d=>{ const col=bandColor(d.band);
+    return `<div class="drow-x"><div style="min-width:0"><div style="font-size:13px;font-weight:500">${d.dimension}</div><div class="muted" style="font-size:12px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.finding||''}</div></div>
+      <span class="dbar"><i style="width:${d.score}%;background:${col}"></i></span>
+      <span class="mono" style="text-align:right;font-weight:600;color:${col}">${d.score}</span></div>`; }).join('');
+}
+function renderSingle(d){
+  const c=d.composite,v=d.verdict,dims=d.dimensions,t=(d.report||{}).totals||{},ev=(d.report||{}).evals||{};
+  const conf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
+  const upcMap={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match']};
+  const um=upcMap[(d.upc||{}).status]||upcMap.nomatch;
+  $('#v-result').innerHTML=`
+    <div class="rhead">
+      <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
+      <div><div style="font-size:16px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:12px">${engineName(activeEngine)} · ${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
+      <span class="badge ${badgeClass(c.band)}" style="margin-left:auto">${v.label||verdictLabel(c.band)}</span>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(c.band)}">${c.score}</div></div>
+      <div class="metric"><div class="k">Confidence</div><div class="v">${conf}</div></div>
+      <div class="metric"><div class="k">Run cost</div><div class="v" style="color:var(--green)">$${(t.cost||0).toFixed(4)}</div></div>
+      <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
+    </div>
+    <div class="card pad" style="margin-bottom:14px">
+      <div class="verdict">${gauge(c.score,104)}
+        <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
+          <ul class="keyev">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul></div></div>
+    </div>
+    <div class="row" style="justify-content:space-between;margin-bottom:8px"><div class="sect-lbl" style="margin:0">Forensic dimensions</div>
+      <span class="badge ${um[0]}">UPC · ${um[1]}</span></div>
+    <div class="card">${dimRows(dims)}</div>`;
 }
 
-// ---- compare engines: run every live engine on the SAME inputs, side by side ----
-async function runCompare(){
-  const case_id=$('#case').value, brand=$('#brand').value;
-  const provs = LIVE_PROVIDERS.length ? LIVE_PROVIDERS.slice() : ['openai'];
-  const runBtns=[$('#run'),$('#runbarbtn')], rbs=$('#runbarstatus');
-  runBtns.forEach(b=>{ if(b) b.disabled=true; });
-  const msg='<span class="spin"></span> comparing '+provs.map(engineName).join(' · ')+'…';
-  $('#status').innerHTML=msg; if(rbs) rbs.innerHTML=msg;
-  runpanelState='running'; renderPipelineRunning();
-  try{
-    const r=await fetch(API+"/api/compare",{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({case_id,brand,providers:provs,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64})});
-    if(!r.ok) throw new Error(await readErr(r));
-    const data=await r.json();
-    // pick the first engine that succeeded to drive the normal finding view
-    const okProv = provs.find(p=>data.results[p] && data.results[p].ok);
-    if(okProv){ activeEngine=okProv; const d=data.results[okProv]; renderPipelineDone(d.report); render({...d, mode:data.mode}); }
-    else { pipelineFailed(); }
-    renderCompare(data, provs);
-    benchAppend(provs.filter(p=>data.results[p]&&data.results[p].ok).map(p=>benchRow(engineName(p), case_id, data.results[p])));
-    $('#status').textContent=''; if(rbs) rbs.textContent='';
-  }catch(e){ pipelineFailed(); const err='<span style="color:var(--red)">Error: '+e.message+'</span>'; $('#status').innerHTML=err; if(rbs) rbs.innerHTML=err; }
-  runBtns.forEach(b=>{ if(b) b.disabled=false; });
-}
-
-// side-by-side engine scorecard rendered onto the finding page
-function renderCompare(data, provs){
-  $('#finding').classList.remove('hidden');
-  const host=$('#comparecard'); if(!host) return;
+/* ---------- render: compare ---------- */
+function renderCompare(data,provs){
   const res=data.results||{};
+  const oks=provs.filter(p=>res[p]&&res[p].ok);
+  const primary=oks.length?res[oks[0]]:null;
+  const bands=oks.map(p=>res[p].composite.band);
+  const agree=bands.length && bands.every(b=>b===bands[0]);
+  const cheapest=oks.slice().sort((a,b)=>(res[a].report.totals.cost-res[b].report.totals.cost))[0];
   const dimNames=['Logo','Stitching','Hardware','Label','Material'];
-  const cell=(html,style='')=>`<td style="padding:9px 12px;border-bottom:1px solid var(--border);${style}">${html}</td>`;
-  const scoreCell=x=>{ if(x==null) return cell('<span class="muted">—</span>'); const col=bandColor(band(x)); return cell(`<span style="font-family:var(--mono);font-weight:600;color:${col}">${x}</span>`); };
-  const head='<th style="padding:9px 12px;text-align:left;font-size:11px;color:var(--mist);font-weight:600;border-bottom:1px solid var(--border)">Metric</th>'+
-    provs.map(p=>{ const r=res[p]||{}; const ok=r.ok; return `<th style="padding:9px 12px;text-align:left;font-size:12px;font-weight:600;border-bottom:1px solid var(--border)">${engineName(p)}${ok?'':' <span class="badge bg-dev" style="font-size:10px">failed</span>'}</th>`; }).join('');
-  const rowsHtml=[];
-  const metricRow=(label,fn)=>{ rowsHtml.push('<tr>'+cell(`<span style="color:var(--slate)">${label}</span>`)+provs.map(p=>fn(res[p]||{})).join('')+'</tr>'); };
-  metricRow('Composite score', r=> r.ok ? scoreCell(r.composite&&r.composite.score) : cell(`<span class="muted" style="font-size:12px">${(r.error||'error').slice(0,60)}</span>`,'color:var(--red)'));
-  metricRow('Verdict', r=> r.ok ? cell(`<span class="badge ${vinfo((r.composite||{}).band).c}">${(r.verdict||{}).label||'—'}</span>`) : cell(''));
-  dimNames.forEach(dn=> metricRow(dn, r=>{ if(!r.ok) return cell(''); const d=(r.dimensions||[]).find(x=>x.dimension===dn); return scoreCell(d&&d.score); }));
-  metricRow('UPC / tag', r=> r.ok ? cell(`<span class="badge ${({match:'bg-match',mismatch:'bg-review',nomatch:'bg-dev'}[(r.upc||{}).status])||'bg-dev'}">${(r.upc||{}).status||'—'}</span>`) : cell(''));
-  metricRow('Verifier', r=> r.ok ? cell((r.verdict||{}).verifier_confirmed?'✓ confirmed':'✕ refuted') : cell(''));
-  metricRow('Cost (USD)', r=> r.ok ? cell(`<span style="font-family:var(--mono)">$${(((r.report||{}).totals||{}).cost||0).toFixed(4)}</span>`) : cell(''));
-  metricRow('Latency', r=> r.ok ? cell(`<span style="font-family:var(--mono)">${((((r.report||{}).totals||{}).wall_ms||0)/1000).toFixed(1)}s</span>`) : cell(''));
-  host.classList.remove('hidden');
-  host.innerHTML=`<div class="card-title">Engine comparison</div>
-    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px">
-    <thead><tr>${head}</tr></thead><tbody>${rowsHtml.join('')}</tbody></table></div>
-    <div class="muted" style="font-size:12px;margin-top:12px;line-height:1.5">Same case, same images, run on each engine in parallel. Scores are counterfeit-probability (0–100); lower is more authentic. Cost is computed from live token usage.</div>`;
+  activeEngine=oks[0]||'all';
+  const metrics = primary ? `
+    <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(primary.composite.band)}">${primary.composite.score}</div></div>
+    <div class="metric"><div class="k">Consensus</div><div class="v">${oks.length?oks.length+'/'+oks.length:'—'}</div></div>
+    <div class="metric"><div class="k">Cheapest</div><div class="v" style="color:var(--green);font-size:15px">${cheapest?engineName(cheapest):'—'}</div></div>
+    <div class="metric"><div class="k">Engines</div><div class="v">${provs.length}</div></div>` : '';
+  const engRows=provs.map(p=>{ const r=res[p];
+    if(!r||!r.ok) return `<tr><td>${engineName(p)}</td><td colspan="4" style="font-size:11.5px;color:var(--red-deep)">${((r&&r.error)||'error').slice(0,70)}</td></tr>`;
+    const c=r.composite,t=r.report.totals,isCheap=p===cheapest;
+    return `<tr class="${isCheap?'hl':''}"><td>${engineName(p)}${isCheap?' <span class="badge b-green" style="font-size:10px;padding:1px 7px">cheapest</span>':''}</td>
+      <td><span class="badge ${badgeClass(c.band)}" style="font-size:11px">${verdictLabel(c.band)}</span></td>
+      <td class="num" style="color:${bandColor(c.band)}">${c.score}</td>
+      <td class="num" ${isCheap?'style="color:var(--green)"':''}>$${(t.cost||0).toFixed(4)}</td>
+      <td class="num">${((t.wall_ms||0)/1000).toFixed(1)}s</td></tr>`; }).join('');
+  const dimHead=oks.map(p=>`<th class="num">${engineName(p).split(' ')[0]}</th>`).join('');
+  const dimBody=dimNames.map(dn=>{ const cells=oks.map(p=>{ const dd=(res[p].dimensions||[]).find(x=>x.dimension===dn); const sc=dd?dd.score:null; return `<td class="num" style="color:${bandColor(band(sc))}">${sc==null?'—':sc}</td>`; }).join('');
+    return `<tr><td>${dn}</td>${cells}</tr>`; }).join('');
+  $('#v-result').innerHTML=`
+    <div class="rhead">
+      <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
+      <div><div style="font-size:16px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:12px">${provs.length} engines · ${agree?'consensus':'split'}</div></div>
+      <span class="badge ${primary?badgeClass(primary.composite.band):'b-gray'}" style="margin-left:auto">${primary?verdictLabel(primary.composite.band):'—'}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
+    </div>
+    <div class="metrics">${metrics}</div>
+    <div class="sect-lbl">Engine comparison</div>
+    <div class="tablewrap" style="margin-bottom:16px"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
+    <div class="sect-lbl">Dimension scores by engine</div>
+    <div class="tablewrap"><table><thead><tr><th>Dimension</th>${dimHead}</tr></thead><tbody>${dimBody}</tbody></table></div>`;
+  lastReport = primary ? {report:primary.report,mode:data.mode,engine:'Compare ('+oks.map(engineName).join(', ')+')'} : null;
 }
-$('#run').onclick=runAnalysis;
-$('#runbarbtn').onclick=runAnalysis;
 
-// ---- sticky run bar: show once photos exist and the top Run button is scrolled out of view ----
-function syncRunbar(){
-  const appVisible = !$('#appshell').classList.contains('hidden');
-  const show = appVisible && currentPage==='analysis' && suspectImgs.length>0 && !runInView;
-  const bar=$('#runbar'); if(!bar) return;
-  bar.classList.toggle('show', show);
-  bar.setAttribute('aria-hidden', String(!show));
-  document.body.style.paddingBottom = show ? '78px' : '';
-}
-function computeRunInView(){
-  const el=$('#run'); if(!el) return true;
-  const r=el.getBoundingClientRect(), vh=window.innerHeight||document.documentElement.clientHeight;
-  return r.bottom>70 && r.top<vh;   // 70 ≈ sticky header height; visible below the header
-}
-function refreshRunbar(){ runInView=computeRunInView(); syncRunbar(); }
-function updateRunbar(){
-  const n=suspectImgs.length, prod=(products.find(p=>p.id===productId)||{}).name||'';
-  const ctx=$('#runbarctx');
-  if(ctx) ctx.innerHTML = n
-    ? `<span class="rbdot"></span><b>${n}</b><span>&nbsp;suspect photo${n>1?'s':''} ready</span>${prod?`<span class="rbprod muted">&nbsp;·&nbsp;${prod}</span>`:''}`
-    : `<span class="rbdot" style="background:var(--mist);box-shadow:0 0 0 3px var(--track)"></span><span>Add a suspect photo to run</span>`;
-  refreshRunbar();
-}
-let rbTick=false;
-window.addEventListener('scroll',()=>{ if(rbTick) return; rbTick=true; requestAnimationFrame(()=>{ rbTick=false; refreshRunbar(); }); },{passive:true});
-window.addEventListener('resize',refreshRunbar);
-refreshRunbar();
-
-// ---- Excel export log ----
-function setExpCount(n){
-  $('#expcount').textContent = n+' saved';
-  $('#expdl').disabled = !n;
-  $('#expclear').classList.toggle('hidden', !n);
-}
-async function exportInit(){
-  try{
-    const d=await fetch(API+'/api/export/count').then(r=>r.json());
-    if(!d.available) return;                      // Supabase off → keep bar hidden
-    exportOn=true; $('#exportbar').classList.remove('hidden');
-    setExpCount(d.count||0);
-  }catch(e){}
-}
-$('#expsave').onclick=async()=>{
-  if(!lastRun) return;
-  const b=$('#expsave'); b.disabled=true; $('#exptoast').textContent='';
-  try{
-    const r=await fetch(API+'/api/export/save',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(lastRun)});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const d=await r.json(); setExpCount(d.count);
-    $('#exptoast').textContent='✓ saved to log';
-    setTimeout(()=>{ $('#exptoast').textContent=''; }, 2500);
-  }catch(e){ $('#exptoast').style.color='var(--red)'; $('#exptoast').textContent='save failed'; }
-  b.disabled=false;
-};
-$('#expdl').onclick=()=>{
-  const a=document.createElement('a'); a.href=API+'/api/export.xlsx'; a.download='VERITAS_analyses.xlsx';
-  document.body.appendChild(a); a.click(); a.remove();
-};
-$('#expclear').onclick=async()=>{
-  if(!confirm('Clear all saved analyses from the Excel log?')) return;
-  try{ await fetch(API+'/api/export',{method:'DELETE'}); setExpCount(0); $('#exptoast').textContent='log cleared'; }
-  catch(e){}
-};
-exportInit();
-
-// ---- client-side comparison log (no backend / Supabase needed) ----
-// Every completed run appends one row per engine to localStorage; download as
-// CSV for the 50-case accuracy + cost comparison. Real outputs only.
-const BENCH_KEY='veritas-bench';
-const DIM_ORDER=['Logo','Stitching','Hardware','Label','Material'];
+/* ---------- comparison CSV log ---------- */
+const BENCH_KEY='veritas-bench-v2', DIM_ORDER=['Logo','Stitching','Hardware','Label','Material'];
 function benchLoad(){ try{ return JSON.parse(localStorage.getItem(BENCH_KEY)||'[]'); }catch(e){ return []; } }
-function benchSave(rows){ try{ localStorage.setItem(BENCH_KEY, JSON.stringify(rows)); }catch(e){} updateBenchUI(); }
-function benchRow(engineLabel, caseId, d){
-  const c=d.composite||{}, t=(d.report||{}).totals||{}, ev=(d.report||{}).evals||{};
-  const dm={}; (d.dimensions||[]).forEach(x=>{ dm[x.dimension]=x.score; });
-  const row={ ts:new Date().toISOString(), case:caseId, engine:engineLabel,
-    score:c.score, band:c.band||'', verdict:(d.verdict||{}).label||'',
-    upc:(d.upc||{}).status||'', verifier:(d.verdict||{}).verifier_confirmed?'confirmed':'refuted',
-    confidence:ev.confidence, cost_usd:t.cost, latency_s:t.wall_ms!=null?+(t.wall_ms/1000).toFixed(1):'' };
-  DIM_ORDER.forEach(dn=>{ row[dn]=dm[dn]!=null?dm[dn]:''; });
-  return row;
+function benchSave(rows){ try{ localStorage.setItem(BENCH_KEY,JSON.stringify(rows)); }catch(e){} updateBenchUI(); }
+function benchRow(engineLabel,cid,d){
+  const c=d.composite||{},t=(d.report||{}).totals||{},ev=(d.report||{}).evals||{},dm={};
+  (d.dimensions||[]).forEach(x=>{ dm[x.dimension]=x.score; });
+  const row={ts:new Date().toISOString(),case:cid,engine:engineLabel,score:c.score,band:c.band||'',verdict:verdictLabel(c.band),
+    upc:(d.upc||{}).status||'',verifier:(d.verdict||{}).verifier_confirmed?'confirmed':'refuted',confidence:ev.confidence,
+    cost_usd:t.cost,latency_s:t.wall_ms!=null?+(t.wall_ms/1000).toFixed(1):''};
+  DIM_ORDER.forEach(dn=>{ row[dn]=dm[dn]!=null?dm[dn]:''; }); return row;
 }
 function benchAppend(rows){ if(!rows||!rows.length) return; const all=benchLoad(); all.push(...rows); benchSave(all); }
-function updateBenchUI(){
-  const n=benchLoad().length, c=$('#benchcount'), dl=$('#benchdl'), clr=$('#benchclear');
-  if(c) c.textContent=n+' comparison'+(n===1?'':'s')+' logged';
-  if(dl) dl.disabled=!n;
-  if(clr) clr.classList.toggle('hidden', !n);
-}
-function benchCsv(){
-  const rows=benchLoad(); if(!rows.length) return '';
+function updateBenchUI(){ const n=benchLoad().length; const c=$('#benchcount'); if(c)c.textContent='· '+n+' run'+(n===1?'':'s');
+  const dl=$('#benchdl'); if(dl)dl.disabled=!n; const cl=$('#benchclear'); if(cl)cl.classList.toggle('hidden',!n); }
+function benchCsv(){ const rows=benchLoad(); if(!rows.length) return '';
   const cols=['ts','case','engine','score','band','verdict',...DIM_ORDER,'upc','verifier','confidence','cost_usd','latency_s'];
   const esc=v=>{ v=(v==null?'':String(v)); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
-  return cols.join(',')+'\n'+rows.map(r=>cols.map(k=>esc(r[k])).join(',')).join('\n');
-}
-if($('#benchdl')) $('#benchdl').onclick=()=>{
-  const csv=benchCsv(); if(!csv) return;
-  const a=document.createElement('a'); a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
-  a.download='VERITAS_engine_comparison.csv'; document.body.appendChild(a); a.click(); a.remove();
-};
-if($('#benchclear')) $('#benchclear').onclick=()=>{ if(!confirm('Clear the local comparison log?')) return; benchSave([]); };
-updateBenchUI();
+  return cols.join(',')+'\n'+rows.map(r=>cols.map(k=>esc(r[k])).join(',')).join('\n'); }
+$('#benchdl').onclick=()=>{ const csv=benchCsv(); if(!csv) return; const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv); a.download='VERITAS_engine_comparison.csv'; document.body.appendChild(a); a.click(); a.remove(); };
+$('#benchclear').onclick=()=>{ if(!confirm('Clear the local comparison log?')) return; benchSave([]); };
 
-function gauge(score){
-  const b=band(score), col=bandColor(b), R=54, C=2*Math.PI*R, arc=score==null?0:score/100*C;
-  return `<svg width="124" height="124" viewBox="0 0 124 124" style="flex:none">
-    <circle cx="62" cy="62" r="${R}" fill="none" style="stroke:var(--chart-track)" stroke-width="11"/>
-    <circle cx="62" cy="62" r="${R}" fill="none" stroke="${col}" stroke-width="11" stroke-linecap="round"
-      stroke-dasharray="${arc} ${C}" transform="rotate(-90 62 62)"/>
-    <text x="62" y="60" text-anchor="middle" font-size="30" font-weight="700" font-family="'IBM Plex Mono',monospace" style="fill:var(--gauge-text)">${score??'—'}</text>
-    <text x="62" y="79" text-anchor="middle" font-size="11" style="fill:var(--gauge-sub)">/100</text></svg>`;
-}
-
-function buildCompare(d){
-  const s=$('#cmp-suspect'), r=$('#cmp-ref'); if(!s||!r) return;
-  s.innerHTML = suspectImgs.length
-    ? suspectImgs.slice(0,3).map((b,i)=>`<div class="ref"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span></div>`).join('')
-    : '<span class="muted" style="font-size:13px;grid-column:1/-1">No suspect photos attached.</span>';
-  let refsHtml='';
-  const fm=d&&d.fetched_meta, p=products.find(x=>x.id===productId);
-  if(fm && fm.used && fm.sources && fm.sources.length){
-    refsHtml=fm.sources.slice(0,3).map((u,i)=>`<div class="ref"><img src="${u}" referrerpolicy="no-referrer" loading="lazy" onerror="this.style.opacity=.15"><span>web ${i+1}</span></div>`).join('');
-  } else if(p && (p.images||[]).length){
-    refsHtml=p.images.slice(0,3).map((fn,i)=>`<div class="ref"><img src="${API}/api/products/${p.id}/img/${fn}" onerror="this.style.opacity=.15"><span>ref ${i+1}</span></div>`).join('');
-  }
-  r.innerHTML = refsHtml || '<span class="muted" style="font-size:13px;grid-column:1/-1">No reference images available.</span>';
+/* ---------- reports page ---------- */
+function renderReportPage(){
+  $('#nav .nav-item[data-page="reports"]').classList.remove('hasnew');
+  updateBenchUI();
+  if(!lastReport){ $('#reportcard').innerHTML='<div class="card pad muted" style="font-size:13px">No run yet. Head to Analysis and run an assessment.</div>'; return; }
+  const rep=lastReport.report,rows=(rep.rows||[]),T=rep.totals||{},e=rep.evals||{};
+  const tb=rows.map(r=>`<tr><td>${r.agent}</td><td class="muted" style="font-family:var(--mono);font-size:11.5px">${r.model}</td>
+    <td class="num">${(r.tokens_in||0).toLocaleString()}</td><td class="num">${(r.tokens_out||0).toLocaleString()}</td>
+    <td class="num">$${(r.cost||0).toFixed(4)}</td><td class="num">${((r.latency_ms||0)/1000).toFixed(1)}s</td></tr>`).join('');
+  $('#reportcard').innerHTML=`<div class="sect-lbl">Run report · ${lastReport.engine}</div>
+    <div class="tablewrap"><table><thead><tr><th>Agent</th><th>Model</th><th class="num">Tok in</th><th class="num">Tok out</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead>
+    <tbody>${tb}</tbody><tfoot><tr><td style="font-weight:600">Total</td><td class="muted">${e.confidence!=null?('conf '+Math.round(e.confidence*100)+'%'):''}</td>
+    <td class="num">${(T.tokens_in||0).toLocaleString()}</td><td class="num">${(T.tokens_out||0).toLocaleString()}</td><td class="num">$${(T.cost||0).toFixed(4)}</td><td class="num">${((T.wall_ms||0)/1000).toFixed(1)}s</td></tr></tfoot></table></div>`;
 }
 
-function render(d){
-  // reveal the finding with run provenance (frontend metadata only)
-  $('#finding').classList.remove('hidden');
-  const now=new Date();
-  const runid='RUN-'+now.getFullYear()+String(now.getMonth()+1).padStart(2,'0')+String(now.getDate()).padStart(2,'0')+'-'+String(now.getHours()).padStart(2,'0')+String(now.getMinutes()).padStart(2,'0')+String(now.getSeconds()).padStart(2,'0');
-  const analyst=($('#ch-analyst')&&$('#ch-analyst').textContent)||'—';
-  $('#runmeta').textContent = `${runid} · ${now.toLocaleString()} · engine ${engineName(activeEngine)} · case ${$('#case').value} · analyst ${analyst}`;
-  const cc=$('#comparecard'); if(cc) cc.classList.add('hidden');   // hidden for single-engine runs
-  buildCompare(d);
-  // references — product catalog or Google-fetched
-  const fm=d.fetched_meta;
-  if(fm && fm.source==='product'){ showProductRefs(); }
-  else if(fm && fm.used){
-    if(fm.sources && fm.sources.length){
-      $('#refseyebrow').textContent='Authentic refs · via Google Lens ('+fm.sources.length+', no human models)';
-      $('#refs').innerHTML = fm.sources.map((u,i)=>`<div class="ref"><img src="${u}" referrerpolicy="no-referrer" loading="lazy" onerror="this.style.opacity=.15"><span>web ${i+1}</span></div>`).join('');
-    } else { $('#refseyebrow').textContent='Authentic references · Google found none'; $('#refs').innerHTML='<span class="muted" style="font-size:13.8px;grid-column:1/-1">No product-only references found.</span>'; }
-  }
-  // verdict + match summary
-  const v=d.verdict, c=d.composite, dims=d.dimensions;
-  const nM=dims.filter(x=>x.band==='authentic').length, nR=dims.filter(x=>x.band==='caution').length, nD=dims.filter(x=>x.band==='counterfeit').length;
-  const cv=vinfo(c.band), col=bandColor(c.band);
-  // compact recap inside the analysis panel (only after a completed run)
-  const rp=$('#runpanel');
-  if(rp && runpanelState==='done' && !rp.querySelector('.done-recap')){
-    rp.insertAdjacentHTML('beforeend',
-      `<div class="done-recap"><span class="badge ${cv.c}">${cv.i}${v.label}</span>`+
-      `<span class="dr-score" style="color:${col}">${c.score}<span style="font-size:12px;color:var(--mist)">/100</span></span>`+
-      `<a href="#finding" class="dr-link" onclick="document.querySelector('#finding').scrollIntoView({behavior:'smooth'});return false">Open finding ↓</a></div>`);
-  }
-  const uM={match:['bg-match','Match'],mismatch:['bg-review','Mismatch'],nomatch:['bg-dev','No match']}[d.upc.status]||['bg-dev','No match'];
-  $('#verdict').innerHTML=`
-    <div class="verdict-main">${gauge(c.score)}
-      <div class="verdict-txt">
-        <span class="badge ${cv.c}">${cv.i}${v.label}</span>
-        <div class="vscore" style="color:${col}">${c.score}<span>/100</span></div>
-        <div class="vsummary">${v.summary}</div>
-      </div>
-    </div>
-    <div class="matchgrid">
-      <div class="matchcell"><div class="mk">UPC / tag</div><span class="badge ${uM[0]}">${uM[1]}</span></div>
-      <div class="matchcell"><div class="mk">Dimensions</div><div class="mv"><span style="color:var(--green)">${nM}</span> · <span style="color:var(--amber)">${nR}</span> · <span style="color:var(--red)">${nD}</span></div></div>
-      <div class="matchcell"><div class="mk">Verifier</div><div class="mv">${v.verifier_confirmed?'✓ confirmed':'✕ refuted'}</div></div>
-    </div>
-    <div class="ev-title">Key evidence</div>
-    <ul class="evidence">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul>`;
-  // dimension summary + cards
-  $('#dimsection').classList.remove('hidden');
-  $('#dimsummary').innerHTML=`<span class="cnt bg-match">${CHECK}${nM} match</span><span class="cnt bg-review">${ALERT}${nR} review</span><span class="cnt bg-dev">${XI}${nD} deviation</span>`;
-  $('#dimoverview').innerHTML=`<div class="dim-radar-wrap"><div class="dim-radar-cap">Deviation profile</div>${radar(dims)}</div><div class="dim-legend">${dims.map(dimBar).join('')}</div>`;
-  $('#dims').innerHTML=dims.map(dimCard).join('')+upcCard(d.upc);
-  renderReport(d.report, d.mode);
+/* ---------- dashboard / cases / models ---------- */
+function renderDashboard(){
+  const n=benchLoad().length;
+  $('#dashmetrics').innerHTML=`
+    <div class="metric"><div class="k">Open cases</div><div class="v">${CASES.length}</div></div>
+    <div class="metric"><div class="k">Engines live</div><div class="v">${LIVE_PROVIDERS.length}</div></div>
+    <div class="metric"><div class="k">Comparisons logged</div><div class="v">${n}</div></div>
+    <div class="metric"><div class="k">Brand</div><div class="v" style="font-size:15px">The North Face</div></div>`;
+}
+function renderCases(){
+  $('#casesbody').innerHTML=CASES.map(c=>`<tr>
+    <td class="mono">${c.id}</td><td>${c.brandName}</td><td class="muted">${c.origin}</td>
+    <td><span class="badge ${c.status==='Active'?'b-green':'b-gray'}" style="font-size:11px">${c.status}</span></td>
+    <td class="num"><button class="btn ghost sm" data-case="${c.id}">Open</button></td></tr>`).join('');
+  $$('#casesbody button[data-case]').forEach(b=>b.onclick=()=>{ caseId=b.dataset.case; $('#caseline').textContent='Case '+caseId+' — upload evidence, pick a reference, and choose your engine.'; go('analysis'); backToInput(); });
+}
+renderCases();
+function renderModels(){
+  const PRICE={'GPT-5.5':[5,30],'GPT-5.2':[1.75,14],'Gemini 3.1 Pro':[2,12],'Gemini 3 Pro':[2,12],'Kimi K2.6':[0.66,3.41],'Kimi K2.7':[0.72,3.49]};
+  const rows=[['openai','OpenAI',MODE.openai_model,ENGINE_LABEL.openai],
+    ['gemini','Gemini',MODE.gemini_model,ENGINE_LABEL.gemini],
+    ['kimi','Kimi (Moonshot)',MODE.kimi_model,ENGINE_LABEL.kimi]];
+  $('#modelsbody').innerHTML=rows.map(([p,name,mid,lbl])=>{ const live=MODE[p]==='live'; const pr=PRICE[lbl]||[null,null];
+    return `<tr><td>${name}</td><td class="mono muted">${mid||lbl}</td>
+      <td><span class="badge ${live?'b-green':'b-amber'}" style="font-size:11px">${live?'Live':'Not configured'}</span></td>
+      <td class="num">${pr[0]==null?'—':'$'+pr[0]}</td><td class="num">${pr[1]==null?'—':'$'+pr[1]}</td></tr>`; }).join('');
 }
 
-// ---- graphical dimension views ----
-function miniGauge(score,col){
-  const R=26,C=2*Math.PI*R,arc=score==null?0:score/100*C;
-  return `<svg class="mini-gauge" width="70" height="70" viewBox="0 0 70 70">
-    <circle cx="35" cy="35" r="${R}" fill="none" style="stroke:var(--chart-track)" stroke-width="7"/>
-    <circle cx="35" cy="35" r="${R}" fill="none" stroke="${col}" stroke-width="7" stroke-linecap="round"
-      stroke-dasharray="${arc} ${C}" transform="rotate(-90 35 35)"/>
-    <text x="35" y="38" text-anchor="middle" font-size="18" font-weight="700" font-family="'IBM Plex Mono',monospace" fill="${col}">${score??'—'}</text>
-    <text x="35" y="51" text-anchor="middle" font-size="7.5" style="fill:var(--gauge-sub)">/100</text></svg>`;
-}
-
-// spider/radar chart of every dimension's counterfeit-probability score
-function radar(dims){
-  const N=dims.length; if(!N) return '';
-  const cx=130, cy=118, R=84;
-  const ang=i=>-Math.PI/2 + i*2*Math.PI/N;
-  const pt=(i,r)=>[cx+r*Math.cos(ang(i)), cy+r*Math.sin(ang(i))];
-  let rings='';
-  [0.25,0.5,0.75,1].forEach(f=>{
-    const p=dims.map((_,i)=>pt(i,R*f).map(n=>n.toFixed(1)).join(',')).join(' ');
-    rings+=`<polygon points="${p}" style="fill:${f===1?'var(--chart-ring)':'none'};stroke:var(--chart-grid)" stroke-width="1"/>`;
-  });
-  let spokes='',labels='',dots='';
-  dims.forEach((x,i)=>{
-    const [ex,ey]=pt(i,R);
-    spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" style="stroke:var(--chart-grid)" stroke-width="1"/>`;
-    const [lx,ly]=pt(i,R+15), anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
-    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="10" font-weight="600" style="fill:var(--chart-label);cursor:pointer" onclick="focusDim(${i})">${x.dimension}</text>`;
-    const [px,py]=pt(i,R*((x.score||0)/100));
-    dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${bandColor(x.band)}" stroke-width="1.5" style="stroke:var(--dot-stroke);cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score}/100</title></circle>`;
-  });
-  const poly=dims.map((x,i)=>pt(i,R*((x.score||0)/100)).map(n=>n.toFixed(1)).join(',')).join(' ');
-  const devCol=bandColor('counterfeit');
-  return `<svg width="260" height="182" viewBox="-45 -5 350 245" role="img" aria-label="Deviation radar">
-    ${rings}${spokes}
-    <polygon points="${poly}" fill="${devCol}" fill-opacity=".12" stroke="${devCol}" stroke-width="2" stroke-linejoin="round"/>
-    ${dots}${labels}</svg>`;
-}
-
-// horizontal score bar in the overview legend
-function dimBar(x,i){
-  const col=bandColor(x.band);
-  return `<div class="dim-legrow" onclick="focusDim(${i})" title="Jump to ${x.dimension}">
-    <span class="dim-legdot" style="background:${col}"></span>
-    <span class="dim-legname">${x.dimension}</span>
-    <span class="dim-legbar"><i style="width:${x.score}%;background:${col}"></i></span>
-    <span class="dim-legscore" style="color:${col}">${x.score}</span>
-  </div>`;
-}
-
-function dimCard(x,i){
-  const col=bandColor(x.band), vi=vinfo(x.band);
-  const conf=Math.round((x.confidence??0)*100);
-  return `<div class="dim gdim" id="dcard-${i}">
-    <div class="gdim-top">
-      ${miniGauge(x.score,col)}
-      <div class="gdim-info">
-        <div class="dim-head"><span class="dim-name">${x.dimension}</span><span class="badge ${vi.c}">${vi.i}${vi.l}</span></div>
-        <div class="dim-find">${x.finding}</div>
-        <div class="conf-meter"><span class="conf-lab">confidence</span><span class="conf-track"><i style="width:${conf}%"></i></span><span class="conf-val">${conf}%</span></div>
-      </div>
-    </div>
-    <button type="button" class="dim-toggle" aria-expanded="false" onclick="toggleDim(this,${i})"><span>Show analysis</span>${CHEV}</button>
-    <div class="dim-rsn gdim-rsn hidden" id="drsn-${i}">${x.reasoning}</div>
-  </div>`;
-}
-
-function toggleDim(btn,i){
-  const box=$('#drsn-'+i), open=box.classList.toggle('hidden')===false;
-  btn.setAttribute('aria-expanded', open);
-  btn.querySelector('span').textContent = open ? 'Hide analysis' : 'Show analysis';
-}
-function focusDim(i){
-  const card=$('#dcard-'+i); if(!card) return;
-  const box=$('#drsn-'+i), btn=card.querySelector('.dim-toggle');
-  if(box.classList.contains('hidden')){ box.classList.remove('hidden'); btn.setAttribute('aria-expanded',true); btn.querySelector('span').textContent='Hide analysis'; }
-  card.scrollIntoView({behavior:'smooth',block:'center'});
-  card.classList.add('flash'); setTimeout(()=>card.classList.remove('flash'),1100);
-}
-
-function upcCard(u){
-  const map={match:['bg-match','Match — authentic record','var(--green)',CHECK],
-            mismatch:['bg-review','Mismatch — belongs to another product','var(--amber)',ALERT],
-            nomatch:['bg-dev','No match — counterfeit indicator','var(--red)',XI]};
-  const [cls,label,col,icon]=map[u.status]||map.nomatch;
-  const ext=u.extracted?`<div class="upc-num">${u.extracted}</div>`:`<div class="upc-num muted">— no code read —</div>`;
-  return `<div class="dim">
-    <div class="dim-head"><span class="dim-name">UPC / Security tag</span><span class="badge ${cls}">${icon}${u.status}</span></div>
-    ${ext}
-    <div class="dim-find" style="color:${col}">${label}</div>
-    <div class="dim-rsn">${u.note}</div>
-    <div class="dim-conf">master record: ${u.expected||'—'}</div>
-  </div>`;
-}
-
-function renderReport(rep,mode){
-  $('#repcard').classList.remove('hidden');
-  const re=$('#reportempty'); if(re) re.classList.add('hidden');
-  const rm=$('#repmeta'); if(rm) rm.textContent = $('#runmeta').textContent;   // same provenance as the finding
-  const ni=document.querySelector('.nav-item[data-page="report"]');
-  if(ni && currentPage!=='report') ni.classList.add('hasnew');
-  const statusFor=a=>{
-    if(a==='Aggregator')return['var(--green)','composite'];
-    if(a==='Verify')return['var(--green)','confirmed'];
-    if(a==='Verdict synth.')return['var(--amber)','escalated'];
-    if(a==='UPC / Tag')return['var(--red)','checked'];
-    if(a==='Reverse image')return['var(--mist)','searched'];
-    if(a==='Curate refs')return['var(--accent-solid)','curated'];
-    return['var(--accent-solid)','scored'];
-  };
-  const tb=rep.rows.map(r=>{const[c,t]=statusFor(r.agent);
-    return `<tr><td>${r.agent}</td><td style="font-family:var(--mono);font-size:13.8px;color:var(--slate)">${r.model}</td>
-      <td class="num">${r.tokens_in.toLocaleString()}</td><td class="num">${r.tokens_out.toLocaleString()}</td>
-      <td class="num">$${r.cost.toFixed(4)}</td><td class="num">${(r.latency_ms/1000).toFixed(1)}s</td>
-      <td><span class="dot" style="background:${c}"></span>${t}</td></tr>`;}).join('');
-  $('#rt tbody').innerHTML=tb;
-  const T=rep.totals;
-  const nModels=[...new Set(rep.rows.map(r=>r.model).filter(m=>m&&m!=='-'))].length;
-  $('#rt tfoot').innerHTML=`<tr><td>Total</td><td class="muted">${nModels} model${nModels>1?'s':''}</td>
-    <td class="num">${T.tokens_in.toLocaleString()}</td><td class="num">${T.tokens_out.toLocaleString()}</td>
-    <td class="num">$${T.cost.toFixed(4)}</td><td class="num">${(T.wall_ms/1000).toFixed(1)}s*</td>
-    <td class="muted">wall-clock</td></tr>`;
-  const e=rep.evals, tiles=[
-    ['Confidence',e.confidence??'—'],['Verifier',e.verifier+' '+e.verifier_votes],
-    ['Abstentions',e.abstentions],
-    ...(e.ground_truth?[['vs ground truth', e.correct?'✓ correct':'✗ wrong']]:[]),
-    ['Total cost','$'+T.cost.toFixed(4)],['Tokens',(T.tokens/1000).toFixed(1)+'K']];
-  $('#evals').innerHTML=tiles.map(([k,v])=>`<div class="ev"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
-  $('#repnote').innerHTML=`*Wall-clock ${(T.wall_ms/1000).toFixed(1)}s vs ${(T.serial_ms/1000).toFixed(1)}s if run serially — the dimension agents + UPC tool run in parallel. `+
-    (mode.vision==='live'||mode.verdict==='live'?'Live token counts from the model APIs.':'Mock mode: token counts & cost are estimated.');
-}
+onRefSourceChange(); updateChecklist(); updateBenchUI(); renderModels();
 </script>
 </body>
 </html>
