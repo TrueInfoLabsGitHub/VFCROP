@@ -140,10 +140,14 @@
   tfoot td{padding:9px 12px;border-top:2px solid var(--line)}
   .tablewrap{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card)}
   tbody tr.hl{background:#f8fafd}
-  .verdict{display:flex;gap:18px;align-items:center}
+  .verdict{display:flex;gap:22px;align-items:center}
   .vsum{font-size:14.6px;color:var(--sec);line-height:1.6}
   .keyev{margin:12px 0 0;padding-left:18px;font-size:14.6px;color:var(--ink);line-height:1.6}
   .keyev li{margin:3px 0}
+  .ringwrap{display:flex;flex-direction:column;align-items:center;gap:11px;flex:none}
+  .ringleg{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:236px}
+  .rlchip{display:inline-flex;align-items:center;gap:6px;font-size:12.3px;color:var(--sec);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:3px 9px;cursor:pointer}
+  .rlchip .rld{width:8px;height:8px;border-radius:2px;flex:none}
   .drow-x{display:grid;grid-template-columns:160px 1fr 44px;gap:12px;align-items:center;padding:10px 14px;border-top:1px solid var(--border-2)}
   .drow-x:first-child{border-top:none}
   .dbar{height:5px;border-radius:9999px;background:#e6ebf3;overflow:hidden}
@@ -631,6 +635,26 @@ function gauge(score,size){
     <text x="${cx}" y="${cx-2}" text-anchor="middle" font-size="${(size*0.28).toFixed(0)}" font-weight="600" font-family="IBM Plex Mono,monospace" fill="#1b2432">${score??'—'}</text>
     <text x="${cx}" y="${(cx+size*0.13).toFixed(0)}" text-anchor="middle" font-size="${(size*0.09).toFixed(0)}" fill="#8b96a6">/100</text></svg>`;
 }
+function dimRing(dims, comp){
+  const N=dims.length||1, cx=150, cy=150, R=92, sw=26, gap=N>1?3:0;
+  const P=(a,r)=>[cx+r*Math.cos(a*Math.PI/180), cy+r*Math.sin(a*Math.PI/180)];
+  let segs='';
+  dims.forEach((d,i)=>{
+    const a1=-90 + i*360/N + gap/2, a2=-90 + (i+1)*360/N - gap/2;
+    const [x1,y1]=P(a1,R), [x2,y2]=P(a2,R);
+    const large=(a2-a1)>180?1:0, col=bandColor(d.band||band(d.score));
+    segs+=`<path d="M${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)}" fill="none" stroke="${col}" stroke-width="${sw}"><title>${d.dimension}: ${d.score}/100</title></path>`;
+    const mid=(a1+a2)/2, [mx,my]=P(mid,R);
+    if(d.score!=null) segs+=`<text x="${mx.toFixed(2)}" y="${(my+4).toFixed(2)}" text-anchor="middle" font-size="12.5" font-weight="600" fill="#fff" style="pointer-events:none">${d.score}</text>`;
+  });
+  const cc=bandColor(comp.band);
+  return `<svg width="206" height="206" viewBox="0 0 300 300" role="img" aria-label="Dimension ring, composite ${comp.score==null?'n/a':comp.score}">${segs}
+    <text x="150" y="150" text-anchor="middle" font-size="52" font-weight="600" font-family="IBM Plex Mono,monospace" fill="${cc}">${comp.score==null?'—':comp.score}</text>
+    <text x="150" y="177" text-anchor="middle" font-size="13" fill="#8b96a6">composite risk</text></svg>`;
+}
+function ringLegend(dims){
+  return `<div class="ringleg">`+dims.map((d,i)=>`<span class="rlchip" onclick="focusDim(${i})" title="${d.dimension}: ${d.score}/100"><span class="rld" style="background:${bandColor(d.band||band(d.score))}"></span>${d.dimension} ${d.score==null?'—':d.score}</span>`).join('')+`</div>`;
+}
 function dimRows(dims){
   return dims.map((d,i)=>{ const col=bandColor(d.band); const conf=Math.round((d.confidence??0)*100);
     return `<div class="drow" id="dcard-${i}">
@@ -729,7 +753,7 @@ function renderSingle(d){
       <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
     </div>
     <div class="card pad" style="margin-bottom:14px">
-      <div class="verdict">${gauge(c.score,104)}
+      <div class="verdict"><div class="ringwrap">${dimRing(dims,c)}${ringLegend(dims)}</div>
         <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
           <ul class="keyev">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul></div></div>
       <div class="matchrow">
@@ -1021,7 +1045,7 @@ function renderStoredCase(rec){
       <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
     </div>
     <div class="card pad" style="margin-bottom:14px">
-      <div class="verdict">${gauge(c.score==null?0:c.score,104)}
+      <div class="verdict"><div class="ringwrap">${dimRing(dims,c)}${ringLegend(dims)}</div>
         <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
           <ul class="keyev">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul></div></div>
       <div class="matchrow">
