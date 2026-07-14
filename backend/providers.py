@@ -113,18 +113,47 @@ def _label_for(provider):
     return OPENAI_LABEL
 
 
+def _schema_hint(schema):
+    props = list((schema.get("properties") or {}).keys())
+    return ("Respond ONLY with a single valid JSON object containing exactly these keys: "
+            + ", ".join(props) + ". No prose, no markdown fences.")
+
+
+def _augment_content(content, hint):
+    if isinstance(content, list):
+        return content + [{"type": "text", "text": hint}]
+    return f"{content}\n\n{hint}"
+
+
 def _chat(cfg, content, schema, schema_name, timeout):
-    """One OpenAI-compatible chat-completions call -> (parsed_json, tin, tout)."""
+    """One OpenAI-compatible chat-completions call -> (parsed_json, tin, tout).
+
+    Prefers strict json_schema structured output; if the provider rejects that
+    response_format (some do), retries once in json_object mode with the schema
+    described in the prompt. No mock — a real failure still raises."""
+    headers = {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/json"}
+    headers.update(cfg.get("extra_headers", {}))
+
+    def post(body):
+        r = httpx.post(cfg["base"] + "/chat/completions", json=body, headers=headers, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+
     js = {"name": schema_name, "schema": schema}
     if cfg["strict"]:
         js["strict"] = True
     body = {"model": cfg["model"], "messages": [{"role": "user", "content": content}],
             "response_format": {"type": "json_schema", "json_schema": js}}
-    headers = {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/json"}
-    headers.update(cfg.get("extra_headers", {}))
-    r = httpx.post(cfg["base"] + "/chat/completions", json=body, headers=headers, timeout=timeout)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        data = post(body)
+    except httpx.HTTPStatusError as e:
+        txt = (e.response.text or "").lower()
+        if e.response.status_code in (400, 422) and ("response_format" in txt or "json_schema" in txt or "schema" in txt):
+            body["response_format"] = {"type": "json_object"}
+            body["messages"] = [{"role": "user", "content": _augment_content(content, _schema_hint(schema))}]
+            data = post(body)
+        else:
+            raise
     parsed = json.loads(data["choices"][0]["message"]["content"])
     u = data.get("usage") or {}
     return parsed, u.get("prompt_tokens", 0), u.get("completion_tokens", 0)

@@ -564,6 +564,11 @@
           <button type="button" class="btn sm" id="expdl" disabled>⬇ Download Excel</button>
         </div>
       </div>
+      <div class="finding-actions" id="benchbar" style="justify-content:flex-end;margin:-4px 0 14px">
+        <span class="muted" id="benchcount" style="font-size:12.8px">0 comparisons logged</span>
+        <button type="button" class="exp-clear hidden" id="benchclear">clear</button>
+        <button type="button" class="btn ghost sm" id="benchdl" disabled>⬇ Download comparison CSV</button>
+      </div>
       <div id="verdict"></div>
       <div class="legend">
         <span class="lg"><i style="background:var(--green)"></i>0–30 Match</span>
@@ -932,6 +937,7 @@ async function runAnalysis(){
     const data=await r.json();
     renderPipelineDone(data.report);
     render(data);
+    benchAppend([benchRow(engineName(provider), case_id, data)]);
     lastRun={ data, engine:engineName(provider),
       product:(products.find(p=>p.id===productId)||{}).name||'',
       product_id:(refSource==='product'?productId:'')||'',
@@ -961,6 +967,7 @@ async function runCompare(){
     if(okProv){ activeEngine=okProv; const d=data.results[okProv]; renderPipelineDone(d.report); render({...d, mode:data.mode}); }
     else { pipelineFailed(); }
     renderCompare(data, provs);
+    benchAppend(provs.filter(p=>data.results[p]&&data.results[p].ok).map(p=>benchRow(engineName(p), case_id, data.results[p])));
     $('#status').textContent=''; if(rbs) rbs.textContent='';
   }catch(e){ pipelineFailed(); const err='<span style="color:var(--red)">Error: '+e.message+'</span>'; $('#status').innerHTML=err; if(rbs) rbs.innerHTML=err; }
   runBtns.forEach(b=>{ if(b) b.disabled=false; });
@@ -1059,6 +1066,44 @@ $('#expclear').onclick=async()=>{
   catch(e){}
 };
 exportInit();
+
+// ---- client-side comparison log (no backend / Supabase needed) ----
+// Every completed run appends one row per engine to localStorage; download as
+// CSV for the 50-case accuracy + cost comparison. Real outputs only.
+const BENCH_KEY='veritas-bench';
+const DIM_ORDER=['Logo','Stitching','Hardware','Label','Material'];
+function benchLoad(){ try{ return JSON.parse(localStorage.getItem(BENCH_KEY)||'[]'); }catch(e){ return []; } }
+function benchSave(rows){ try{ localStorage.setItem(BENCH_KEY, JSON.stringify(rows)); }catch(e){} updateBenchUI(); }
+function benchRow(engineLabel, caseId, d){
+  const c=d.composite||{}, t=(d.report||{}).totals||{}, ev=(d.report||{}).evals||{};
+  const dm={}; (d.dimensions||[]).forEach(x=>{ dm[x.dimension]=x.score; });
+  const row={ ts:new Date().toISOString(), case:caseId, engine:engineLabel,
+    score:c.score, band:c.band||'', verdict:(d.verdict||{}).label||'',
+    upc:(d.upc||{}).status||'', verifier:(d.verdict||{}).verifier_confirmed?'confirmed':'refuted',
+    confidence:ev.confidence, cost_usd:t.cost, latency_s:t.wall_ms!=null?+(t.wall_ms/1000).toFixed(1):'' };
+  DIM_ORDER.forEach(dn=>{ row[dn]=dm[dn]!=null?dm[dn]:''; });
+  return row;
+}
+function benchAppend(rows){ if(!rows||!rows.length) return; const all=benchLoad(); all.push(...rows); benchSave(all); }
+function updateBenchUI(){
+  const n=benchLoad().length, c=$('#benchcount'), dl=$('#benchdl'), clr=$('#benchclear');
+  if(c) c.textContent=n+' comparison'+(n===1?'':'s')+' logged';
+  if(dl) dl.disabled=!n;
+  if(clr) clr.classList.toggle('hidden', !n);
+}
+function benchCsv(){
+  const rows=benchLoad(); if(!rows.length) return '';
+  const cols=['ts','case','engine','score','band','verdict',...DIM_ORDER,'upc','verifier','confidence','cost_usd','latency_s'];
+  const esc=v=>{ v=(v==null?'':String(v)); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+  return cols.join(',')+'\n'+rows.map(r=>cols.map(k=>esc(r[k])).join(',')).join('\n');
+}
+if($('#benchdl')) $('#benchdl').onclick=()=>{
+  const csv=benchCsv(); if(!csv) return;
+  const a=document.createElement('a'); a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='VERITAS_engine_comparison.csv'; document.body.appendChild(a); a.click(); a.remove();
+};
+if($('#benchclear')) $('#benchclear').onclick=()=>{ if(!confirm('Clear the local comparison log?')) return; benchSave([]); };
+updateBenchUI();
 
 function gauge(score){
   const b=band(score), col=bandColor(b), R=54, C=2*Math.PI*R, arc=score==null?0:score/100*C;
