@@ -390,6 +390,7 @@ const CASES=[
 ];
 let caseId=CASES[0].id, brand='TNF';
 const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
+const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
 const engineName=p=>ENGINE_LABEL[p]||p;
 const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)'}[b]);
@@ -611,6 +612,34 @@ function radarLegend(dims){
   return dims.map((x,i)=>{ const col=bandColor(x.band);
     return `<div class="legrow" onclick="focusDim(${i})"><span class="legdot" style="background:${col}"></span><span class="legname">${x.dimension}</span><span class="legbar"><i style="width:${x.score}%;background:${col}"></i></span><span class="legscore" style="color:${col}">${x.score}</span></div>`; }).join('');
 }
+// multi-engine radar: one polygon per engine, coloured by engine
+function radarOverlay(oks,res,dimNames){
+  const N=dimNames.length; if(!N) return '';
+  const cx=140,cy=125,R=95; const ang=i=>-Math.PI/2 + i*2*Math.PI/N; const pt=(i,r)=>[cx+r*Math.cos(ang(i)),cy+r*Math.sin(ang(i))];
+  let rings=''; [0.25,0.5,0.75,1].forEach(f=>{ const p=dimNames.map((_,i)=>pt(i,R*f).map(n=>n.toFixed(1)).join(',')).join(' ');
+    rings+=`<polygon points="${p}" style="fill:${f===1?'var(--chart-ring)':'none'};stroke:var(--chart-grid)" stroke-width="1"/>`; });
+  let spokes='',labels='';
+  dimNames.forEach((d,i)=>{ const [ex,ey]=pt(i,R); spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" style="stroke:var(--chart-grid)" stroke-width="1"/>`;
+    const [lx,ly]=pt(i,R+16),anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
+    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="11" style="fill:var(--chart-label)">${d}</text>`; });
+  let series='';
+  oks.forEach(p=>{ const col=ENGINE_COLOR[p]||'#1f2937'; const dims=res[p].dimensions||[];
+    const poly=dimNames.map((dn,i)=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:0; return pt(i,R*sc/100).map(n=>n.toFixed(1)).join(','); }).join(' ');
+    series+=`<polygon points="${poly}" fill="${col}" fill-opacity=".10" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`;
+    dimNames.forEach((dn,i)=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:0; const [px,py]=pt(i,R*sc/100); series+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3" fill="${col}"/>`; }); });
+  return `<svg width="300" height="235" viewBox="-30 0 340 255" role="img" aria-label="Engine divergence radar">${rings}${spokes}${series}${labels}</svg>`;
+}
+// engines x dimensions heatmap, risk-coloured
+function heatmapTable(oks,res,dimNames){
+  const tint={authentic:'var(--green-bg)',caution:'var(--amber-bg)',counterfeit:'var(--red-bg)'};
+  const head='<th></th>'+dimNames.map(d=>`<th style="font-weight:500;color:var(--mut);font-size:11px;padding:4px;text-align:center">${d}</th>`).join('');
+  const rows=oks.map(p=>{ const dims=res[p].dimensions||[];
+    const cells=dimNames.map(dn=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:null;
+      const bg=sc==null?'var(--panel)':tint[band(sc)]; const col=sc==null?'var(--mut)':bandColor(band(sc));
+      return `<td style="text-align:center;padding:9px 0;border-radius:6px;font-family:var(--mono);font-weight:600;background:${bg};color:${col}">${sc==null?'—':sc}</td>`; }).join('');
+    return `<tr><td style="font-size:12.5px;color:var(--sec);padding-right:8px;white-space:nowrap"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}</td>${cells}</tr>`; }).join('');
+  return `<table style="width:100%;border-collapse:separate;border-spacing:4px;font-size:12px"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+}
 function compareStrip(d){
   const sus = suspectImgs.length ? suspectImgs.slice(0,3).map((b,i)=>`<div class="refc"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span></div>`).join('') : '<span class="muted" style="font-size:12px">No suspect photos.</span>';
   let refs=''; const fm=d&&d.fetched_meta, p=products.find(x=>x.id===productId);
@@ -680,19 +709,18 @@ function renderCompare(data,provs){
     <div class="metric"><div class="k">Cheapest</div><div class="v" style="color:var(--green);font-size:15px">${cheapest?engineName(cheapest):'—'}</div></div>
     <div class="metric"><div class="k">Engines</div><div class="v">${provs.length}</div></div>` : '';
   const engRows=provs.map(p=>{ const r=res[p];
-    if(!r||!r.ok) return `<tr><td>${engineName(p)}</td><td colspan="4" style="font-size:11.5px;color:var(--red-deep)">${((r&&r.error)||'error').slice(0,70)}</td></tr>`;
-    const c=r.composite,t=r.report.totals,isCheap=p===cheapest;
-    return `<tr class="${isCheap?'hl':''}"><td>${engineName(p)}${isCheap?' <span class="badge b-green" style="font-size:10px;padding:1px 7px">cheapest</span>':''}</td>
+    if(!r||!r.ok) return `<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}</td><td colspan="7" style="font-size:11.5px;color:var(--red-deep)">${((r&&r.error)||'error').slice(0,90)}</td></tr>`;
+    const c=r.composite,t=r.report.totals,ev=(r.report||{}).evals||{},isCheap=p===cheapest;
+    const cf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
+    return `<tr class="${isCheap?'hl':''}"><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}${isCheap?' <span class="badge b-green" style="font-size:10px;padding:1px 7px">cheapest</span>':''}</td>
       <td><span class="badge ${badgeClass(c.band)}" style="font-size:11px">${verdictLabel(c.band)}</span></td>
       <td class="num" style="color:${bandColor(c.band)}">${c.score}</td>
+      <td class="num">${(r.upc||{}).status||'—'}</td>
+      <td class="num">${(r.verdict||{}).verifier_confirmed?'✓':'✕'}</td>
+      <td class="num">${cf}</td>
       <td class="num" ${isCheap?'style="color:var(--green)"':''}>$${(t.cost||0).toFixed(4)}</td>
       <td class="num">${((t.wall_ms||0)/1000).toFixed(1)}s</td></tr>`; }).join('');
-  const dimHead=oks.map(p=>`<th class="num">${engineName(p).split(' ')[0]}</th>`).join('');
-  const dimBody=dimNames.map(dn=>{ const cells=oks.map(p=>{ const dd=(res[p].dimensions||[]).find(x=>x.dimension===dn); const sc=dd?dd.score:null; return `<td class="num" style="color:${bandColor(band(sc))}">${sc==null?'—':sc}</td>`; }).join('');
-    return `<tr><td>${dn}</td>${cells}</tr>`; }).join('');
-  const upcRow=`<tr><td>UPC / tag</td>${oks.map(p=>`<td class="num">${(res[p].upc||{}).status||'—'}</td>`).join('')}</tr>`;
-  const verRow=`<tr><td>Verifier</td>${oks.map(p=>`<td class="num">${(res[p].verdict||{}).verifier_confirmed?'✓':'✕'}</td>`).join('')}</tr>`;
-  const confRow=`<tr><td>Confidence</td>${oks.map(p=>{const cf=((res[p].report||{}).evals||{}).confidence;return `<td class="num">${cf!=null?Math.round(cf*100)+'%':'—'}</td>`;}).join('')}</tr>`;
+  const legend=oks.map(p=>`<div class="legrow" style="grid-template-columns:12px 1fr;cursor:default"><span class="legdot" style="background:${ENGINE_COLOR[p]||'#1f2937'}"></span><span class="legname">${engineName(p)}</span></div>`).join('');
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
@@ -700,12 +728,14 @@ function renderCompare(data,provs){
       <span class="badge ${primary?badgeClass(primary.composite.band):'b-gray'}" style="margin-left:auto">${primary?verdictLabel(primary.composite.band):'—'}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
     </div>
     <div class="metrics">${metrics}</div>
-    <div class="sect-lbl">Evidence comparison</div>
-    <div class="card pad" style="margin-bottom:16px">${compareStrip(primary||{})}</div>
+    <div class="sect-lbl">Model divergence</div>
+    <div class="card pad" style="margin-bottom:16px"><div class="radar-card">${oks.length?radarOverlay(oks,res,dimNames):'<div class="muted" style="font-size:13px">No engine completed.</div>'}<div class="radar-legend" style="min-width:150px;flex:0 0 auto">${legend}</div></div></div>
+    <div class="sect-lbl">Dimension scores by engine</div>
+    <div class="card pad" style="margin-bottom:16px;overflow-x:auto">${heatmapTable(oks,res,dimNames)}</div>
     <div class="sect-lbl">Engine comparison</div>
-    <div class="tablewrap" style="margin-bottom:16px"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
-    <div class="sect-lbl">Scores and signals by engine</div>
-    <div class="tablewrap"><table><thead><tr><th>Dimension</th>${dimHead}</tr></thead><tbody>${dimBody}${upcRow}${verRow}${confRow}</tbody></table></div>`;
+    <div class="tablewrap" style="margin-bottom:16px;overflow-x:auto"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">UPC</th><th class="num">Verifier</th><th class="num">Conf</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
+    <div class="sect-lbl">Evidence comparison</div>
+    <div class="card pad">${compareStrip(primary||{})}</div>`;
   lastReport = primary ? {report:primary.report,mode:data.mode,engine:'Compare ('+oks.map(engineName).join(', ')+')'} : null;
 }
 
