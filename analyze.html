@@ -18,6 +18,7 @@
     --sh:0 1px 2px rgba(24,32,54,.05),0 1px 3px rgba(24,32,54,.05);
     --sh-md:0 8px 26px rgba(24,32,54,.12);
     --r:12px; --r-sm:8px; --ring:0 0 0 3px rgba(31,41,55,.14);
+    --chart-track:#e6ebf3; --chart-grid:#dfe4ee; --chart-ring:#ffffff; --chart-label:#5a6676; --dot-stroke:#ffffff;
     color-scheme:light;
   }
   *{box-sizing:border-box}
@@ -147,6 +148,45 @@
   .dbar{height:5px;border-radius:9999px;background:#e6ebf3;overflow:hidden}
   .dbar i{display:block;height:100%;border-radius:9999px}
   .errbox{background:var(--red-bg);border:1px solid #f0d6d5;color:var(--red-deep);border-radius:10px;padding:12px 14px;font-size:12.5px;line-height:1.5}
+  /* re-added detail views */
+  .matchrow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-2)}
+  .mcell{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+  .mcell .mk{font-size:11px;color:var(--mut);margin-bottom:6px}
+  .mcell .mv{font-size:13px;font-weight:600}
+  .dimcounts{display:flex;gap:8px;flex-wrap:wrap}
+  .cnt{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:4px 10px;border-radius:9999px}
+  .radar-card{display:flex;gap:22px;align-items:center;flex-wrap:wrap;justify-content:center}
+  .radar-card svg{flex:none;max-width:100%;height:auto}
+  .radar-legend{display:flex;flex-direction:column;gap:3px;min-width:180px;flex:1}
+  .legrow{display:grid;grid-template-columns:11px minmax(70px,1fr) 60px 30px;gap:10px;align-items:center;cursor:pointer;border-radius:7px;padding:6px 8px}
+  .legrow:hover{background:var(--panel)}
+  .legdot{width:10px;height:10px;border-radius:3px}
+  .legname{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .legbar{height:6px;border-radius:9999px;background:var(--chart-track);overflow:hidden}
+  .legbar i{display:block;height:100%;border-radius:9999px}
+  .legscore{font-family:var(--mono);font-size:12.5px;font-weight:600;text-align:right}
+  .drow{border-top:1px solid var(--border-2)} .drow:first-child{border-top:none}
+  .drow.flash{background:var(--accent-weak)}
+  .drow-head{display:grid;grid-template-columns:12px minmax(0,1fr) 120px 40px 16px;gap:12px;align-items:center;width:100%;background:none;border:none;cursor:pointer;padding:11px 14px;font-family:inherit;text-align:left;color:var(--ink)}
+  .drow-head:hover{background:var(--panel)}
+  .ddot{width:9px;height:9px;border-radius:50%}
+  .dchev{color:var(--mut);text-align:center;transition:transform .2s;font-size:15px}
+  .drow.open .dchev{transform:rotate(180deg)}
+  .drsn{padding:0 14px 14px 38px;font-size:12.5px;color:var(--sec);line-height:1.6}
+  .cmeter{display:flex;align-items:center;gap:8px;margin-top:9px}
+  .cmeter .cl{font-size:11px;color:var(--mut)}
+  .cmeter .ct{flex:1;height:5px;border-radius:9999px;background:var(--chart-track);overflow:hidden;max-width:220px}
+  .cmeter .ct i{display:block;height:100%;background:var(--indigo)}
+  .cmeter .cv{font-family:var(--mono);font-size:11px;color:var(--sec)}
+  .upc-num{font-family:var(--mono);font-size:18px;font-weight:600;letter-spacing:.02em}
+  .cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:620px){.cmp{grid-template-columns:1fr}.drow-head{grid-template-columns:12px minmax(0,1fr) 40px 16px}.drow-head .dbar{display:none}}
+  .cmp .cmplbl{font-size:11px;font-weight:600;margin-bottom:7px}
+  .refs3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .refc{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--card)}
+  .refc img{width:100%;height:74px;object-fit:cover;display:block;cursor:zoom-in}
+  .refc span{display:block;font-size:10px;color:var(--sec);padding:2px 4px;text-align:center;background:var(--panel)}
+  .exp-toast{font-size:12px;color:var(--green)}
 
   /* ---- lightbox / modal ---- */
   .lb{position:fixed;inset:0;background:rgba(15,20,30,.75);display:none;align-items:center;justify-content:center;z-index:200;cursor:zoom-out;padding:28px}
@@ -291,6 +331,17 @@
         </div>
         <div class="muted" style="font-size:12px;margin-top:8px">Every run appends a row per engine (score, per-dimension, cost, latency) for the 50-case comparison.</div>
       </div>
+      <div class="card pad hidden" id="exportbar" style="margin-bottom:14px">
+        <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div class="sect-lbl" style="margin:0">Saved run history <span class="muted" id="expcount" style="font-weight:400">0 saved</span> <span class="exp-toast" id="exptoast"></span></div>
+          <div class="row">
+            <button class="btn ghost sm hidden" id="expclear">Clear</button>
+            <button class="btn ghost sm" id="expsave" disabled><i class="ti ti-plus"></i>Save last run</button>
+            <button class="btn sm" id="expdl" disabled><i class="ti ti-download"></i>Download Excel</button>
+          </div>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:8px">Supabase-backed history with image thumbnails, exported as an Excel workbook.</div>
+      </div>
       <div id="reportcard"></div>
     </section>
 
@@ -329,7 +380,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 let suspectImgs=[], upcB64=null, provider='all', refSource='product';
 let products=[], productId='', npImgs=[];
-let LIVE_PROVIDERS=[], MODE={}, activeEngine='all', lastReport=null;
+let LIVE_PROVIDERS=[], MODE={}, activeEngine='all', lastReport=null, lastRun=null, exportOn=false;
 
 const CASES=[
   {id:'VF-2026-0412',brand:'TNF',brandName:'The North Face',origin:'Shenzhen, CN',status:'Active'},
@@ -497,12 +548,15 @@ $('#run').onclick=async()=>{
       const r=await fetch(API+'/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,providers:provs})});
       if(!r.ok) throw new Error(await readErr(r)); const data=await r.json();
       stopProc(); renderCompare(data,provs);
+      const okp=provs.find(p=>data.results[p]&&data.results[p].ok);
+      if(okp) setLastRun(data.results[okp], engineName(okp));
       benchAppend(provs.filter(p=>data.results[p]&&data.results[p].ok).map(p=>benchRow(engineName(p),caseId,data.results[p])));
     } else {
       activeEngine=provider;
       const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,provider})});
       if(!r.ok) throw new Error(await readErr(r)); const data=await r.json();
       stopProc(); renderSingle(data); lastReport={report:data.report,mode:data.mode,engine:engineName(provider)};
+      setLastRun(data, engineName(provider));
       benchAppend([benchRow(engineName(provider),caseId,data)]);
     }
     $('#nav .nav-item[data-page="reports"]').classList.add('hasnew');
@@ -524,16 +578,61 @@ function gauge(score,size){
     <text x="${cx}" y="${(cx+size*0.13).toFixed(0)}" text-anchor="middle" font-size="${(size*0.09).toFixed(0)}" fill="#8b96a6">/100</text></svg>`;
 }
 function dimRows(dims){
-  return dims.map(d=>{ const col=bandColor(d.band);
-    return `<div class="drow-x"><div style="min-width:0"><div style="font-size:13px;font-weight:500">${d.dimension}</div><div class="muted" style="font-size:12px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.finding||''}</div></div>
-      <span class="dbar"><i style="width:${d.score}%;background:${col}"></i></span>
-      <span class="mono" style="text-align:right;font-weight:600;color:${col}">${d.score}</span></div>`; }).join('');
+  return dims.map((d,i)=>{ const col=bandColor(d.band); const conf=Math.round((d.confidence??0)*100);
+    return `<div class="drow" id="dcard-${i}">
+      <button type="button" class="drow-head" onclick="toggleDim(${i})">
+        <span class="ddot" style="background:${col}"></span>
+        <span style="min-width:0"><span style="font-size:13px;font-weight:500;display:block">${d.dimension}</span><span class="muted" style="font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.finding||''}</span></span>
+        <span class="dbar"><i style="width:${d.score}%;background:${col}"></i></span>
+        <span class="mono" style="text-align:right;font-weight:600;color:${col}">${d.score}</span>
+        <span class="dchev"><i class="ti ti-chevron-down"></i></span>
+      </button>
+      <div class="drsn hidden" id="drsn-${i}">${d.reasoning||'—'}
+        <div class="cmeter"><span class="cl">confidence</span><span class="ct"><i style="width:${conf}%"></i></span><span class="cv">${conf}%</span></div></div>
+    </div>`; }).join('');
+}
+function toggleDim(i){ const row=$('#dcard-'+i),box=$('#drsn-'+i); if(!row||!box) return; const open=box.classList.toggle('hidden')===false; row.classList.toggle('open',open); }
+function focusDim(i){ const row=$('#dcard-'+i); if(!row) return; const box=$('#drsn-'+i); if(box&&box.classList.contains('hidden')) toggleDim(i); row.scrollIntoView({behavior:'smooth',block:'center'}); row.classList.add('flash'); setTimeout(()=>row.classList.remove('flash'),1100); }
+
+function radar(dims){
+  const N=dims.length; if(!N) return '';
+  const cx=130,cy=118,R=84; const ang=i=>-Math.PI/2 + i*2*Math.PI/N; const pt=(i,r)=>[cx+r*Math.cos(ang(i)),cy+r*Math.sin(ang(i))];
+  let rings=''; [0.25,0.5,0.75,1].forEach(f=>{ const p=dims.map((_,i)=>pt(i,R*f).map(n=>n.toFixed(1)).join(',')).join(' ');
+    rings+=`<polygon points="${p}" style="fill:${f===1?'var(--chart-ring)':'none'};stroke:var(--chart-grid)" stroke-width="1"/>`; });
+  let spokes='',labels='',dots='';
+  dims.forEach((x,i)=>{ const [ex,ey]=pt(i,R); spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" style="stroke:var(--chart-grid)" stroke-width="1"/>`;
+    const [lx,ly]=pt(i,R+15),anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
+    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="10" font-weight="500" style="fill:var(--chart-label);cursor:pointer" onclick="focusDim(${i})">${x.dimension}</text>`;
+    const [px,py]=pt(i,R*((x.score||0)/100)); dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${bandColor(x.band)}" stroke-width="1.5" style="stroke:var(--dot-stroke);cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score}/100</title></circle>`; });
+  const poly=dims.map((x,i)=>pt(i,R*((x.score||0)/100)).map(n=>n.toFixed(1)).join(',')).join(' '); const dc=bandColor('counterfeit');
+  return `<svg width="250" height="182" viewBox="-45 -5 350 245" role="img" aria-label="Deviation radar">${rings}${spokes}<polygon points="${poly}" fill="${dc}" fill-opacity=".12" stroke="${dc}" stroke-width="2" stroke-linejoin="round"/>${dots}${labels}</svg>`;
+}
+function radarLegend(dims){
+  return dims.map((x,i)=>{ const col=bandColor(x.band);
+    return `<div class="legrow" onclick="focusDim(${i})"><span class="legdot" style="background:${col}"></span><span class="legname">${x.dimension}</span><span class="legbar"><i style="width:${x.score}%;background:${col}"></i></span><span class="legscore" style="color:${col}">${x.score}</span></div>`; }).join('');
+}
+function compareStrip(d){
+  const sus = suspectImgs.length ? suspectImgs.slice(0,3).map((b,i)=>`<div class="refc"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span></div>`).join('') : '<span class="muted" style="font-size:12px">No suspect photos.</span>';
+  let refs=''; const fm=d&&d.fetched_meta, p=products.find(x=>x.id===productId);
+  if(fm&&fm.used&&fm.sources&&fm.sources.length){ refs=fm.sources.slice(0,3).map((u,i)=>`<div class="refc"><img src="${u}" referrerpolicy="no-referrer" loading="lazy" onerror="this.style.opacity=.15"><span>web ${i+1}</span></div>`).join(''); }
+  else if(p&&(p.images||[]).length){ refs=p.images.slice(0,3).map((fn,i)=>`<div class="refc"><img src="${API}/api/products/${p.id}/img/${fn}" onerror="this.style.opacity=.15"><span>ref ${i+1}</span></div>`).join(''); }
+  if(!refs) refs='<span class="muted" style="font-size:12px">No reference images.</span>';
+  return `<div class="cmp"><div><div class="cmplbl" style="color:var(--red-deep)">Suspect</div><div class="refs3">${sus}</div></div><div><div class="cmplbl" style="color:var(--green)">Reference</div><div class="refs3">${refs}</div></div></div>`;
+}
+function upcDetail(u){
+  const map={match:['b-green','Match — authentic record','var(--green)'],mismatch:['b-amber','Mismatch — belongs to another product','var(--amber)'],nomatch:['b-red','No match — counterfeit indicator','var(--red)']};
+  const [cls,label,col]=map[(u||{}).status]||map.nomatch;
+  const ext=(u&&u.extracted)?`<div class="upc-num">${u.extracted}</div>`:`<div class="upc-num muted">— no code read —</div>`;
+  return `<div class="row" style="justify-content:space-between;margin-bottom:8px"><div class="sect-lbl" style="margin:0">UPC / security tag</div><span class="badge ${cls}">${(u||{}).status||'nomatch'}</span></div>
+    <div class="card pad">${ext}<div style="font-size:13px;font-weight:500;color:${col};margin:6px 0">${label}</div>
+    <div class="muted" style="font-size:12.5px;line-height:1.5">${(u&&u.note)||''}</div>
+    <div class="muted mono" style="font-size:11.5px;margin-top:8px;border-top:1px solid var(--border-2);padding-top:8px">master record: ${(u&&u.expected)||'—'}</div></div>`;
 }
 function renderSingle(d){
   const c=d.composite,v=d.verdict,dims=d.dimensions,t=(d.report||{}).totals||{},ev=(d.report||{}).evals||{};
   const conf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
-  const upcMap={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match']};
-  const um=upcMap[(d.upc||{}).status]||upcMap.nomatch;
+  const nM=dims.filter(x=>x.band==='authentic').length,nR=dims.filter(x=>x.band==='caution').length,nD=dims.filter(x=>x.band==='counterfeit').length;
+  const um={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match']}[(d.upc||{}).status]||['b-red','No match'];
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
@@ -550,10 +649,19 @@ function renderSingle(d){
       <div class="verdict">${gauge(c.score,104)}
         <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
           <ul class="keyev">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul></div></div>
+      <div class="matchrow">
+        <div class="mcell"><div class="mk">UPC / tag</div><span class="badge ${um[0]}" style="font-size:11px">${um[1]}</span></div>
+        <div class="mcell"><div class="mk">Dimensions</div><div class="mv"><span style="color:var(--green)">${nM}</span> · <span style="color:var(--amber)">${nR}</span> · <span style="color:var(--red)">${nD}</span></div></div>
+        <div class="mcell"><div class="mk">Verifier</div><div class="mv">${v.verifier_confirmed?'✓ confirmed':'✕ refuted'}</div></div>
+      </div>
     </div>
-    <div class="row" style="justify-content:space-between;margin-bottom:8px"><div class="sect-lbl" style="margin:0">Forensic dimensions</div>
-      <span class="badge ${um[0]}">UPC · ${um[1]}</span></div>
-    <div class="card">${dimRows(dims)}</div>`;
+    <div class="sect-lbl">Evidence comparison</div>
+    <div class="card pad" style="margin-bottom:14px">${compareStrip(d)}</div>
+    <div class="row" style="justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px"><div class="sect-lbl" style="margin:0">Forensic dimensions</div>
+      <div class="dimcounts"><span class="cnt b-green">${nM} match</span><span class="cnt b-amber">${nR} review</span><span class="cnt b-red">${nD} deviation</span></div></div>
+    <div class="card pad" style="margin-bottom:14px"><div class="radar-card"><div><div style="text-align:center;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Deviation profile</div>${radar(dims)}</div><div class="radar-legend">${radarLegend(dims)}</div></div></div>
+    <div class="card" style="margin-bottom:14px">${dimRows(dims)}</div>
+    ${upcDetail(d.upc)}`;
 }
 
 /* ---------- render: compare ---------- */
@@ -582,6 +690,9 @@ function renderCompare(data,provs){
   const dimHead=oks.map(p=>`<th class="num">${engineName(p).split(' ')[0]}</th>`).join('');
   const dimBody=dimNames.map(dn=>{ const cells=oks.map(p=>{ const dd=(res[p].dimensions||[]).find(x=>x.dimension===dn); const sc=dd?dd.score:null; return `<td class="num" style="color:${bandColor(band(sc))}">${sc==null?'—':sc}</td>`; }).join('');
     return `<tr><td>${dn}</td>${cells}</tr>`; }).join('');
+  const upcRow=`<tr><td>UPC / tag</td>${oks.map(p=>`<td class="num">${(res[p].upc||{}).status||'—'}</td>`).join('')}</tr>`;
+  const verRow=`<tr><td>Verifier</td>${oks.map(p=>`<td class="num">${(res[p].verdict||{}).verifier_confirmed?'✓':'✕'}</td>`).join('')}</tr>`;
+  const confRow=`<tr><td>Confidence</td>${oks.map(p=>{const cf=((res[p].report||{}).evals||{}).confidence;return `<td class="num">${cf!=null?Math.round(cf*100)+'%':'—'}</td>`;}).join('')}</tr>`;
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
@@ -589,10 +700,12 @@ function renderCompare(data,provs){
       <span class="badge ${primary?badgeClass(primary.composite.band):'b-gray'}" style="margin-left:auto">${primary?verdictLabel(primary.composite.band):'—'}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
     </div>
     <div class="metrics">${metrics}</div>
+    <div class="sect-lbl">Evidence comparison</div>
+    <div class="card pad" style="margin-bottom:16px">${compareStrip(primary||{})}</div>
     <div class="sect-lbl">Engine comparison</div>
     <div class="tablewrap" style="margin-bottom:16px"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
-    <div class="sect-lbl">Dimension scores by engine</div>
-    <div class="tablewrap"><table><thead><tr><th>Dimension</th>${dimHead}</tr></thead><tbody>${dimBody}</tbody></table></div>`;
+    <div class="sect-lbl">Scores and signals by engine</div>
+    <div class="tablewrap"><table><thead><tr><th>Dimension</th>${dimHead}</tr></thead><tbody>${dimBody}${upcRow}${verRow}${confRow}</tbody></table></div>`;
   lastReport = primary ? {report:primary.report,mode:data.mode,engine:'Compare ('+oks.map(engineName).join(', ')+')'} : null;
 }
 
@@ -618,6 +731,29 @@ function benchCsv(){ const rows=benchLoad(); if(!rows.length) return '';
 $('#benchdl').onclick=()=>{ const csv=benchCsv(); if(!csv) return; const a=document.createElement('a');
   a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv); a.download='VERITAS_engine_comparison.csv'; document.body.appendChild(a); a.click(); a.remove(); };
 $('#benchclear').onclick=()=>{ if(!confirm('Clear the local comparison log?')) return; benchSave([]); };
+
+/* ---------- Supabase Excel run history ---------- */
+function setLastRun(dataObj, engineLbl){
+  lastRun={ data:dataObj, engine:engineLbl,
+    product:(products.find(p=>p.id===productId)||{}).name||'',
+    product_id:(refSource==='product'?productId:'')||'',
+    suspect_images:suspectImgs.slice(), upc_image:upcB64 };
+  if(exportOn){ const b=$('#expsave'); if(b) b.disabled=false; }
+}
+function setExpCount(n){ $('#expcount').textContent=n+' saved'; $('#expdl').disabled=!n; $('#expclear').classList.toggle('hidden',!n); }
+async function exportInit(){
+  try{ const d=await fetch(API+'/api/export/count').then(r=>r.json());
+    if(!d.available) return; exportOn=true; $('#exportbar').classList.remove('hidden'); setExpCount(d.count||0);
+    if(lastRun){ $('#expsave').disabled=false; }
+  }catch(e){}
+}
+$('#expsave').onclick=async()=>{ if(!lastRun) return; const b=$('#expsave'); b.disabled=true; $('#exptoast').textContent='';
+  try{ const r=await fetch(API+'/api/export/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(lastRun)});
+    if(!r.ok) throw new Error('HTTP '+r.status); const d=await r.json(); setExpCount(d.count);
+    $('#exptoast').style.color='var(--green)'; $('#exptoast').textContent='✓ saved'; setTimeout(()=>{ $('#exptoast').textContent=''; },2500);
+  }catch(e){ $('#exptoast').style.color='var(--red)'; $('#exptoast').textContent='save failed'; } b.disabled=false; };
+$('#expdl').onclick=()=>{ const a=document.createElement('a'); a.href=API+'/api/export.xlsx'; a.download='VERITAS_analyses.xlsx'; document.body.appendChild(a); a.click(); a.remove(); };
+$('#expclear').onclick=async()=>{ if(!confirm('Clear all saved analyses from the Excel log?')) return; try{ await fetch(API+'/api/export',{method:'DELETE'}); setExpCount(0); $('#exptoast').textContent='log cleared'; }catch(e){} };
 
 /* ---------- reports page ---------- */
 function renderReportPage(){
@@ -662,7 +798,7 @@ function renderModels(){
       <td class="num">${pr[0]==null?'—':'$'+pr[0]}</td><td class="num">${pr[1]==null?'—':'$'+pr[1]}</td></tr>`; }).join('');
 }
 
-onRefSourceChange(); updateChecklist(); updateBenchUI(); renderModels();
+onRefSourceChange(); updateChecklist(); updateBenchUI(); renderModels(); exportInit();
 </script>
 </body>
 </html>
