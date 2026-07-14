@@ -450,7 +450,12 @@ const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)'}[b]);
 const verdictLabel=b=>({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit'}[b]||'—');
 const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray'}[b]||'b-gray');
-function caseName(){ return "Men's Denali X Jacket"; }
+function caseName(){
+  const p=(products||[]).find(x=>x.id===productId);
+  if(refSource==='product' && p && p.name) return p.name;   // reference product picked from catalog
+  const c=curCase();
+  return c ? c.id : 'Analysis';                              // else the case being analysed
+}
 
 /* ---------- navigation ---------- */
 function go(page){
