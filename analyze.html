@@ -56,7 +56,7 @@
   .tb-right{margin-left:auto;display:flex;align-items:center;gap:16px;color:var(--mut)}
   .tb-right i{font-size:20.2px;cursor:pointer}
   .menubtn{display:none;background:none;border:none;color:var(--sec);font-size:22.4px;cursor:pointer;padding:0}
-  .page{padding:22px 26px;max-width:1360px;width:100%;margin:0 auto;animation:fade .35s ease both}
+  .page{padding:22px 34px;max-width:1560px;width:100%;margin:0 auto;animation:fade .35s ease both}
   #v-input{min-height:calc(100vh - 160px);display:flex;flex-direction:column;justify-content:center}
   .page-h{font-size:21.3px;font-weight:600;margin:0 0 2px}
   .page-sub{font-size:14.6px;color:var(--mut);margin-bottom:18px}
@@ -344,7 +344,7 @@
     <section class="page hidden" id="page-cases">
       <div class="page-h">Cases</div>
       <div class="page-sub">Select a case to analyze.</div>
-      <div class="tablewrap"><table><thead><tr><th>Case</th><th>Brand</th><th>Origin</th><th>Status</th><th></th></tr></thead><tbody id="casesbody"></tbody></table></div>
+      <div class="tablewrap"><table><thead><tr><th>Case</th><th>Brand</th><th>Origin</th><th>Opened</th><th>Status</th><th></th></tr></thead><tbody id="casesbody"></tbody></table></div>
     </section>
 
     <!-- ============ REPORTS ============ -->
@@ -379,7 +379,7 @@
     <section class="page hidden" id="page-models">
       <div class="page-h">Models</div>
       <div class="page-sub">Engine availability and pricing (USD per 1M tokens).</div>
-      <div class="tablewrap"><table><thead><tr><th>Engine</th><th>Model</th><th>Status</th><th class="num">Input</th><th class="num">Output</th></tr></thead><tbody id="modelsbody"></tbody></table></div>
+      <div class="tablewrap"><table><thead><tr><th>Engine</th><th>Model</th><th>Role</th><th>Status</th><th class="num">Input</th><th class="num">Output</th></tr></thead><tbody id="modelsbody"></tbody></table></div>
     </section>
 
   </div>
@@ -959,7 +959,9 @@ async function renderDashboard(){
   if(!d || !d.available){
     $('#dashmetrics').innerHTML=`
       <div class="metric"><div class="k">Engines live</div><div class="v">${LIVE_PROVIDERS.length}</div></div>
-      <div class="metric"><div class="k">Comparisons logged</div><div class="v">${benchLoad().length}</div></div>`;
+      <div class="metric"><div class="k">Comparisons logged</div><div class="v">${benchLoad().length}</div></div>
+      <div class="metric"><div class="k">Models tracked</div><div class="v">3</div></div>
+      <div class="metric"><div class="k">Mode</div><div class="v" style="font-size:19px">${LIVE_PROVIDERS.length?'Live':'Mock'}</div></div>`;
     $('#dashfilters').innerHTML='';
     $('#dashcases').innerHTML='<div class="card pad muted" style="font-size:13px;line-height:1.6">No case history yet. Connect Supabase (SUPABASE_URL / SUPABASE_SERVICE_KEY) and use <b>Save last run</b> on a finding — saved runs appear here as cases.</div>';
     return;
@@ -1069,7 +1071,7 @@ function renderStoredCase(rec){
 }
 function renderCases(){
   $('#casesbody').innerHTML=CASES.map(c=>`<tr>
-    <td class="mono">${c.id}</td><td>${c.brandName}</td><td class="muted">${c.origin}</td>
+    <td class="mono">${c.id}</td><td>${c.brandName}</td><td class="muted">${c.origin}</td><td class="muted">${c.opened||'—'}</td>
     <td><span class="badge ${c.status==='Active'?'b-green':'b-gray'}" style="font-size:12.3px">${c.status}</span></td>
     <td class="num"><button class="btn ghost sm" data-case="${c.id}">Open</button></td></tr>`).join('');
   $$('#casesbody button[data-case]').forEach(b=>b.onclick=()=>{ caseId=b.dataset.case; updateCaseHeader(); go('analysis'); backToInput(); });
@@ -1077,11 +1079,12 @@ function renderCases(){
 renderCases();
 function renderModels(){
   const PRICE={'GPT-5.5':[5,30],'GPT-5.2':[1.75,14],'Gemini 3.1 Pro':[2,12],'Gemini 3 Pro':[2,12],'Kimi K2.6':[0.66,3.41],'Kimi K2.7':[0.72,3.49]};
-  const rows=[['openai','OpenAI',MODE.openai_model,ENGINE_LABEL.openai],
-    ['gemini','Gemini',MODE.gemini_model,ENGINE_LABEL.gemini],
-    ['kimi','Kimi (Moonshot)',MODE.kimi_model,ENGINE_LABEL.kimi]];
-  $('#modelsbody').innerHTML=rows.map(([p,name,mid,lbl])=>{ const live=MODE[p]==='live'; const pr=PRICE[lbl]||[null,null];
+  const rows=[['openai','OpenAI',MODE.openai_model,ENGINE_LABEL.openai,'Primary · vision'],
+    ['gemini','Gemini',MODE.gemini_model,ENGINE_LABEL.gemini,'Low-cost challenger'],
+    ['kimi','Kimi (Moonshot)',MODE.kimi_model,ENGINE_LABEL.kimi,'Reasoning challenger · slower']];
+  $('#modelsbody').innerHTML=rows.map(([p,name,mid,lbl,role])=>{ const live=MODE[p]==='live'; const pr=PRICE[lbl]||[null,null];
     return `<tr><td>${name}</td><td class="mono muted">${mid||lbl}</td>
+      <td class="muted">${role}</td>
       <td><span class="badge ${live?'b-green':'b-amber'}" style="font-size:12.3px">${live?'Live':'Not configured'}</span></td>
       <td class="num">${pr[0]==null?'—':'$'+pr[0]}</td><td class="num">${pr[1]==null?'—':'$'+pr[1]}</td></tr>`; }).join('');
 }
