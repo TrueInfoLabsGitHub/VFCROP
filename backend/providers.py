@@ -155,23 +155,51 @@ def _chat(cfg, content, schema, schema_name, timeout):
                 continue
         raise last
 
+    def extract(data):
+        ch = (data.get("choices") or [{}])[0]
+        return str((ch.get("message") or {}).get("content") or "")
+
+    def loads_lenient(txt):
+        s = txt.strip()
+        if not s:
+            raise ValueError("empty response from model")
+        if s.startswith("```"):                       # strip ```json ... ``` fences
+            s = s[3:]
+            if s[:4].lower() == "json":
+                s = s[4:]
+            if s.rstrip().endswith("```"):
+                s = s.rstrip()[:-3]
+            s = s.strip()
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:                   # salvage the first {...} block
+            a, b = s.find("{"), s.rfind("}")
+            if a != -1 and b > a:
+                return json.loads(s[a:b + 1])
+            raise
+
+    def call(b):
+        data = post(b)
+        return loads_lenient(extract(data)), (data.get("usage") or {})
+
     js = {"name": schema_name, "schema": schema}
     if cfg["strict"]:
         js["strict"] = True
     body = {"model": cfg["model"], "messages": [{"role": "user", "content": content}],
             "response_format": {"type": "json_schema", "json_schema": js}}
+    obj_body = {"model": cfg["model"],
+                "messages": [{"role": "user", "content": _augment_content(content, _schema_hint(schema))}],
+                "response_format": {"type": "json_object"}}
     try:
-        data = post(body)
-    except httpx.HTTPStatusError as e:
-        txt = (e.response.text or "").lower()
-        if e.response.status_code in (400, 422) and ("response_format" in txt or "json_schema" in txt or "schema" in txt):
-            body["response_format"] = {"type": "json_object"}
-            body["messages"] = [{"role": "user", "content": _augment_content(content, _schema_hint(schema))}]
-            data = post(body)
+        parsed, u = call(body)
+    except httpx.HTTPStatusError as e:                  # provider rejected json_schema
+        t = (e.response.text or "").lower()
+        if e.response.status_code in (400, 422) and ("response_format" in t or "json_schema" in t or "schema" in t):
+            parsed, u = call(obj_body)
         else:
             raise
-    parsed = json.loads(data["choices"][0]["message"]["content"])
-    u = data.get("usage") or {}
+    except (ValueError, json.JSONDecodeError):          # empty / non-JSON body — retry in json_object mode
+        parsed, u = call(obj_body)
     return parsed, u.get("prompt_tokens", 0), u.get("completion_tokens", 0)
 
 
