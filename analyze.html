@@ -430,7 +430,13 @@ const CASES=[
   {id:'VF-2026-0395',brand:'TNF',brandName:'The North Face',origin:'Hanoi, VN',status:'Open',opened:'Jun 22, 2026',note:'Customs referral — apparel shipment held for inspection.'},
   {id:'VF-2026-0371',brand:'TNF',brandName:'The North Face',origin:'Fuzhou, CN',status:'Open',opened:'Jun 18, 2026',note:'Repeat-seller escalation — prior counterfeit history on file.'},
 ];
-function curCase(){ return CASES.find(c=>c.id===caseId)||CASES[0]; }
+function curCase(){ return CASES.find(c=>c.id===caseId) || {id:caseId, brand:'TNF', brandName:'The North Face', origin:'—', status:'Active', opened:''}; }
+function nextCaseId(){
+  let n; try{ n=parseInt(localStorage.getItem('veritas-caseseq')||'412',10); }catch(e){}
+  n=(isNaN(n)?412:n)+1;
+  try{ localStorage.setItem('veritas-caseseq',String(n)); }catch(e){}
+  return 'VF-'+(new Date()).getFullYear()+'-'+String(n).padStart(4,'0');
+}
 function caseHeader(){ const cs=curCase();
   return `<div class="cid">${cs.id}</div>
     <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -450,12 +456,8 @@ const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)'}[b]);
 const verdictLabel=b=>({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit'}[b]||'—');
 const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray'}[b]||'b-gray');
-function caseName(){
-  const p=(products||[]).find(x=>x.id===productId);
-  if(refSource==='product' && p && p.name) return p.name;   // reference product picked from catalog
-  const c=curCase();
-  return c ? c.id : 'Analysis';                              // else the case being analysed
-}
+function caseName(){ return curCase().id || 'Analysis'; }   // the case/run identifier (unique per run)
+function refLabel(){ const p=(products||[]).find(x=>x.id===productId); return (refSource==='product'&&p&&p.name)?p.name:'The North Face'; }
 
 /* ---------- navigation ---------- */
 function go(page){
@@ -614,7 +616,7 @@ async function pollJob(jobId, onPartial){
 }
 
 $('#run').onclick=async()=>{
-  $('#runerr').innerHTML=''; showProc();
+  $('#runerr').innerHTML=''; caseId=nextCaseId(); updateCaseHeader(); showProc();   // each run gets its own case id
   const body={case_id:caseId,brand,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64};
   try{
     if(provider==='all'){
@@ -758,7 +760,7 @@ function renderSingle(d){
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
-      <div><div style="font-size:19.7px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:14.7px">${engineName(activeEngine)} · ${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
+      <div><div style="font-size:19.7px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:14.7px">${refLabel()} · ${engineName(activeEngine)} · ${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
       <span class="badge ${badgeClass(c.band)}" style="margin-left:auto">${v.label||verdictLabel(c.band)}</span>
       <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
@@ -874,7 +876,7 @@ function renderCompare(data,provs){
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
-      <div><div style="font-size:19.7px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:14.7px">${provs.length} engines · ${agree?'consensus':'split'}</div></div>
+      <div><div style="font-size:19.7px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:14.7px">${refLabel()} · ${provs.length} engines · ${agree?'consensus':'split'}</div></div>
       <span class="badge ${primary?badgeClass(primary.composite.band):'b-gray'}" style="margin-left:auto">${primary?verdictLabel(primary.composite.band):'—'}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
       <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
