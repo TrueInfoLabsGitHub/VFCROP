@@ -909,8 +909,8 @@ function benchCsv(){ const rows=benchLoad(); if(!rows.length) return '';
   const cols=['ts','case','engine','score','band','verdict',...DIM_ORDER,'upc','verifier','confidence','cost_usd','latency_s'];
   const esc=v=>{ v=(v==null?'':String(v)); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   return cols.join(',')+'\n'+rows.map(r=>cols.map(k=>esc(r[k])).join(',')).join('\n'); }
-$('#benchdl').onclick=()=>{ const csv=benchCsv(); if(!csv) return; const a=document.createElement('a');
-  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv); a.download='VERITAS_engine_comparison.csv'; document.body.appendChild(a); a.click(); a.remove(); };
+function downloadBlob(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),2000); }
+$('#benchdl').onclick=()=>{ const csv=benchCsv(); if(!csv) return; downloadBlob(new Blob([csv],{type:'text/csv;charset=utf-8'}),'VERITAS_engine_comparison.csv'); };
 $('#benchclear').onclick=()=>{ if(!confirm('Clear the local comparison log?')) return; benchSave([]); };
 
 /* ---------- Supabase Excel run history ---------- */
@@ -933,7 +933,11 @@ $('#expsave').onclick=async()=>{ if(!lastRun) return; const b=$('#expsave'); b.d
     if(!r.ok) throw new Error('HTTP '+r.status); const d=await r.json(); setExpCount(d.count);
     $('#exptoast').style.color='var(--green)'; $('#exptoast').textContent='✓ saved'; setTimeout(()=>{ $('#exptoast').textContent=''; },2500);
   }catch(e){ $('#exptoast').style.color='var(--red)'; $('#exptoast').textContent='save failed'; } b.disabled=false; };
-$('#expdl').onclick=()=>{ const a=document.createElement('a'); a.href=API+'/api/export.xlsx'; a.download='VERITAS_analyses.xlsx'; document.body.appendChild(a); a.click(); a.remove(); };
+$('#expdl').onclick=async()=>{ const b=$('#expdl'); const old=b.innerHTML; b.disabled=true; b.innerHTML='<span class="spin"></span> Preparing…'; $('#exptoast').textContent='';
+  try{ const r=await fetch(API+'/api/export.xlsx'); if(!r.ok) throw new Error('server '+r.status); const blob=await r.blob();
+    if(!blob.size) throw new Error('empty file'); downloadBlob(blob,'VERITAS_analyses.xlsx'); }
+  catch(e){ $('#exptoast').style.color='var(--red)'; $('#exptoast').textContent='download failed — '+e.message; setTimeout(()=>{$('#exptoast').textContent='';},4500); }
+  b.disabled=false; b.innerHTML=old; };
 $('#expclear').onclick=async()=>{ if(!confirm('Clear all saved analyses from the Excel log?')) return; try{ await fetch(API+'/api/export',{method:'DELETE'}); setExpCount(0); $('#exptoast').textContent='log cleared'; }catch(e){} };
 
 /* ---------- reports page ---------- */
