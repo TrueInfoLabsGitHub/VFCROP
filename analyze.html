@@ -8,15 +8,15 @@
 <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.28.1/dist/tabler-icons.min.css" rel="stylesheet">
 <style>
   :root{
-    --canvas:#eef1f6; --sidebar:#e5eaf2; --card:#ffffff; --panel:#f5f7fb;
-    --border:#dfe4ee; --border-2:#e6ebf3; --line:#cdd5e3;
+    --canvas:#e7ebf3; --sidebar:#dfe5ef; --card:#ffffff; --panel:#f4f7fb;
+    --border:#dbe2ec; --border-2:#e6ebf3; --line:#cdd5e3;
     --ink:#1b2432; --sec:#5a6676; --mut:#8b96a6;
     --accent:#1f2937; --accent-hover:#2b3647; --accent-weak:#dde4f0; --indigo:#5b5bd6;
     --green:#1f8a4e; --green-bg:#e6efe9; --amber:#b0781a; --amber-bg:#f6efdb;
     --red:#d1403c; --red-deep:#a3241f; --red-bg:#fbecec;
     --mono:'IBM Plex Mono',ui-monospace,monospace;
-    --sh:0 1px 2px rgba(24,32,54,.05),0 1px 3px rgba(24,32,54,.05);
-    --sh-md:0 8px 26px rgba(24,32,54,.12);
+    --sh:0 1px 2px rgba(20,30,50,.05),0 10px 26px rgba(20,30,50,.07);
+    --sh-md:0 12px 34px rgba(20,30,50,.14);
     --r:12px; --r-sm:8px; --ring:0 0 0 3px rgba(31,41,55,.14);
     --chart-track:#e6ebf3; --chart-grid:#dfe4ee; --chart-ring:#ffffff; --chart-label:#5a6676; --dot-stroke:#ffffff;
     color-scheme:light;
@@ -130,7 +130,7 @@
   .rhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
   .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
   @media(max-width:680px){.metrics{grid-template-columns:repeat(2,1fr)}}
-  .metric{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px}
+  .metric{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;box-shadow:var(--sh)}
   .metric .k{font-size:13.5px;color:var(--mut)}
   .metric .v{font-family:var(--mono);font-size:27.1px;font-weight:600;margin-top:3px}
   table{width:100%;border-collapse:collapse;font-size:15.4px}
@@ -138,16 +138,16 @@
   th.num,td.num{text-align:right;font-family:var(--mono)}
   tbody td{padding:9px 12px;border-top:1px solid var(--border-2)}
   tfoot td{padding:9px 12px;border-top:2px solid var(--line)}
-  .tablewrap{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card)}
+  .tablewrap{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--card);box-shadow:var(--sh)}
   .tablewrap.big table{font-size:16.5px}
   .tablewrap.big thead th{font-size:14.5px;font-weight:600;color:var(--sec);padding:13px 14px}
   .tablewrap.big tbody td{padding:15px 14px;font-weight:500}
   tbody tr.hl{background:#f8fafd}
   .caselist{display:flex;flex-direction:column;gap:12px}
-  .ccard{display:flex;justify-content:space-between;align-items:center;gap:16px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;cursor:pointer;transition:border-color .15s,background .15s}
-  .ccard:hover{border-color:var(--border-strong);background:var(--panel)}
+  .ccard{display:flex;justify-content:space-between;align-items:center;gap:16px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;cursor:pointer;box-shadow:var(--sh);transition:box-shadow .15s,transform .15s}
+  .ccard:hover{box-shadow:var(--sh-md);transform:translateY(-1px)}
   .ccard:hover .cc-go{color:var(--ink);border-color:var(--border-strong)}
-  .mcard{display:flex;justify-content:space-between;align-items:center;gap:20px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .mcard{display:flex;justify-content:space-between;align-items:center;gap:20px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;box-shadow:var(--sh)}
   .mprice{display:flex;gap:30px;flex:none}
   .mprice .k{font-size:12.7px;color:var(--mut)}
   .mprice .v{font-size:20.9px;font-weight:600;margin-top:3px;font-family:'IBM Plex Mono',monospace}
