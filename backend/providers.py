@@ -101,13 +101,20 @@ def _cfg(provider):
         key = _kimi_key()
         if not key:
             return None
+        on_openrouter = "openrouter.ai" in KIMI_BASE
         headers = ({"HTTP-Referer": "http://localhost:8753", "X-Title": "VF VERITAS"}
-                   if "openrouter.ai" in KIMI_BASE else {})
+                   if on_openrouter else {})
+        # On OpenRouter, prefer the fastest-throughput host and allow fallback to
+        # another provider if one stalls — the biggest reliability win for Kimi.
+        # Gated on the OpenRouter base; Moonshot-direct would reject the extra key.
+        extra_body = ({"provider": {"sort": "throughput", "allow_fallbacks": True}}
+                      if on_openrouter else {})
         # Stream Kimi's responses: it's a slow reasoning model, and streaming makes
         # the read timeout apply per-chunk instead of to the whole generation, so a
         # long "thinking" phase no longer trips "read operation timed out".
         return {"base": KIMI_BASE.rstrip("/"), "key": key, "model": KIMI_MODEL,
-                "label": KIMI_LABEL, "strict": False, "extra_headers": headers, "stream": True}
+                "label": KIMI_LABEL, "strict": False, "extra_headers": headers,
+                "stream": True, "extra_body": extra_body}
     if OPENAI_API_KEY:
         return {"base": "https://api.openai.com/v1", "key": OPENAI_API_KEY,
                 "model": OPENAI_MODEL, "label": OPENAI_LABEL, "strict": True, "extra_headers": {}}
@@ -227,11 +234,12 @@ def _chat(cfg, content, schema, schema_name, timeout):
     js = {"name": schema_name, "schema": schema}
     if cfg["strict"]:
         js["strict"] = True
+    extra = cfg.get("extra_body") or {}          # e.g. OpenRouter provider routing
     body = {"model": cfg["model"], "messages": [{"role": "user", "content": content}],
-            "response_format": {"type": "json_schema", "json_schema": js}}
+            "response_format": {"type": "json_schema", "json_schema": js}, **extra}
     obj_body = {"model": cfg["model"],
                 "messages": [{"role": "user", "content": _augment_content(content, _schema_hint(schema))}],
-                "response_format": {"type": "json_object"}}
+                "response_format": {"type": "json_object"}, **extra}
     try:
         parsed, u = call(body)
     except httpx.HTTPStatusError as e:                  # provider rejected json_schema
