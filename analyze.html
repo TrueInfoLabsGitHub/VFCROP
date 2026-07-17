@@ -421,7 +421,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 let suspectImgs=[], upcB64=null, provider='all', refSource='product';
 let products=[], productId='', npImgs=[];
-let LIVE_PROVIDERS=[], MODE={}, activeEngine='all', lastReport=null, lastRun=null, exportOn=false;
+let LIVE_PROVIDERS=[], MODE={}, activeEngine='all', lastReport=null, lastRuns=[], exportOn=false;
 let DASH=null, dashFilter='all';
 
 const CASES=[
@@ -624,9 +624,9 @@ $('#run').onclick=async()=>{
       const r=await fetch(API+'/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,providers:provs})});
       if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);
       stopProc(); renderCompare(data,provs);
-      const okp=provs.find(p=>data.results[p]&&data.results[p].ok);
-      if(okp) setLastRun(data.results[okp], engineName(okp));
-      benchAppend(provs.filter(p=>data.results[p]&&data.results[p].ok).map(p=>benchRow(engineName(p),caseId,data.results[p])));
+      const oksP=provs.filter(p=>data.results[p]&&data.results[p].ok);
+      setLastRuns(oksP.map(p=>({data:data.results[p], engine:engineName(p)})));
+      benchAppend(oksP.map(p=>benchRow(engineName(p),caseId,data.results[p])));
     } else {
       activeEngine=provider;
       const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,provider})});
@@ -924,24 +924,35 @@ $('#benchdl').onclick=()=>{ const csv=benchCsv(); if(!csv) return; downloadBlob(
 $('#benchclear').onclick=()=>{ if(!confirm('Clear the local comparison log?')) return; benchSave([]); };
 
 /* ---------- Supabase Excel run history ---------- */
-function setLastRun(dataObj, engineLbl){
-  lastRun={ data:dataObj, engine:engineLbl,
-    product:(products.find(p=>p.id===productId)||{}).name||'',
+function runMeta(){
+  return { product:(products.find(p=>p.id===productId)||{}).name||'',
     product_id:(refSource==='product'?productId:'')||'',
     suspect_images:suspectImgs.slice(), upc_image:upcB64 };
-  if(exportOn){ const b=$('#expsave'); if(b) b.disabled=false; }
+}
+// Single-engine run: one record to save.
+function setLastRun(dataObj, engineLbl){ setLastRuns([{data:dataObj, engine:engineLbl}]); }
+// Compare run: one record per successful engine (all share the same case id),
+// so the Excel export includes every engine, not just the first.
+function setLastRuns(list){
+  const meta=runMeta();
+  lastRuns=(list||[]).map(x=>({ data:x.data, engine:x.engine, ...meta }));
+  if(exportOn){ const b=$('#expsave'); if(b) b.disabled=!lastRuns.length; }
 }
 function setExpCount(n){ $('#expcount').textContent=n+' saved'; $('#expdl').disabled=!n; $('#expclear').classList.toggle('hidden',!n); }
 async function exportInit(){
   try{ const d=await fetch(API+'/api/export/count').then(r=>r.json());
     if(!d.available) return; exportOn=true; $('#exportbar').classList.remove('hidden'); setExpCount(d.count||0);
-    if(lastRun){ $('#expsave').disabled=false; }
+    if(lastRuns.length){ $('#expsave').disabled=false; }
   }catch(e){}
 }
-$('#expsave').onclick=async()=>{ if(!lastRun) return; const b=$('#expsave'); b.disabled=true; $('#exptoast').textContent='';
-  try{ const r=await fetch(API+'/api/export/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(lastRun)});
-    if(!r.ok) throw new Error('HTTP '+r.status); const d=await r.json(); setExpCount(d.count);
-    $('#exptoast').style.color='var(--green)'; $('#exptoast').textContent='✓ saved'; setTimeout(()=>{ $('#exptoast').textContent=''; },2500);
+$('#expsave').onclick=async()=>{ if(!lastRuns.length) return; const b=$('#expsave'); b.disabled=true; $('#exptoast').textContent='';
+  try{ let count=0;
+    for(const payload of lastRuns){
+      const r=await fetch(API+'/api/export/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      if(!r.ok) throw new Error('HTTP '+r.status); const d=await r.json(); count=d.count;
+    }
+    setExpCount(count); const n=lastRuns.length;
+    $('#exptoast').style.color='var(--green)'; $('#exptoast').textContent='✓ saved'+(n>1?' · '+n+' engines':''); setTimeout(()=>{ $('#exptoast').textContent=''; },2500);
   }catch(e){ $('#exptoast').style.color='var(--red)'; $('#exptoast').textContent='save failed'; } b.disabled=false; };
 $('#expdl').onclick=async()=>{ const b=$('#expdl'); const old=b.innerHTML; b.disabled=true; b.innerHTML='<span class="spin"></span> Preparing…'; $('#exptoast').textContent='';
   try{ const r=await fetch(API+'/api/export.xlsx'); if(!r.ok) throw new Error('server '+r.status); const blob=await r.blob();
