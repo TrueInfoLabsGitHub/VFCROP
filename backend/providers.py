@@ -103,8 +103,11 @@ def _cfg(provider):
             return None
         headers = ({"HTTP-Referer": "http://localhost:8753", "X-Title": "VF VERITAS"}
                    if "openrouter.ai" in KIMI_BASE else {})
+        # Stream Kimi's responses: it's a slow reasoning model, and streaming makes
+        # the read timeout apply per-chunk instead of to the whole generation, so a
+        # long "thinking" phase no longer trips "read operation timed out".
         return {"base": KIMI_BASE.rstrip("/"), "key": key, "model": KIMI_MODEL,
-                "label": KIMI_LABEL, "strict": False, "extra_headers": headers}
+                "label": KIMI_LABEL, "strict": False, "extra_headers": headers, "stream": True}
     if OPENAI_API_KEY:
         return {"base": "https://api.openai.com/v1", "key": OPENAI_API_KEY,
                 "model": OPENAI_MODEL, "label": OPENAI_LABEL, "strict": True, "extra_headers": {}}
@@ -140,17 +143,56 @@ def _chat(cfg, content, schema, schema_name, timeout):
     headers = {"Authorization": f"Bearer {cfg['key']}", "Content-Type": "application/json"}
     headers.update(cfg.get("extra_headers", {}))
 
+    def _stream_post(body, to):
+        # Streaming keeps the connection alive token-by-token, so httpx's read
+        # timeout measures the gap *between* chunks rather than the whole (possibly
+        # multi-minute) generation. This is what lets a slow reasoning model like
+        # Kimi K2.6 finish instead of tripping "read operation timed out". We
+        # collapse the SSE stream back into a normal completion dict so the rest of
+        # the code path (extract / usage) is unchanged. No stream_options here —
+        # some routers reject it; the trade-off is Kimi's token/cost may read 0.
+        b = {**body, "stream": True}
+        parts, usage = [], {}
+        with httpx.stream("POST", cfg["base"] + "/chat/completions",
+                          json=b, headers=headers, timeout=to) as r:
+            if r.status_code >= 400:
+                r.read(); r.raise_for_status()
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                s = line[5:].strip() if line.startswith("data:") else line.strip()
+                if s == "[DONE]":
+                    break
+                if not s:
+                    continue
+                try:
+                    obj = json.loads(s)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                for ch in (obj.get("choices") or []):
+                    piece = ((ch.get("delta") or {}).get("content")
+                             or (ch.get("message") or {}).get("content"))
+                    if piece:
+                        parts.append(piece)
+                if obj.get("usage"):
+                    usage = obj["usage"]
+        return {"choices": [{"message": {"content": "".join(parts)}}], "usage": usage}
+
     def post(body):
-        # Generous read timeout for slow reasoning models (Kimi K2.6 thinks before
-        # answering); one retry on a transient timeout / dropped connection.
+        # Generous per-call read timeout; one retry on a transient timeout /
+        # dropped connection. Slow reasoning engines (Kimi) stream, so the timeout
+        # applies per chunk rather than to the whole response.
         to = httpx.Timeout(timeout, connect=20.0)
         last = None
         for _ in range(2):
             try:
+                if cfg.get("stream"):
+                    return _stream_post(body, to)
                 r = httpx.post(cfg["base"] + "/chat/completions", json=body, headers=headers, timeout=to)
                 r.raise_for_status()
                 return r.json()
-            except (httpx.ConnectTimeout, httpx.PoolTimeout, httpx.RemoteProtocolError) as e:
+            except (httpx.ConnectTimeout, httpx.PoolTimeout, httpx.ReadTimeout,
+                    httpx.RemoteProtocolError) as e:
                 last = e  # transient — retry once
                 continue
         raise last
