@@ -286,7 +286,9 @@
         <div class="grid2">
           <div class="card pad">
             <div class="sect-lbl">Evidence</div>
-            <div class="lbl">Suspect product photos</div>
+            <div class="lbl">Case number</div>
+            <input id="caseno" class="txt" placeholder="e.g. VF-2026-0421" autocomplete="off">
+            <div class="lbl" style="margin-top:15px">Suspect product photos</div>
             <div class="drop" id="drop"><i class="ti ti-upload"></i><div class="t">Drop photos or <b>browse</b></div><div class="s">add several angles</div></div>
             <input type="file" id="file" accept="image/*" multiple class="hidden">
             <div class="thumbs" id="prodgallery"></div>
@@ -294,6 +296,7 @@
             <div class="drop" id="updrop"><i class="ti ti-barcode"></i><div class="t">Drop a barcode photo — the model reads the code</div></div>
             <input type="file" id="upfile" accept="image/*" class="hidden">
             <div class="lbl" style="margin-top:15px" id="refseyebrow">Reference product</div>
+            <input id="prodsearch" class="txt" placeholder="Search catalog by name or brand…" autocomplete="off" style="margin-bottom:7px">
             <div class="row" id="refrow">
               <select id="prodpick" style="flex:1"></select>
               <button class="btn ghost sm" id="addprod" style="white-space:nowrap"><i class="ti ti-plus"></i>Add</button>
@@ -431,12 +434,6 @@ const CASES=[
   {id:'VF-2026-0371',brand:'TNF',brandName:'The North Face',origin:'Fuzhou, CN',status:'Open',opened:'Jun 18, 2026',note:'Repeat-seller escalation — prior counterfeit history on file.'},
 ];
 function curCase(){ return CASES.find(c=>c.id===caseId) || {id:caseId, brand:'TNF', brandName:'The North Face', origin:'—', status:'Active', opened:''}; }
-function nextCaseId(){
-  let n; try{ n=parseInt(localStorage.getItem('veritas-caseseq')||'412',10); }catch(e){}
-  n=(isNaN(n)?412:n)+1;
-  try{ localStorage.setItem('veritas-caseseq',String(n)); }catch(e){}
-  return 'VF-'+(new Date()).getFullYear()+'-'+String(n).padStart(4,'0');
-}
 function caseHeader(){ const cs=curCase();
   return `<div class="cid">${cs.id}</div>
     <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -446,7 +443,7 @@ function caseHeader(){ const cs=curCase();
       <span class="chip">Opened ${cs.opened}</span>
     </div>`; }
 function updateCaseHeader(){ const el=$('#caseheader'); if(el) el.innerHTML=caseHeader(); }
-let caseId=CASES[0].id, brand='TNF';
+let caseId='', brand='TNF';
 const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
 const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
 const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'}}[b]||{c:'b-gray',l:'N/A'});
@@ -504,14 +501,17 @@ function onRefSourceChange(){
 /* ---------- checklist ---------- */
 function updateChecklist(){
   const hasRef = refSource==='google' || !!productId;
+  const cno=$('#caseno')?$('#caseno').value.trim():'';
+  const hasCase = !!cno;
   const items=[
+    [hasCase, hasCase?('Case '+cno):'Enter a case number',false],
     [suspectImgs.length>0, suspectImgs.length?(suspectImgs.length+' suspect photo'+(suspectImgs.length>1?'s':'')+' added'):'Add suspect photos',false],
     [hasRef, refSource==='google'?'Google reference source':'Reference selected',false],
     [!!upcB64, upcB64?'UPC image added':'UPC image (optional)',true],
   ];
   $('#checklist').innerHTML=items.map(([ok,txt,opt])=>
     `<div class="ck ${ok?'ok':'no'}"><i class="ti ti-${ok?'circle-check':(opt?'circle-dashed':'circle')}"></i>${txt}</div>`).join('');
-  $('#run').disabled = !(suspectImgs.length>0 && hasRef);
+  $('#run').disabled = !(hasCase && suspectImgs.length>0 && hasRef);
 }
 
 /* ---------- products ---------- */
@@ -519,12 +519,28 @@ async function loadProducts(){
   try{
     const d=await fetch(API+'/api/products').then(r=>r.json());
     products=d.products||[];
-    $('#prodpick').innerHTML = products.length ? products.map(p=>`<option value="${p.id}">${p.name}${p.brand?' · '+p.brand:''}</option>`).join('') : '<option value="">no products — Add one</option>';
     productId = products.length ? products[0].id : '';
-    if(refSource==='product') showProductRefs();
-  }catch(e){ $('#prodpick').innerHTML='<option value="">(catalog unavailable)</option>'; }
+    filterProducts();                    // render options, honouring any search text
+  }catch(e){ $('#prodpick').innerHTML='<option value="">(catalog unavailable)</option>'; products=[]; productId=''; }
   updateChecklist();
 }
+function renderProdOptions(list){
+  const cur=productId;
+  $('#prodpick').innerHTML = list.length
+    ? list.map(p=>`<option value="${p.id}">${p.name}${p.brand?' · '+p.brand:''}</option>`).join('')
+    : (products.length ? '<option value="">no matches</option>' : '<option value="">no products — Add one</option>');
+  if(list.some(p=>p.id===cur)){ $('#prodpick').value=cur; }         // keep selection if still visible
+  else { productId = list.length ? list[0].id : ''; $('#prodpick').value=productId; }
+}
+function filterProducts(){
+  const q=($('#prodsearch').value||'').trim().toLowerCase();
+  const list=q ? products.filter(p=>((p.name||'')+' '+(p.brand||'')).toLowerCase().includes(q)) : products;
+  renderProdOptions(list);
+  if(refSource==='product') showProductRefs();
+  updateChecklist();
+}
+$('#prodsearch').oninput=filterProducts;
+$('#caseno').oninput=()=>{ caseId=$('#caseno').value.trim(); updateCaseHeader(); updateChecklist(); };
 $('#prodpick').onchange=()=>{ productId=$('#prodpick').value; showProductRefs(); updateChecklist(); };
 function showProductRefs(){
   const p=products.find(x=>x.id===productId);
@@ -575,7 +591,7 @@ $('#np_save').onclick=async()=>{
   if(!npImgs.length){ $('#np_status').textContent='Add at least one image.'; return; }
   $('#np_save').disabled=true; $('#np_status').innerHTML='<span class="spin"></span> saving…';
   try{ const r=await fetch(API+'/api/products',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,brand:$('#np_brand').value.trim(),images:npImgs})});
-    if(!r.ok) throw new Error('HTTP '+r.status); const p=await r.json(); await loadProducts(); $('#prodpick').value=p.id; productId=p.id; showProductRefs(); updateChecklist(); $('#addmodal').classList.remove('open');
+    if(!r.ok) throw new Error('HTTP '+r.status); const p=await r.json(); $('#prodsearch').value=''; await loadProducts(); $('#prodpick').value=p.id; productId=p.id; showProductRefs(); updateChecklist(); $('#addmodal').classList.remove('open');
   }catch(e){ $('#np_status').innerHTML='<span style="color:var(--red)">'+e.message+'</span>'; }
   $('#np_save').disabled=false;
 };
@@ -616,7 +632,10 @@ async function pollJob(jobId, onPartial){
 }
 
 $('#run').onclick=async()=>{
-  $('#runerr').innerHTML=''; caseId=nextCaseId(); updateCaseHeader(); showProc();   // each run gets its own case id
+  $('#runerr').innerHTML='';
+  const cno=$('#caseno').value.trim();
+  if(!cno){ $('#runerr').innerHTML='<div class="errbox">Enter a case number before running.</div>'; $('#caseno').focus(); return; }
+  caseId=cno; updateCaseHeader(); showProc();                                        // case number entered by the user
   const body={case_id:caseId,brand,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64};
   try{
     if(provider==='all'){
@@ -1128,7 +1147,7 @@ function renderCases(){
       </div>
       <span class="btn ghost cc-go" style="flex:none">Analyze <i class="ti ti-arrow-right"></i></span>
     </div>`).join('');
-  $$('#casesbody .ccard[data-case]').forEach(el=>el.onclick=()=>{ caseId=el.dataset.case; updateCaseHeader(); go('analysis'); backToInput(); });
+  $$('#casesbody .ccard[data-case]').forEach(el=>el.onclick=()=>{ caseId=el.dataset.case; if($('#caseno'))$('#caseno').value=caseId; updateCaseHeader(); updateChecklist(); go('analysis'); backToInput(); });
 }
 renderCases();
 function renderModels(){
