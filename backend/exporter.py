@@ -49,23 +49,9 @@ def thumb(b64, px=_THUMB_PX):
         return ""
 
 
-# (header label, column width). Image columns are placed up front for visibility.
-# Suspect + References hold multiple tiled thumbnails, so they are wide enough
-# for _PERROW thumbnails across.
+# Suspect + References hold multiple tiled thumbnails, so their column is wide
+# enough for _PERROW thumbnails across.
 _IMG_COL_W = round(_PERROW * (_CELL + _GAP) / 7) + 1
-_COLUMNS = [
-    ("#", 5), ("Timestamp (UTC)", 20), ("Case", 15), ("Brand", 8),
-    ("Engine", 15), ("Product", 22), ("Verdict", 21), ("Score", 7),
-    ("Suspect", _IMG_COL_W), ("References", _IMG_COL_W), ("UPC image", 16),
-    *[(f"{d}\nscore", 9) for d in DIMS],
-    ("UPC status", 12), ("UPC read", 16), ("UPC expected", 14),
-    ("Verifier", 11), ("Confidence", 11),
-    ("Tokens", 10), ("Cost ($)", 11), ("Latency (s)", 11),
-    *[(f"{d} finding", 46) for d in DIMS],
-]
-_SUSPECT_COL = 9
-_REF_COL = 10
-_UPC_COL = 11
 
 
 def _fnum(v, nd=0):
@@ -81,58 +67,7 @@ def build_workbook(runs):
     ws = wb.active
     ws.title = "VERITAS analyses"
 
-    head_fill = PatternFill("solid", fgColor="1A2B3C")
-    head_font = Font(color="FFFFFF", bold=True, size=10)
-    head_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-    for ci, (label, width) in enumerate(_COLUMNS, start=1):
-        c = ws.cell(row=1, column=ci, value=label)
-        c.fill = head_fill
-        c.font = head_font
-        c.alignment = head_align
-        ws.column_dimensions[get_column_letter(ci)].width = width
-    ws.row_dimensions[1].height = 30
-    ws.freeze_panes = "A2"
-
-    top = Alignment(vertical="top", wrap_text=True)
-    for i, rec in enumerate(runs, start=1):
-        r = i + 1
-        dims = rec.get("dimensions") or {}
-        upc = rec.get("upc") or {}
-        band = rec.get("band") or ""
-        vals = [
-            i, rec.get("created_at", ""), rec.get("case_id", ""), rec.get("brand", ""),
-            rec.get("engine", ""), rec.get("product", ""), rec.get("verdict", ""),
-            _fnum(rec.get("score")), "", "", "",
-            *[_fnum((dims.get(d) or {}).get("score")) for d in DIMS],
-            upc.get("status", ""), upc.get("extracted", ""), upc.get("expected", ""),
-            rec.get("verifier", ""), rec.get("confidence", ""),
-            _fnum(rec.get("tokens")),
-            round(float(rec.get("cost") or 0), 4),
-            round(float(rec.get("latency_ms") or 0) / 1000, 1),
-            *[(dims.get(d) or {}).get("finding", "") for d in DIMS],
-        ]
-        for ci, v in enumerate(vals, start=1):
-            cell = ws.cell(row=r, column=ci, value=v)
-            cell.alignment = top
-        # colour the Verdict + Score by band
-        if band in _BAND_FONT:
-            f = Font(color=_BAND_FONT[band], bold=True)
-            ws.cell(row=r, column=7).font = f
-            ws.cell(row=r, column=8).font = f
-
-        # image lists (with back-compat for older single-image records)
-        sus = rec.get("suspect_thumbs") or (
-            [rec["suspect_thumb"]] if rec.get("suspect_thumb") else [])
-        refs = rec.get("reference_thumbs") or []
-        upc = [rec["upc_thumb"]] if rec.get("upc_thumb") else []
-        gr = max(_embed_grid(ws, sus, _SUSPECT_COL, r),
-                 _embed_grid(ws, refs, _REF_COL, r),
-                 _embed_grid(ws, upc, _UPC_COL, r), 1)
-        ws.row_dimensions[r].height = max(76, gr * (_CELL + _GAP) * 0.75)
-
-    if not runs:
-        ws.cell(row=2, column=1, value="No analyses saved yet.")
+    _build_analyses_sheet(ws, runs)
 
     _build_comparison_sheet(wb, runs)
     _build_scorecard_sheet(wb, runs)
@@ -172,6 +107,164 @@ def _engine_key(name):
     """Collapse engine labels that differ only by casing/whitespace (e.g.
     'GPT-5.5' vs 'gpt-5.5') so they aggregate as one engine."""
     return (name or "").strip().lower()
+
+
+def _build_analyses_sheet(ws, runs):
+    """Main sheet — ONE row per case, engines laid out side by side.
+
+    Shared fields (case, brand, product, photos, UPC) appear once on the left;
+    each engine then gets a colour-banded block of Verdict / Score / the five
+    forensic-dimension scores / Verifier. A trailing Score-spread column flags
+    where the engines disagree. Cases run on a single engine still get one row
+    (the other engine blocks are simply left blank).
+    """
+    # group by case, preserving first-seen order; keep the latest record per
+    # engine. Records with no case_id each get their own row (unique key).
+    cases = {}
+    for idx, rec in enumerate(runs):
+        cid = rec.get("case_id") or ""
+        key = cid or f"\x00nocase-{idx}"
+        g = cases.setdefault(key, {"order": idx, "cid": cid, "engines": {}, "records": []})
+        g["engines"][_engine_key(rec.get("engine"))] = rec
+        g["records"].append(rec)
+    ordered = sorted(cases.values(), key=lambda c: c["order"])
+
+    # engine columns, ordered by first appearance across all cases
+    engines = []
+    seen = set()
+    for c in ordered:
+        for k, rec in c["engines"].items():
+            if k not in seen:
+                seen.add(k)
+                engines.append((k, rec.get("engine") or k))
+
+    metrics = (["Verdict", "Score"] + DIMS
+               + ["Verifier", "Cost ($)", "Latency (s)"]
+               + [f"{d} finding" for d in DIMS])            # 15 columns per engine
+
+    # ---- header (two rows) -------------------------------------------------
+    shared = [("#", 5), ("Case", 15), ("Brand", 8), ("Product", 22),
+              ("Suspect", _IMG_COL_W), ("References", _IMG_COL_W), ("UPC image", 16),
+              ("UPC status", 12), ("UPC read", 16), ("UPC expected", 14)]
+    for ci, (label, width) in enumerate(shared, start=1):
+        c = ws.cell(row=1, column=ci, value=label)
+        c.fill = _HEAD_FILL
+        c.font = _HEAD_FONT
+        c.alignment = _CENTER
+        ws.merge_cells(start_row=1, start_column=ci, end_row=2, end_column=ci)
+        ws.column_dimensions[get_column_letter(ci)].width = width
+
+    col = len(shared) + 1
+    for _k, label in engines:
+        ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + len(metrics) - 1)
+        gc = ws.cell(row=1, column=col, value=label)
+        gc.fill = _GROUP_FILL
+        gc.font = _HEAD_FONT
+        gc.alignment = _CENTER
+        for j, m in enumerate(metrics):
+            mc = ws.cell(row=2, column=col + j, value=m)
+            mc.fill = _HEAD_FILL
+            mc.font = _HEAD_FONT
+            mc.alignment = _CENTER
+            if m == "Verdict":
+                w = 18
+            elif m.endswith("finding"):
+                w = 46
+            elif m in ("Cost ($)", "Latency (s)"):
+                w = 11
+            else:
+                w = 10
+            ws.column_dimensions[get_column_letter(col + j)].width = w
+        col += len(metrics)
+
+    spread_col = col
+    sc = ws.cell(row=1, column=spread_col, value="Score\nspread")
+    sc.fill = _HEAD_FILL
+    sc.font = _HEAD_FONT
+    sc.alignment = _CENTER
+    ws.merge_cells(start_row=1, start_column=spread_col, end_row=2, end_column=spread_col)
+    ws.column_dimensions[get_column_letter(spread_col)].width = 9
+
+    ws.row_dimensions[1].height = 22
+    ws.row_dimensions[2].height = 18
+    ws.freeze_panes = "E3"                # keep # / Case / Brand / Product on screen
+
+    if not ordered:
+        ws.cell(row=3, column=1, value="No analyses saved yet.")
+        return
+
+    # ---- data rows ---------------------------------------------------------
+    top = Alignment(vertical="top", wrap_text=True)
+    r = 3
+    for i, c in enumerate(ordered, start=1):
+        recs = c["records"]
+
+        def _first(getter):
+            for rec in recs:
+                v = getter(rec)
+                if v:
+                    return v
+            return ""
+
+        upc = {}
+        for rec in recs:
+            u = rec.get("upc") or {}
+            if u:
+                upc = u
+                break
+
+        ws.cell(row=r, column=1, value=i).alignment = top
+        ws.cell(row=r, column=2, value=c["cid"]).alignment = top
+        ws.cell(row=r, column=3, value=_first(lambda x: x.get("brand"))).alignment = top
+        ws.cell(row=r, column=4, value=_first(lambda x: x.get("product"))).alignment = top
+        # columns 5-7 hold the shared photos (embedded below)
+        ws.cell(row=r, column=8, value=upc.get("status", "")).alignment = top
+        ws.cell(row=r, column=9, value=upc.get("extracted", "")).alignment = top
+        ws.cell(row=r, column=10, value=upc.get("expected", "")).alignment = top
+
+        col = len(shared) + 1
+        scores = []
+        for k, _label in engines:
+            rec = c["engines"].get(k)
+            if rec:
+                band = rec.get("band") or ""
+                s = _fnum(rec.get("score"))
+                if isinstance(s, (int, float)):
+                    scores.append(s)
+                dims = rec.get("dimensions") or {}
+                cost = round(float(rec.get("cost") or 0), 4)
+                lat = round(float(rec.get("latency_ms") or 0) / 1000, 1)
+                vals = [rec.get("verdict", ""), s,
+                        *[_fnum((dims.get(d) or {}).get("score")) for d in DIMS],
+                        rec.get("verifier", ""), cost, lat,
+                        *[(dims.get(d) or {}).get("finding", "") for d in DIMS]]
+                for j, v in enumerate(vals):
+                    cell = ws.cell(row=r, column=col + j, value=v)
+                    cell.alignment = top
+                    if j <= 1 and band in _BAND_FONT:        # colour verdict + score
+                        cell.font = Font(color=_BAND_FONT[band], bold=True)
+            col += len(metrics)
+
+        if len(scores) >= 2:
+            spread = max(scores) - min(scores)
+            scc = ws.cell(row=r, column=spread_col, value=int(round(spread)))
+            scc.alignment = _CENTER
+            if spread >= 25:                                  # engines disagree a lot
+                scc.font = Font(color="C0392B", bold=True)
+
+        # shared photos — reuse the first record that carries each image set
+        sus = _first(lambda x: x.get("suspect_thumbs"))
+        if not sus:
+            st = _first(lambda x: x.get("suspect_thumb"))
+            sus = [st] if st else []
+        refs = _first(lambda x: x.get("reference_thumbs")) or []
+        upcimg = _first(lambda x: x.get("upc_thumb"))
+        upcimg = [upcimg] if upcimg else []
+        gr = max(_embed_grid(ws, sus, 5, r),
+                 _embed_grid(ws, refs, 6, r),
+                 _embed_grid(ws, upcimg, 7, r), 1)
+        ws.row_dimensions[r].height = max(76, gr * (_CELL + _GAP) * 0.75)
+        r += 1
 
 
 def _build_comparison_sheet(wb, runs):
