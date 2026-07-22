@@ -340,6 +340,115 @@ _BOXES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Label dimension — explicit authentication rubric, applied for EVERY engine.
+# The vision model reports a per-check status; the numeric Label score is
+# computed here (server-authoritative) with a critical-tell-dominant roll-up so
+# a single hard tell isn't averaged away by softer "looks fine" checks.
+# ---------------------------------------------------------------------------
+_LABEL_CHECKS = [
+    ("L1", "strong", "Neck-tag font & weave: 'THE NORTH FACE' correct typeface/weight/spacing, woven and crisp (tell: different font, printed or blurry)."),
+    ("L2", "strong", "Half-dome ridges: evenly spaced ridges, correct proportion (tell: wide gaps / short ridges)."),
+    ("L3", "critical", "Fabric-content spacing & spelling: proper spaces and correct spelling, e.g. '100% NYLON LAMINATED WITH PTFE' (tell: run-together words like 'NYLONLAMINATED WITHPTFE', misspellings)."),
+    ("L4", "supporting", "Fabric-content alignment: text begins at the TOP of the tag (tell: text starts near the bottom)."),
+    ("L5", "strong", "Care tag present & legible: exists, correct spelling/spacing, legible care symbols (tell: MISSING entirely, misspellings, no spaces)."),
+    ("L6", "supporting", "Country of origin present and correctly formatted."),
+    ("L7", "critical", "Gore-Tex label (ONLY if a Gore-Tex item): has the registered-trademark mark and underline, consistent with any lining print (tell: missing mark/underline, inconsistent). If the item is NOT Gore-Tex, return status not_visible."),
+    ("L8", "strong", "Style-number format: old 'A'/'C'+3 chars (e.g. A71V) or new 'NF0A...' (e.g. NF0A3JQC) (tell: wrong format / absent)."),
+    ("L9", "critical", "Style-number match: the number corresponds to a real The North Face model consistent with this product's name/season/year (tell: no match, or matches a different product)."),
+    ("L10", "strong", "Cross-tag consistency: style number, size and colorway agree across neck/care/hang tags (tell: mismatch)."),
+    ("L11", "supporting", "Size tag present and consistent with care/style tags."),
+]
+_LABEL_SEVERITY = {cid: sev for cid, sev, _d in _LABEL_CHECKS}
+_LABEL_IDS = [cid for cid, _s, _d in _LABEL_CHECKS]
+_LABEL_WEIGHT = {"critical": 3, "strong": 2, "supporting": 1}
+_STATUS_POINTS = {"genuine": 0, "suspicious": 50, "counterfeit_tell": 100}
+
+_LABEL_PROMPT = (
+    "You are a brand-protection authentication specialist evaluating ONLY the "
+    "labels and tags of a SUSPECT The North Face item against the AUTHENTIC "
+    "reference photo(s). Ignore fabric feel, zippers, buttons and stitching "
+    "except where printed or woven on a tag.\n"
+    "Scoring is counterfeit-probability: 0 = matches genuine (high similarity), "
+    "100 = counterfeit (wrong / low similarity).\n"
+    "For EACH check below return: its id, a status one of "
+    "{genuine, suspicious, counterfeit_tell, not_visible}, a one-line 'evidence' "
+    "string, and a 'confidence' 0-1. Use not_visible when the relevant tag is "
+    "not clearly shown — NEVER assume genuine for something you cannot see.\n\n"
+    + "\n".join(f"{cid}. {desc}" for cid, _sev, desc in _LABEL_CHECKS)
+    + "\n\nReturn JSON only, matching the schema."
+)
+
+_LABEL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "checks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "enum": _LABEL_IDS},
+                    "status": {"type": "string",
+                               "enum": ["genuine", "suspicious", "counterfeit_tell", "not_visible"]},
+                    "evidence": {"type": "string"},
+                    "confidence": {"type": "number"},
+                },
+                "required": ["id", "status", "evidence", "confidence"],
+                "additionalProperties": False,
+            },
+        },
+        "summary_finding": {"type": "string"},
+    },
+    "required": ["checks", "summary_finding"],
+    "additionalProperties": False,
+}
+
+
+def _aggregate_label(checks):
+    """Per-check statuses -> Label score (0-100 counterfeit-probability), band,
+    one-line finding, confidence. Critical-tell-dominant: one high-confidence
+    critical tell floors the score into the counterfeit band. Returns a dict;
+    score is None (abstain) when no tag was clearly visible."""
+    by = {}
+    for c in (checks or []):
+        cid = c.get("id")
+        if cid in _LABEL_SEVERITY:
+            by[cid] = c                                  # last one wins if duplicated
+
+    visible = [c for c in by.values()
+               if c.get("status") in _STATUS_POINTS and float(c.get("confidence") or 0) >= 0.5]
+
+    if not visible:
+        return {"score": None, "band": "neutral", "status": "abstain",
+                "finding": "Insufficient label evidence — tags not clearly visible.",
+                "confidence": 0.3, "checks": list(by.values())}
+
+    num = den = 0.0
+    critical_hit = False
+    tells = []
+    for c in visible:
+        sev = _LABEL_SEVERITY[c["id"]]
+        w = _LABEL_WEIGHT[sev]
+        num += _STATUS_POINTS[c["status"]] * w
+        den += w
+        if c["status"] == "counterfeit_tell":
+            tells.append(c)
+            if sev == "critical" and float(c.get("confidence") or 0) >= 0.6:
+                critical_hit = True
+    avg = num / den if den else 0.0
+    score = int(max(0, min(100, round(max(85.0, avg) if critical_hit else avg))))
+
+    if tells:
+        finding = f"{len(tells)} label tell(s): {tells[0].get('evidence') or tells[0]['id']}"
+    else:
+        finding = f"Labels consistent with genuine across {len(visible)} checks."
+    conf = round(sum(float(c.get("confidence") or 0) for c in visible) / len(visible), 2)
+    if len(visible) < 2:                                 # low-confidence gate: too few tags seen
+        conf = round(min(conf, 0.5), 2)
+    return {"score": score, "band": _band(score), "status": "scored",
+            "finding": finding, "confidence": conf, "checks": list(by.values())}
+
+
 def _band(score):
     if score is None:
         return "neutral"
@@ -469,7 +578,33 @@ def _gemini_dimension(dim, suspect_b64s, reference_file, t0):
     return result, usage
 
 
+def _label_dimension(cfg, suspect_b64s, ref_b64s, t0):
+    """Label dimension for any OpenAI-compatible engine: runs the authentication
+    rubric, then computes the score server-side via _aggregate_label."""
+    content = [{"type": "text", "text": _LABEL_PROMPT}]
+    for i, b in enumerate(suspect_b64s):
+        content.append({"type": "text", "text": f"SUSPECT photo {i + 1}:"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}", "detail": "high"}})
+    for j, rb in enumerate(ref_b64s):
+        content.append({"type": "text", "text": f"AUTHENTIC REFERENCE {j + 1}:"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rb}", "detail": "high"}})
+    parsed, tin, tout = _chat(cfg, content, _LABEL_SCHEMA, "label", CHAT_TIMEOUT)
+    agg = _aggregate_label(parsed.get("checks"))
+    summary = (parsed.get("summary_finding") or "").strip()
+    usage = {"agent": "Label", "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
+             "latency_ms": int((time.time() - t0) * 1000)}
+    result = {
+        "dimension": "Label", "score": agg["score"], "band": agg["band"],
+        "finding": agg["finding"], "reasoning": summary or agg["finding"],
+        "box": _BOXES["Label"], "confidence": agg["confidence"],
+        "status": agg["status"], "checks": agg["checks"],
+    }
+    return result, usage
+
+
 def _chat_dimension(cfg, dim, suspect_b64s, ref_b64s, t0):
+    if dim == "Label":
+        return _label_dimension(cfg, suspect_b64s, ref_b64s, t0)
     schema = {
         "type": "object",
         "properties": {
