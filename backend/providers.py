@@ -347,19 +347,20 @@ _BOXES = {
 # a single hard tell isn't averaged away by softer "looks fine" checks.
 # ---------------------------------------------------------------------------
 _LABEL_CHECKS = [
-    ("L1", "strong", "Neck-tag font & weave: 'THE NORTH FACE' correct typeface/weight/spacing, woven and crisp (tell: different font, printed or blurry)."),
-    ("L2", "strong", "Half-dome ridges: evenly spaced ridges, correct proportion (tell: wide gaps / short ridges)."),
+    ("L1", "strong", "Neck-tag font & weave: 'THE NORTH FACE' correct typeface/weight/spacing, woven and crisp. Mark counterfeit_tell ONLY for obvious, severe distortion (illegible/warped text, clearly wrong logo). Minor font or weave differences judged from a photo are unreliable — use suspicious at most, never a tell."),
+    ("L2", "strong", "Half-dome ridges: evenly spaced ridges, correct proportion. Mark counterfeit_tell ONLY for clearly wrong geometry; subtle differences from a photo -> suspicious at most, not a tell."),
     ("L3", "critical", "Fabric-content spacing & spelling: proper spaces and correct spelling, e.g. '100% NYLON LAMINATED WITH PTFE' (tell: run-together words like 'NYLONLAMINATED WITHPTFE', misspellings)."),
     ("L4", "supporting", "Fabric-content alignment: text begins at the TOP of the tag (tell: text starts near the bottom)."),
     ("L5", "strong", "Care tag present & legible: exists, correct spelling/spacing, legible care symbols (tell: MISSING entirely, misspellings, no spaces)."),
     ("L6", "supporting", "Country of origin present and correctly formatted."),
     ("L7", "critical", "Gore-Tex label (ONLY if a Gore-Tex item): has the registered-trademark mark and underline, consistent with any lining print (tell: missing mark/underline, inconsistent). If the item is NOT Gore-Tex, return status not_visible."),
-    ("L8", "strong", "Style-number format: old 'A'/'C'+3 chars (e.g. A71V) or new 'NF0A...' (e.g. NF0A3JQC) (tell: wrong format / absent)."),
-    ("L9", "critical", "Style-number match: the number corresponds to a real The North Face model consistent with this product's name/season/year (tell: no match, or matches a different product)."),
+    ("L8", "strong", "Style-number format: a TNF style number is old 'A'/'C'+3 chars (e.g. A71V) or new 'NF0A...' (e.g. NF0A3JQC). If NO style number is visible in the photos, mark not_visible — its absence is NOT a tell. RN / CA / RW registration codes (e.g. RW1818273, CA85730) are LEGITIMATE identifiers, not style numbers, and are never a defect. Mark counterfeit_tell only when a style number is actually present but malformed."),
+    ("L9", "strong", "Style-number match: only if a style number is visible, it should correspond to a real The North Face model consistent with this product's name/season/year. If no style number is visible, mark not_visible (NOT a tell). Mark counterfeit_tell only when a visible number clearly belongs to a different product or is invalid."),
     ("L10", "strong", "Cross-tag consistency: style number, size and colorway agree across neck/care/hang tags (tell: mismatch)."),
     ("L11", "supporting", "Size tag present and consistent with care/style tags."),
 ]
 _LABEL_SEVERITY = {cid: sev for cid, sev, _d in _LABEL_CHECKS}
+_LABEL_NOISY = {"L1", "L2"}          # photo-based font/weave calls — damp low-confidence tells
 _LABEL_IDS = [cid for cid, _s, _d in _LABEL_CHECKS]
 _LABEL_WEIGHT = {"critical": 3, "strong": 2, "supporting": 1}
 _STATUS_POINTS = {"genuine": 0, "suspicious": 50, "counterfeit_tell": 100}
@@ -427,21 +428,32 @@ def _aggregate_label(checks):
     critical_hit = False
     tells = []
     for c in visible:
-        sev = _LABEL_SEVERITY[c["id"]]
+        cid = c["id"]
+        sev = _LABEL_SEVERITY[cid]
         w = _LABEL_WEIGHT[sev]
-        num += _STATUS_POINTS[c["status"]] * w
+        status = c["status"]
+        conf = float(c.get("confidence") or 0)
+        # Photo-based font/weave calls are noisy: a low-confidence "tell" on
+        # L1/L2 counts only as suspicious, not a hard tell.
+        if status == "counterfeit_tell" and cid in _LABEL_NOISY and conf < 0.7:
+            num += _STATUS_POINTS["suspicious"] * w
+            den += w
+            continue
+        num += _STATUS_POINTS[status] * w
         den += w
-        if c["status"] == "counterfeit_tell":
+        if status == "counterfeit_tell":
             tells.append(c)
-            if sev == "critical" and float(c.get("confidence") or 0) >= 0.6:
+            if sev == "critical" and conf >= 0.6:
                 critical_hit = True
     avg = num / den if den else 0.0
     score = int(max(0, min(100, round(max(85.0, avg) if critical_hit else avg))))
 
     if tells:
         finding = f"{len(tells)} label tell(s): {tells[0].get('evidence') or tells[0]['id']}"
-    else:
+    elif score <= 30:
         finding = f"Labels consistent with genuine across {len(visible)} checks."
+    else:
+        finding = f"Minor label concerns across {len(visible)} checks (no decisive tell)."
     conf = round(sum(float(c.get("confidence") or 0) for c in visible) / len(visible), 2)
     if len(visible) < 2:                                 # low-confidence gate: too few tags seen
         conf = round(min(conf, 0.5), 2)
