@@ -86,6 +86,17 @@ CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "240"))
 # Which provider runs the vision (dimension) agents by default: "openai" or "gemini".
 VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()
 
+# A dimension scored below this self-reported confidence is treated as a guess
+# and abstained rather than folded into the composite. Models hedge with a
+# mid-range number when they cannot see the region; that number is noise, and
+# averaging it in is worse than having no value at all.
+MIN_DIM_CONFIDENCE = float(os.environ.get("MIN_DIM_CONFIDENCE", "0.35"))
+
+# How many independent adversarial verify calls tally the verdict. Votes are
+# counted server-side — a single call asked to report its own "votes" string
+# just makes one up.
+VERIFY_VOTES = max(1, int(os.environ.get("VERIFY_VOTES", "3")))
+
 
 def _cfg(provider):
     """Resolve a request's provider ('openai' | 'gemini') to an OpenAI-compatible
@@ -341,6 +352,112 @@ _BOXES = {
 
 
 # ---------------------------------------------------------------------------
+# Dimension agents — scope + abstention.
+#
+# Every non-Label dimension used to be forced to return an integer: the schema
+# required `score` and the parser hardcoded status="scored". A model that could
+# not see the region had nowhere to say so, so it emitted a hedge (a flat 50) or
+# a floor (0) and the aggregator averaged that fiction into the composite. The
+# `assessable` flag is the escape hatch, and an abstention is a first-class
+# result — never a number.
+# ---------------------------------------------------------------------------
+_DIM_SCOPE = {
+    "Logo": ("logo geometry, proportions, spacing, stroke weight, placement, and "
+             "embroidery/print execution"),
+    "Stitching": ("stitch pitch and density, seam alignment, thread colour, bartacks, "
+                  "puckering, and thread finish"),
+    "Hardware": ("zips, sliders, pulls, snaps, rivets, drawcord aglets and their finish, "
+                 "stamping and proportions. If the garment genuinely carries no hardware, "
+                 "that is NOT a defect — it is not assessable"),
+    "Material": ("fabric weave or knit structure, denier, sheen, coating, nap and hand "
+                 "as far as it is visible"),
+}
+
+_DIM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "assessable": {"type": "boolean"},
+        "insufficient_reason": {"type": "string"},
+        "score": {"type": "integer"},
+        "finding": {"type": "string"},
+        "reasoning": {"type": "string"},
+        "confidence": {"type": "number"},
+    },
+    "required": ["assessable", "insufficient_reason", "score", "finding",
+                 "reasoning", "confidence"],
+    "additionalProperties": False,
+}
+
+
+def _dim_prompt(dim, brand):
+    return (
+        f"You are a brand-protection vision specialist assessing exactly ONE dimension — "
+        f"'{dim}' — of a counterfeit authentication for a {brand} item. Compare the SUSPECT "
+        f"photos against the AUTHENTIC reference photo(s) on this dimension only.\n\n"
+        f"DO NOT GUESS. Set \"assessable\": false whenever any of the following is true:\n"
+        f"  - the {dim.lower()} region is not present in the SUSPECT photos;\n"
+        f"  - it is present but too small, blurred, dark, angled, folded or occluded to judge;\n"
+        f"  - the reference photos do not show the same region, so there is nothing to "
+        f"compare against;\n"
+        f"  - the SUSPECT and REFERENCE are plainly different products, making the "
+        f"comparison meaningless.\n"
+        f"When assessable is false, explain briefly in \"insufficient_reason\" and set "
+        f"\"score\": 0. That 0 is discarded by the caller — it is NOT read as 'authentic'. "
+        f"Never invent a mid-range score to express uncertainty: a fabricated number is far "
+        f"more damaging here than an honest abstention, because it is averaged into a "
+        f"verdict that a person acts on.\n\n"
+        f"STAY IN LANE. Your finding must rest on "
+        f"{_DIM_SCOPE.get(dim, dim.lower() + ' evidence only')}. Evidence belonging to "
+        f"another dimension (for example a care-label observation while assessing Stitching) "
+        f"does not count — if that is all you have, set assessable to false.\n\n"
+        f"When assessable is true, return a counterfeit-probability score 0-100 "
+        f"(0 = matches the authentic reference, 100 = clearly counterfeit), a one-line "
+        f"finding, short reasoning citing what you actually saw in the pixels, and a "
+        f"confidence 0-1 that reflects image quality and how much of the region you could "
+        f"resolve."
+    )
+
+
+def _dim_result(dim, parsed, model_label, tin, tout, t0):
+    """Shared shaping for a dimension agent response. Honours the abstain flag and
+    the confidence floor; an abstention carries score None so the aggregator skips
+    it rather than averaging in a fabricated value."""
+    conf = 0.0
+    try:
+        conf = round(float(parsed.get("confidence") or 0), 2)
+    except (TypeError, ValueError):
+        conf = 0.0
+    assessable = bool(parsed.get("assessable", True))
+    reason = (parsed.get("insufficient_reason") or "").strip()
+
+    if assessable and conf < MIN_DIM_CONFIDENCE:
+        assessable = False
+        reason = (reason or f"Self-reported confidence {conf:.2f} is below the "
+                            f"{MIN_DIM_CONFIDENCE:.2f} floor — treated as insufficient.")
+
+    usage = {"agent": dim, "model": model_label, "tokens_in": tin, "tokens_out": tout,
+             "latency_ms": int((time.time() - t0) * 1000)}
+
+    if not assessable:
+        result = {
+            "dimension": dim, "score": None, "band": "neutral",
+            "finding": f"INSUFFICIENT — {reason or 'dimension not assessable from these photos.'}",
+            "reasoning": reason or "The model reported it could not assess this dimension.",
+            "box": _BOXES[dim], "confidence": conf, "status": "abstain",
+            "insufficient_reason": reason,
+        }
+        return result, usage
+
+    score = int(max(0, min(100, int(parsed["score"]))))
+    result = {
+        "dimension": dim, "score": score, "band": _band(score),
+        "finding": parsed["finding"], "reasoning": parsed["reasoning"],
+        "box": _BOXES[dim], "confidence": conf, "status": "scored",
+    }
+    return result, usage
+
+
+# ---------------------------------------------------------------------------
 # Label dimension — explicit authentication rubric, applied for EVERY engine.
 # The vision model reports a per-check status; the numeric Label score is
 # computed here (server-authoritative) with a critical-tell-dominant roll-up so
@@ -471,6 +588,762 @@ def _band(score):
     return "counterfeit"
 
 
+# ---------------------------------------------------------------------------
+# Logo dimension — forensic primitive rubric.
+#
+# The model reports per-primitive deviation + evidence; the composite is
+# computed HERE, server-side, so the roll-up is auditable and identical across
+# engines. Mirrors the Label dimension's split of "model observes / server
+# scores".
+#
+# Weights follow the rubric: application evidence is 3x geometry and placement,
+# because how the mark was APPLIED is far harder to fake than its outline.
+# ---------------------------------------------------------------------------
+_LOGO_GEOMETRY = [
+    "arc_radius_ratios", "inter_arc_gap", "stroke_uniformity", "terminal_geometry",
+    "arc_eccentricity", "bounding_box_ratio", "wordmark_kerning", "letterform_contour",
+    "cap_height_stroke_ratio", "baseline_deviation", "lockup_variant",
+]
+_LOGO_APPLICATION = {
+    "embroidery": ["satin_angle_consistency", "stitch_density_cv", "underlay_present",
+                   "edge_thread_creep", "thread_sheen", "backing_visible_reverse"],
+    "rubberised": ["edge_bevel_profile", "mould_parting_line", "flash_trim",
+                   "surface_gloss", "thickness_width_ratio"],
+    "screen": ["ink_edge_raggedness", "halftone_structure", "layer_registration_offset",
+               "ink_sits_on_or_in_weave"],
+    # The rubric defines no primitive list for 'transfer'; whatever the model
+    # reports is accepted and weighted as application evidence.
+    "transfer": [],
+}
+_LOGO_PLACEMENT = ["offset_from_placket", "offset_from_shoulder_seam",
+                   "rotation_vs_grainline", "multi_logo_consistency"]
+
+_LOGO_APPLICATION_ALL = {n for names in _LOGO_APPLICATION.values() for n in names}
+_LOGO_PRIMITIVE_NAMES = sorted(set(_LOGO_GEOMETRY) | _LOGO_APPLICATION_ALL | set(_LOGO_PLACEMENT))
+
+_LOGO_WEIGHT_GEOMETRY = 1
+_LOGO_WEIGHT_APPLICATION = 3
+_LOGO_WEIGHT_PLACEMENT = 1
+
+# Cutoffs for the rubric's assessment vocabulary. Aligned with the pipeline's
+# existing bands (<=30 / <=60 / above) so the Logo card reads consistently with
+# every other dimension.
+_LOGO_MINOR_AT = 30
+_LOGO_SIGNIFICANT_AT = 60
+
+_LOGO_CONF_POINTS = {"high": 0.9, "medium": 0.6, "low": 0.3}
+
+_LOGO_PROMPT = """ROLE
+You are a forensic logo analyst. You compare a SUBMITTED logo against
+verified-authentic REFERENCE images of the same logo variant, and report
+measurable deviation. You do not determine authenticity of the product.
+
+INPUTS
+- SUBMITTED: macro crop(s) of the logo. May include a reverse-side image.
+- REFERENCE: verified-authentic images of the same variant, same product
+  family, same season.
+- METADATA: product family, season, expected lockup variant.
+
+HARD RULES
+1. If no REFERENCE image is provided, return
+   {"error": "NO_REFERENCE"} and nothing else. Never assess from memory
+   of what the brand's logo looks like.
+2. If a primitive is not resolvable in the supplied pixels, return
+   "INSUFFICIENT" for it. Do not estimate. Do not infer a value from
+   what is typical for this brand. An INSUFFICIENT is a correct answer.
+3. Report evidence BEFORE assigning any score. The evidence must
+   describe what you observe in the submitted image and how it differs
+   from the reference, in spatial terms.
+4. Use only ratios and normalised measurements, never absolute pixel
+   sizes, so results are scale-invariant.
+5. Ignore all context: seller, price, packaging, wear, background,
+   image quality as a proxy for legitimacy. Assess the logo only.
+6. Never output a counterfeit verdict. Logo evidence alone is
+   insufficient. Your maximum adverse output is
+   "deviation_significant".
+7. Do not be swayed by overall impression. Score each primitive
+   independently before producing any summary.
+
+PRIMITIVES — GEOMETRY (weight 1x)
+  arc_radius_ratios        r1:r2:r3 of the three nested arcs
+  inter_arc_gap            gap width / stroke width
+  stroke_uniformity        coefficient of variation of stroke width
+  terminal_geometry        cut angle and style at arc ends
+  arc_eccentricity         ellipse axis ratio per arc
+  bounding_box_ratio       full mark W:H
+  wordmark_kerning         inter-letter distance vector, cosine vs ref
+  letterform_contour       per-glyph IoU, prioritise R, G, S
+  cap_height_stroke_ratio
+  baseline_deviation       max vertical drift / cap height
+  lockup_variant           which variant; is it valid for this
+                           family and season
+
+PRIMITIVES — APPLICATION (weight 3x)
+  Determine method first: embroidery | rubberised | screen | transfer.
+  Score only the primitives for the detected method.
+
+  embroidery:  satin_angle_consistency, stitch_density_cv,
+               underlay_present, edge_thread_creep, thread_sheen,
+               backing_visible_reverse
+  rubberised:  edge_bevel_profile, mould_parting_line, flash_trim,
+               surface_gloss, thickness_width_ratio
+  screen:      ink_edge_raggedness, halftone_structure,
+               layer_registration_offset, ink_sits_on_or_in_weave
+
+PRIMITIVES — PLACEMENT (weight 1x)
+  offset_from_placket / chest_width
+  offset_from_shoulder_seam
+  rotation_vs_grainline
+  multi_logo_consistency   chest vs back vs sleeve
+
+SCORING
+Each primitive: deviation 0-100 (0 = indistinguishable from reference)
+and confidence high|medium|low. Compute the weighted mean over
+resolvable primitives only, then take:
+
+  logo_deviation = max(weighted_mean, 0.85 * max_single_deviation)
+
+If 3 or more primitives are INSUFFICIENT, or if any application
+primitive is INSUFFICIENT, set assessment to "INSUFFICIENT_CAPTURE"
+and request specific recapture.
+
+OUTPUT — valid JSON only, no preamble, no markdown fences
+{
+  "reference_used": true,
+  "application_method": "embroidery|rubberised|screen|transfer|UNKNOWN",
+  "primitives": [
+    {"name": "...", "deviation": 0-100 | "INSUFFICIENT",
+     "evidence": "...", "confidence": "high|medium|low"}
+  ],
+  "logo_deviation": 0-100 | null,
+  "assessment": "consistent_with_reference | minor_deviation |
+                 deviation_significant | INSUFFICIENT_CAPTURE",
+  "top_deviations": ["primitive names, worst first"],
+  "capture_issues": ["..."],
+  "recapture_instructions": ["specific, actionable"]
+}
+
+TRANSPORT NOTE: the response schema is enforced, so every key above must be
+present. To signal HARD RULE 1 under that constraint, set "error" to
+"NO_REFERENCE" and "reference_used" to false; leave "primitives" empty. In
+every other case set "error" to "".""" # noqa: E501
+
+# ---------------------------------------------------------------------------
+# Stitching dimension — forensic primitive rubric.
+# Same contract as Logo: the 3x group is CONSTRUCTION, because a counterfeiter
+# can approximate stitch pitch by eye but cannot cheaply change machine class.
+# ---------------------------------------------------------------------------
+_STITCH_METRICS = [
+    "stitch_pitch_ratio", "pitch_uniformity_cv", "seam_allowance_ratio",
+    "seam_straightness", "topstitch_row_spacing", "topstitch_row_count",
+    "corner_junction_handling", "bartack_presence_length",
+]
+_STITCH_COMMON = [
+    "skipped_or_broken_stitches", "seam_pucker_index", "raw_edge_finish",
+    "thread_type_and_twist", "needle_penetration_angle",
+]
+_STITCH_CONSTRUCTION = {
+    "lockstitch": ["tension_balance", "bobbin_interlock_position", "needle_thread_ratio"]
+                  + _STITCH_COMMON,
+    "coverstitch": ["tension_balance", "bobbin_interlock_position", "needle_thread_ratio"]
+                   + _STITCH_COMMON,
+    "chainstitch": ["tension_balance", "needle_thread_ratio"] + _STITCH_COMMON,
+    "overlock": ["thread_count_in_overlock", "looper_thread_balance",
+                 "edge_encasement_completeness"] + _STITCH_COMMON,
+    "flatlock": ["thread_count_in_overlock", "looper_thread_balance",
+                 "edge_encasement_completeness"] + _STITCH_COMMON,
+    "bonded": ["bond_line_width_ratio", "bond_edge_lift"] + _STITCH_COMMON,
+}
+_STITCH_ALIGNMENT = ["panel_seam_alignment", "pattern_match_across_seam",
+                     "bilateral_symmetry", "seam_to_hardware_registration"]
+
+_STITCHING_PROMPT = """ROLE
+You are a forensic garment-construction analyst. You compare SUBMITTED
+stitching against verified-authentic REFERENCE images of the same seam on
+the same product family, and report measurable deviation. You do not
+determine authenticity of the product.
+
+INPUTS
+- SUBMITTED: macro crop(s) of the seam. Interior views preferred.
+- REFERENCE: verified-authentic images of the same seam, same product
+  family, same season.
+- METADATA: product family, season, expected seam class.
+
+HARD RULES
+1. If no REFERENCE image is provided, return
+   {"error": "NO_REFERENCE"} and nothing else. Never assess from memory
+   of how this brand normally stitches.
+2. If a primitive is not resolvable in the supplied pixels, return
+   "INSUFFICIENT" for it. Do not estimate. Do not infer a value from
+   what is typical for this brand. An INSUFFICIENT is a correct answer.
+3. Report evidence BEFORE assigning any score. The evidence must
+   describe what you observe in the submitted image and how it differs
+   from the reference, in spatial terms.
+4. Use only ratios and normalised measurements — stitches per unit of a
+   named reference feature, widths as ratios to seam allowance — never
+   absolute pixel sizes, so results are scale-invariant.
+5. Ignore all context: seller, price, packaging, wear, background,
+   image quality as a proxy for legitimacy. Assess the stitching only.
+6. Never output a counterfeit verdict. Stitching evidence alone is
+   insufficient. Your maximum adverse output is
+   "deviation_significant".
+7. Do not be swayed by overall impression. Score each primitive
+   independently before producing any summary.
+8. Laundering, wear, creasing and pressing marks are CONDITION, not
+   deviation. Score construction only.
+
+PRIMITIVES — METRICS (weight 1x)
+  stitch_pitch_ratio        stitches per seam-allowance width vs ref
+  pitch_uniformity_cv       coefficient of variation of stitch length
+  seam_allowance_ratio      allowance width / adjacent panel feature
+  seam_straightness         max lateral drift / seam run length
+  topstitch_row_spacing     row gap / stitch length
+  topstitch_row_count       number of parallel rows
+  corner_junction_handling  how rows terminate, turn and cross
+  bartack_presence_length   bartack length / seam width at stress points
+
+PRIMITIVES — CONSTRUCTION (weight 3x)
+  Determine seam class first: lockstitch | chainstitch | overlock |
+  flatlock | coverstitch | bonded.
+  Score only the primitives for the detected class.
+
+  overlock / flatlock:      thread_count_in_overlock, looper_thread_balance,
+                            edge_encasement_completeness
+  lockstitch / coverstitch: tension_balance, bobbin_interlock_position,
+                            needle_thread_ratio
+  chainstitch:              tension_balance, needle_thread_ratio
+  bonded:                   bond_line_width_ratio, bond_edge_lift
+  every class:              skipped_or_broken_stitches, seam_pucker_index,
+                            raw_edge_finish, thread_type_and_twist,
+                            needle_penetration_angle
+
+PRIMITIVES — ALIGNMENT (weight 1x)
+  panel_seam_alignment
+  pattern_match_across_seam
+  bilateral_symmetry           left vs right equivalent seams
+  seam_to_hardware_registration
+
+SCORING
+Each primitive: deviation 0-100 (0 = indistinguishable from reference)
+and confidence high|medium|low. Compute the weighted mean over
+resolvable primitives only, then take:
+
+  stitching_deviation = max(weighted_mean, 0.85 * max_single_deviation)
+
+If 3 or more primitives are INSUFFICIENT, or if any construction
+primitive is INSUFFICIENT, set assessment to "INSUFFICIENT_CAPTURE"
+and request specific recapture."""
+
+
+# ---------------------------------------------------------------------------
+# Hardware dimension — forensic primitive rubric.
+# The 3x group is MARKING & FINISH: foundry stamps, plating and casting
+# artefacts are the components a counterfeit supply chain most often gets wrong.
+# ---------------------------------------------------------------------------
+_HW_GEOMETRY = [
+    "pull_dimension_ratios", "slider_body_proportions", "tooth_pitch_width_ratio",
+    "tape_width_ratio", "component_diameter_ratio", "head_profile_curvature",
+    "bounding_box_ratio",
+]
+_HW_COMMON = [
+    "brand_stamp_present", "stamp_typography", "stamp_depth_uniformity",
+    "plating_type_and_wear", "edge_burr_or_flash", "surface_finish_gloss",
+    "colour_delta_vs_reference",
+]
+_HW_MARKING = {
+    "zip": ["foundry_code", "tooth_material_cues", "slider_lock_mechanism"] + _HW_COMMON,
+    "snap": ["socket_stud_registration", "spring_ring_visible"] + _HW_COMMON,
+    "rivet": ["setting_deformation", "back_plate_marking"] + _HW_COMMON,
+    "buckle": ["casting_parting_line", "load_bar_thickness_ratio"] + _HW_COMMON,
+    "drawcord_aglet": ["crimp_pattern", "aglet_wall_thickness_ratio"] + _HW_COMMON,
+    "button": ["shank_or_hole_pattern", "rim_profile"] + _HW_COMMON,
+}
+_HW_ASSEMBLY = ["box_and_pin_alignment", "stop_placement", "garage_or_pocket_present",
+                "attachment_method", "operation_smoothness_cues"]
+
+_HARDWARE_PROMPT = """ROLE
+You are a forensic trim-and-hardware analyst. You compare SUBMITTED
+hardware against verified-authentic REFERENCE images of the same
+component on the same product family, and report measurable deviation.
+You do not determine authenticity of the product.
+
+INPUTS
+- SUBMITTED: macro crop(s) of the hardware. Both faces where available.
+- REFERENCE: verified-authentic images of the same component, same
+  product family, same season.
+- METADATA: product family, season, expected component supplier.
+
+HARD RULES
+1. If no REFERENCE image is provided, return
+   {"error": "NO_REFERENCE"} and nothing else. Never assess from memory
+   of what this brand's hardware looks like.
+2. If a primitive is not resolvable in the supplied pixels, return
+   "INSUFFICIENT" for it. Do not estimate. Do not infer a value from
+   what is typical for this brand. An INSUFFICIENT is a correct answer.
+3. Report evidence BEFORE assigning any score. The evidence must
+   describe what you observe in the submitted image and how it differs
+   from the reference, in spatial terms.
+4. Use only ratios and normalised measurements, never absolute pixel
+   sizes, so results are scale-invariant.
+5. Ignore all context: seller, price, packaging, wear, background,
+   image quality as a proxy for legitimacy. Assess the hardware only.
+6. Never output a counterfeit verdict. Hardware evidence alone is
+   insufficient. Your maximum adverse output is
+   "deviation_significant".
+7. Do not be swayed by overall impression. Score each primitive
+   independently before producing any summary.
+8. If the garment carries NO hardware of the expected type, that is not
+   a defect: set component_type to "UNKNOWN" and return
+   INSUFFICIENT_CAPTURE rather than scoring an absence as deviation.
+9. Tarnish, scratching and plating wear are CONDITION, not deviation,
+   except where the wear pattern itself reveals a different plating
+   process than the reference.
+
+PRIMITIVES — GEOMETRY (weight 1x)
+  pull_dimension_ratios        pull L:W:thickness
+  slider_body_proportions      body L:W vs tape width
+  tooth_pitch_width_ratio      tooth pitch / tooth width
+  tape_width_ratio             tape width / slider body width
+  component_diameter_ratio     snap/rivet/button diameter vs a named feature
+  head_profile_curvature       dome or bevel profile of the visible head
+  bounding_box_ratio           full component W:H
+
+PRIMITIVES — MARKING & FINISH (weight 3x)
+  Determine component first: zip | snap | rivet | buckle |
+  drawcord_aglet | button.
+  Score only the primitives for the detected component.
+
+  zip:             foundry_code, tooth_material_cues, slider_lock_mechanism
+  snap:            socket_stud_registration, spring_ring_visible
+  rivet:           setting_deformation, back_plate_marking
+  buckle:          casting_parting_line, load_bar_thickness_ratio
+  drawcord_aglet:  crimp_pattern, aglet_wall_thickness_ratio
+  button:          shank_or_hole_pattern, rim_profile
+  every component: brand_stamp_present, stamp_typography,
+                   stamp_depth_uniformity, plating_type_and_wear,
+                   edge_burr_or_flash, surface_finish_gloss,
+                   colour_delta_vs_reference
+
+PRIMITIVES — ASSEMBLY (weight 1x)
+  box_and_pin_alignment
+  stop_placement
+  garage_or_pocket_present
+  attachment_method            stitched | riveted | moulded
+  operation_smoothness_cues    visible binding, gaping, misalignment
+
+SCORING
+Each primitive: deviation 0-100 (0 = indistinguishable from reference)
+and confidence high|medium|low. Compute the weighted mean over
+resolvable primitives only, then take:
+
+  hardware_deviation = max(weighted_mean, 0.85 * max_single_deviation)
+
+If 3 or more primitives are INSUFFICIENT, or if any marking-and-finish
+primitive is INSUFFICIENT, set assessment to "INSUFFICIENT_CAPTURE"
+and request specific recapture."""
+
+
+# ---------------------------------------------------------------------------
+# Material dimension — forensic primitive rubric.
+# The 3x group is STRUCTURE: weave/knit architecture is set by the loom and is
+# the hardest property to substitute without changing the whole supply chain.
+# ---------------------------------------------------------------------------
+_MAT_COMMON = ["yarn_twist_direction", "yarn_width_uniformity", "surface_regularity"]
+_MAT_STRUCTURE = {
+    "woven": ["weave_type", "thread_count_ratio", "ripstop_grid_pitch_ratio",
+              "float_length"] + _MAT_COMMON,
+    "knit": ["knit_type", "gauge_ratio", "wale_course_ratio", "loop_shape"] + _MAT_COMMON,
+    "fleece_pile": ["pile_height_ratio", "pile_density", "backing_structure"] + _MAT_COMMON,
+    "coated_laminate": ["coating_continuity", "laminate_layer_count",
+                        "membrane_visible_at_edge"] + _MAT_COMMON,
+    "nonwoven": ["fibre_orientation_randomness", "bond_point_pattern"] + _MAT_COMMON,
+}
+_MAT_SURFACE = ["sheen_at_angle", "coating_presence", "dwr_beading_cues",
+                "drape_fold_radius", "dye_penetration", "nap_direction"]
+_MAT_CONSISTENCY = ["panel_to_panel_consistency", "shell_lining_consistency",
+                    "content_matches_care_label", "hand_feel_proxy"]
+
+_MATERIAL_PROMPT = """ROLE
+You are a forensic textile analyst. You compare SUBMITTED fabric against
+verified-authentic REFERENCE images of the same material on the same
+product family, and report measurable deviation. You do not determine
+authenticity of the product.
+
+INPUTS
+- SUBMITTED: macro crop(s) of the fabric. Raking-light and edge views help.
+- REFERENCE: verified-authentic images of the same material, same product
+  family, same season.
+- METADATA: product family, season, expected fabric specification.
+
+HARD RULES
+1. If no REFERENCE image is provided, return
+   {"error": "NO_REFERENCE"} and nothing else. Never assess from memory
+   of what this brand's fabric normally is.
+2. If a primitive is not resolvable in the supplied pixels, return
+   "INSUFFICIENT" for it. Do not estimate. Do not infer a value from
+   what is typical for this brand. An INSUFFICIENT is a correct answer.
+3. Report evidence BEFORE assigning any score. The evidence must
+   describe what you observe in the submitted image and how it differs
+   from the reference, in spatial terms.
+4. Use only ratios and normalised measurements — counts per unit of a
+   named reference feature, ratios between yarn and gap widths — never
+   absolute pixel sizes, so results are scale-invariant.
+5. Ignore all context: seller, price, packaging, wear, background,
+   image quality as a proxy for legitimacy. Assess the material only.
+6. Never output a counterfeit verdict. Material evidence alone is
+   insufficient. Your maximum adverse output is
+   "deviation_significant".
+7. Do not be swayed by overall impression. Score each primitive
+   independently before producing any summary.
+8. Compression, laundering, pilling and creasing are CONDITION, not
+   deviation. Score the structure, not the state.
+9. Photographic white balance and exposure are NOT colour deviation.
+   Only score colour where a neutral in-frame anchor makes it reliable.
+
+PRIMITIVES — STRUCTURE (weight 3x)
+  Determine structure first: woven | knit | fleece_pile |
+  coated_laminate | nonwoven.
+  Score only the primitives for the detected structure.
+
+  woven:           weave_type, thread_count_ratio,
+                   ripstop_grid_pitch_ratio, float_length
+  knit:            knit_type, gauge_ratio, wale_course_ratio, loop_shape
+  fleece_pile:     pile_height_ratio, pile_density, backing_structure
+  coated_laminate: coating_continuity, laminate_layer_count,
+                   membrane_visible_at_edge
+  nonwoven:        fibre_orientation_randomness, bond_point_pattern
+  every structure: yarn_twist_direction, yarn_width_uniformity,
+                   surface_regularity
+
+PRIMITIVES — SURFACE & FINISH (weight 1x)
+  sheen_at_angle          specular response under raking light
+  coating_presence        face or back coating visible at a cut edge
+  dwr_beading_cues        only if moisture is present in frame
+  drape_fold_radius       fold radius / fabric thickness proxy
+  dye_penetration         face vs reverse colour depth
+  nap_direction
+
+PRIMITIVES — CONSISTENCY (weight 1x)
+  panel_to_panel_consistency
+  shell_lining_consistency
+  content_matches_care_label   only if the care label is legible in the
+                               SUBMITTED images; otherwise INSUFFICIENT
+  hand_feel_proxy              inferred from drape and fold behaviour only
+
+SCORING
+Each primitive: deviation 0-100 (0 = indistinguishable from reference)
+and confidence high|medium|low. Compute the weighted mean over
+resolvable primitives only, then take:
+
+  material_deviation = max(weighted_mean, 0.85 * max_single_deviation)
+
+If 3 or more primitives are INSUFFICIENT, or if any structure
+primitive is INSUFFICIENT, set assessment to "INSUFFICIENT_CAPTURE"
+and request specific recapture."""
+
+
+# The shared tail every rubric ends with — the OUTPUT contract. Only the
+# discriminator key and the deviation key differ per dimension.
+_RUBRIC_OUTPUT_TMPL = """
+
+OUTPUT — valid JSON only, no preamble, no markdown fences
+{{
+  "reference_used": true,
+  "{method_key}": "{method_enum}|UNKNOWN",
+  "primitives": [
+    {{"name": "...", "deviation": 0-100 | "INSUFFICIENT",
+     "evidence": "...", "confidence": "high|medium|low"}}
+  ],
+  "{dev_key}": 0-100 | null,
+  "assessment": "consistent_with_reference | minor_deviation |
+                 deviation_significant | INSUFFICIENT_CAPTURE",
+  "top_deviations": ["primitive names, worst first"],
+  "capture_issues": ["..."],
+  "recapture_instructions": ["specific, actionable"]
+}}
+
+TRANSPORT NOTE: the response schema is enforced, so every key above must be
+present. To signal HARD RULE 1 under that constraint, set "error" to
+"NO_REFERENCE" and "reference_used" to false; leave "primitives" empty. In
+every other case set "error" to ""."""
+
+
+# dim -> rubric spec. `heavy` primitives are the 3x group, selected by the
+# dimension's discriminator; `light` groups are always 1x.
+_RUBRICS = {
+    "Logo": {
+        "method_key": "application_method", "method_word": "application",
+        "heavy": _LOGO_APPLICATION,
+        "light": {"geometry": _LOGO_GEOMETRY, "placement": _LOGO_PLACEMENT},
+        "dev_key": "logo_deviation", "prompt": _LOGO_PROMPT,
+    },
+    "Stitching": {
+        "method_key": "construction_class", "method_word": "construction",
+        "heavy": _STITCH_CONSTRUCTION,
+        "light": {"metrics": _STITCH_METRICS, "alignment": _STITCH_ALIGNMENT},
+        "dev_key": "stitching_deviation",
+        "prompt": _STITCHING_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
+            method_key="construction_class", dev_key="stitching_deviation",
+            method_enum="lockstitch|chainstitch|overlock|flatlock|coverstitch|bonded"),
+    },
+    "Hardware": {
+        "method_key": "component_type", "method_word": "marking-and-finish",
+        "heavy": _HW_MARKING,
+        "light": {"geometry": _HW_GEOMETRY, "assembly": _HW_ASSEMBLY},
+        "dev_key": "hardware_deviation",
+        "prompt": _HARDWARE_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
+            method_key="component_type", dev_key="hardware_deviation",
+            method_enum="zip|snap|rivet|buckle|drawcord_aglet|button"),
+    },
+    "Material": {
+        "method_key": "structure_type", "method_word": "structure",
+        "heavy": _MAT_STRUCTURE,
+        "light": {"surface": _MAT_SURFACE, "consistency": _MAT_CONSISTENCY},
+        "dev_key": "material_deviation",
+        "prompt": _MATERIAL_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
+            method_key="structure_type", dev_key="material_deviation",
+            method_enum="woven|knit|fleece_pile|coated_laminate|nonwoven"),
+    },
+}
+
+RUBRIC_DIMENSIONS = tuple(_RUBRICS)
+
+
+def _heavy_names(dim):
+    return {n for names in _RUBRICS[dim]["heavy"].values() for n in names}
+
+
+def _rubric_schema(dim):
+    spec = _RUBRICS[dim]
+    return {
+        "type": "object",
+        "properties": {
+            # HARD RULE 1's {"error": "NO_REFERENCE"} signal, made expressible
+            # under a schema that requires every key to be present.
+            "error": {"type": "string", "enum": ["", "NO_REFERENCE"]},
+            "reference_used": {"type": "boolean"},
+            spec["method_key"]: {"type": "string",
+                                 "enum": list(spec["heavy"]) + ["UNKNOWN"]},
+            "primitives": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        # 0-100, or the literal "INSUFFICIENT" — the contract.
+                        "deviation": {"anyOf": [{"type": "integer"},
+                                                {"type": "string",
+                                                 "enum": ["INSUFFICIENT"]}]},
+                        "evidence": {"type": "string"},
+                        "confidence": {"type": "string",
+                                       "enum": ["high", "medium", "low"]},
+                    },
+                    "required": ["name", "deviation", "evidence", "confidence"],
+                    "additionalProperties": False,
+                },
+            },
+            spec["dev_key"]: {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+            "assessment": {"type": "string",
+                           "enum": ["consistent_with_reference", "minor_deviation",
+                                    "deviation_significant", "INSUFFICIENT_CAPTURE"]},
+            "top_deviations": {"type": "array", "items": {"type": "string"}},
+            "capture_issues": {"type": "array", "items": {"type": "string"}},
+            "recapture_instructions": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["error", "reference_used", spec["method_key"], "primitives",
+                     spec["dev_key"], "assessment", "top_deviations", "capture_issues",
+                     "recapture_instructions"],
+        "additionalProperties": False,
+    }
+
+
+_LOGO_SCHEMA = _rubric_schema("Logo")
+
+
+def _rubric_weight(dim, name, method):
+    """Rubric weight for a primitive. The dimension's heavy group counts 3x."""
+    spec = _RUBRICS[dim]
+    for names in spec["light"].values():
+        if name in names:
+            return _LOGO_WEIGHT_GEOMETRY               # every light group is 1x
+    if name in _heavy_names(dim):
+        return _LOGO_WEIGHT_APPLICATION
+    # An unlisted name reported under a detected method (e.g. Logo's 'transfer',
+    # for which the rubric defines no list) still counts as heavy evidence.
+    if method in spec["heavy"] and method != "UNKNOWN":
+        return _LOGO_WEIGHT_APPLICATION
+    return _LOGO_WEIGHT_GEOMETRY
+
+
+def _aggregate_rubric(dim, parsed):
+    """Primitive rows -> deviation, assessment, finding, confidence.
+
+    Server-authoritative and shared by every rubric dimension: applies the
+    roll-up `max(weighted_mean, 0.85 * max_single_deviation)` over RESOLVABLE
+    primitives only, then the INSUFFICIENT_CAPTURE gates. Returns score None
+    for any insufficient outcome — the caller turns that into an abstention.
+    """
+    spec = _RUBRICS[dim]
+    heavy_all = _heavy_names(dim)
+    method = (parsed.get(spec["method_key"]) or "UNKNOWN").strip()
+    prims = [p for p in (parsed.get("primitives") or []) if isinstance(p, dict)]
+    capture_issues = [str(x) for x in (parsed.get("capture_issues") or [])]
+    recapture = [str(x) for x in (parsed.get("recapture_instructions") or [])]
+
+    def _insufficient(finding, extra_issue=None):
+        issues = capture_issues + ([extra_issue] if extra_issue else [])
+        return {"score": None, "band": "neutral", "status": "abstain",
+                "assessment": "INSUFFICIENT_CAPTURE", "finding": finding,
+                "confidence": 0.3, "method": method, "primitives": prims,
+                "capture_issues": issues, "recapture_instructions": recapture,
+                "top_deviations": []}
+
+    # HARD RULE 1 — never assess from memory of the brand.
+    if str(parsed.get("error") or "").upper() == "NO_REFERENCE" \
+            or not parsed.get("reference_used", False):
+        return {**_insufficient(f"NO_REFERENCE — no verified-authentic reference image "
+                                f"was available, so no {dim.lower()} comparison was made."),
+                "assessment": "NO_REFERENCE"}
+
+    resolvable, insufficient_names = [], []
+    for p in prims:
+        name = str(p.get("name") or "").strip()
+        dev = p.get("deviation")
+        if isinstance(dev, bool) or dev is None or isinstance(dev, str):
+            insufficient_names.append(name)          # "INSUFFICIENT" (or unusable)
+            continue
+        try:
+            val = float(dev)
+        except (TypeError, ValueError):
+            insufficient_names.append(name)
+            continue
+        resolvable.append((name, max(0.0, min(100.0, val)),
+                           str(p.get("confidence") or "low").lower(),
+                           str(p.get("evidence") or "")))
+
+    if not resolvable:
+        return _insufficient(f"INSUFFICIENT_CAPTURE — no {dim.lower()} primitive was "
+                             f"resolvable in the supplied photos.")
+
+    # SCORING gate: any unresolved HEAVY primitive, or 3+ unresolved overall.
+    word = spec["method_word"]
+    heavy_insufficient = [n for n in insufficient_names if n in heavy_all]
+    if method == "UNKNOWN":
+        return _insufficient(
+            f"INSUFFICIENT_CAPTURE — {spec['method_key'].replace('_', ' ')} "
+            f"({' / '.join(spec['heavy'])}) could not be determined, so the "
+            f"3x-weighted {word} evidence is unavailable.",
+            f"{spec['method_key']} not resolvable")
+    if heavy_insufficient:
+        return _insufficient(
+            f"INSUFFICIENT_CAPTURE — {word} primitive(s) not resolvable: "
+            f"{', '.join(sorted(set(heavy_insufficient)))}.",
+            f"{word} primitives not resolvable")
+    if len(insufficient_names) >= 3:
+        return _insufficient(
+            f"INSUFFICIENT_CAPTURE — {len(insufficient_names)} primitives were not "
+            f"resolvable: {', '.join(sorted(set(n for n in insufficient_names if n)))}.")
+
+    num = den = 0.0
+    for name, val, _conf, _ev in resolvable:
+        w = _rubric_weight(dim, name, method)
+        num += val * w
+        den += w
+    weighted_mean = num / den if den else 0.0
+    worst_name, worst_val = max(((n, v) for n, v, _c, _e in resolvable), key=lambda t: t[1])
+    # Rubric roll-up: one severe primitive must not be averaged away by many
+    # unremarkable ones.
+    score = int(round(max(0.0, min(100.0, max(weighted_mean, 0.85 * worst_val)))))
+
+    if score <= _LOGO_MINOR_AT:
+        assessment = "consistent_with_reference"
+    elif score <= _LOGO_SIGNIFICANT_AT:
+        assessment = "minor_deviation"
+    else:
+        assessment = "deviation_significant"      # HARD RULE 6 — the adverse ceiling
+
+    ranked = sorted(resolvable, key=lambda t: -t[1])
+    top = [n for n, v, _c, _e in ranked if v > 0][:3]
+    lead = next((e for _n, _v, _c, e in ranked if e), "")
+    finding = f"{assessment.replace('_', ' ')} ({score}/100)"
+    if top:
+        finding += f" — worst: {top[0]}"
+    if lead:
+        finding += f". {lead}"
+    conf = round(sum(_LOGO_CONF_POINTS.get(c, 0.3) for _n, _v, c, _e in resolvable)
+                 / len(resolvable), 2)
+    return {"score": score, "band": _band(score), "status": "scored",
+            "assessment": assessment, "finding": finding, "confidence": conf,
+            "method": method, "primitives": prims, "capture_issues": capture_issues,
+            "recapture_instructions": recapture, "top_deviations": top,
+            "worst_primitive": worst_name, "weighted_mean": round(weighted_mean, 1)}
+
+
+def _rubric_dimension(cfg, dim, suspect_b64s, ref_b64s, t0):
+    """A rubric dimension for any OpenAI-compatible engine: runs the forensic
+    primitive rubric, then computes the deviation server-side."""
+    spec = _RUBRICS[dim]
+    # HARD RULE 1 enforced before spending a call — with no reference there is
+    # nothing to compare against, and assessing from brand memory is exactly
+    # what the rubric forbids.
+    if not ref_b64s:
+        agg = _aggregate_rubric(dim, {"reference_used": False})
+        usage = {"agent": dim, "model": cfg["label"], "tokens_in": 0, "tokens_out": 0,
+                 "latency_ms": int((time.time() - t0) * 1000)}
+        return _rubric_result(dim, agg), usage
+
+    content = [{"type": "text", "text": spec["prompt"]}]
+    for i, b in enumerate(suspect_b64s):
+        content.append({"type": "text", "text": f"SUBMITTED photo {i + 1}:"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}", "detail": "high"}})
+    for j, rb in enumerate(ref_b64s):
+        content.append({"type": "text", "text": f"REFERENCE (verified authentic) {j + 1}:"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rb}", "detail": "high"}})
+    parsed, tin, tout = _chat(cfg, content, _rubric_schema(dim), dim.lower(), CHAT_TIMEOUT)
+    # json_object fallback mode may return the rubric's bare error object.
+    if str(parsed.get("error") or "").upper() == "NO_REFERENCE":
+        parsed = {"reference_used": False}
+    agg = _aggregate_rubric(dim, parsed)
+    usage = {"agent": dim, "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
+             "latency_ms": int((time.time() - t0) * 1000)}
+    return _rubric_result(dim, agg), usage
+
+
+def _rubric_result(dim, agg):
+    spec = _RUBRICS[dim]
+    return {
+        "dimension": dim, "score": agg["score"], "band": agg["band"],
+        "finding": agg["finding"],
+        "reasoning": (f"{spec['method_key'].replace('_', ' ').capitalize()}: "
+                      f"{agg['method']}. "
+                      + ("; ".join(agg.get("recapture_instructions") or [])
+                         if agg["score"] is None
+                         else f"Weighted mean {agg.get('weighted_mean')}, worst primitive "
+                              f"{agg.get('worst_primitive')}.")),
+        "box": _BOXES[dim], "confidence": agg["confidence"], "status": agg["status"],
+        "assessment": agg["assessment"], "method": agg["method"],
+        spec["method_key"]: agg["method"],
+        "primitives": agg.get("primitives") or [],
+        "top_deviations": agg.get("top_deviations") or [],
+        "capture_issues": agg.get("capture_issues") or [],
+        "recapture_instructions": agg.get("recapture_instructions") or [],
+        "insufficient_reason": (agg["finding"] if agg["score"] is None else ""),
+    }
+
+
+# Back-compat aliases — the Logo rubric landed first and is referenced by name.
+def _aggregate_logo(parsed):
+    return _aggregate_rubric("Logo", parsed)
+
+
+def _logo_result(agg):
+    return _rubric_result("Logo", agg)
+
+
+def _logo_dimension(cfg, suspect_b64s, ref_b64s, t0):
+    return _rubric_dimension(cfg, "Logo", suspect_b64s, ref_b64s, t0)
+
+
 def _rng(seed: str):
     h = int(hashlib.sha256(seed.encode()).hexdigest(), 16)
     def nxt():
@@ -502,7 +1375,7 @@ def run_dimension_agent(dim, brand, case_id, suspect_images, ref_b64s, provider=
                 return _mock_dimension(dim, case_id, t0, _label_for(provider))
             raise RuntimeError(f"{dim}: no suspect image provided — cannot run a real vision agent.")
         try:
-            return _chat_dimension(cfg, dim, imgs, refs, t0)
+            return _chat_dimension(cfg, dim, imgs, refs, t0, brand)
         except Exception as e:
             if ALLOW_MOCK:
                 print(f"[{provider}] {dim} live call failed, using mock: {e}")
@@ -536,25 +1409,10 @@ def _mock_dimension(dim, case_id, t0, label):
     return result, usage
 
 
-def _gemini_dimension(dim, suspect_b64s, reference_file, t0):
+def _gemini_dimension(dim, suspect_b64s, reference_file, t0, brand="TNF"):
     ref_b64 = _img_b64(reference_file)
-    schema = {
-        "type": "object",
-        "properties": {
-            "score": {"type": "integer"},
-            "finding": {"type": "string"},
-            "reasoning": {"type": "string"},
-            "confidence": {"type": "number"},
-        },
-        "required": ["score", "finding", "reasoning", "confidence"],
-    }
-    prompt = (
-        f"You are a brand-protection vision specialist. Compare the SUSPECT product image "
-        f"against the AUTHENTIC reference for the '{dim}' dimension of a counterfeit "
-        f"authentication. Inspect fine detail closely. Return a counterfeit-probability "
-        f"score 0-100 (0=clearly authentic, 100=clearly counterfeit), a one-line finding, "
-        f"a short reasoning, and a confidence 0-1."
-    )
+    schema = {k: v for k, v in _DIM_SCHEMA.items() if k != "additionalProperties"}
+    prompt = _dim_prompt(dim, brand)
     parts = [{"text": prompt}]
     for i, b in enumerate(suspect_b64s):
         parts.append({"text": f"SUSPECT photo {i + 1}:"})
@@ -573,21 +1431,8 @@ def _gemini_dimension(dim, suspect_b64s, reference_file, t0):
     text = data["candidates"][0]["content"]["parts"][0]["text"]
     parsed = json.loads(text)
     um = data.get("usageMetadata", {})
-    score = int(max(0, min(100, parsed["score"])))
-    band = _band(score)
-    usage = {
-        "agent": dim, "model": GEMINI_LABEL,
-        "tokens_in": um.get("promptTokenCount", 0),
-        "tokens_out": um.get("candidatesTokenCount", 0),
-        "latency_ms": int((time.time() - t0) * 1000),
-    }
-    result = {
-        "dimension": dim, "score": score, "band": band,
-        "finding": parsed["finding"], "reasoning": parsed["reasoning"],
-        "box": _BOXES[dim], "confidence": round(float(parsed.get("confidence", 0.8)), 2),
-        "status": "scored",
-    }
-    return result, usage
+    return _dim_result(dim, parsed, GEMINI_LABEL,
+                       um.get("promptTokenCount", 0), um.get("candidatesTokenCount", 0), t0)
 
 
 def _label_dimension(cfg, suspect_b64s, ref_b64s, t0):
@@ -614,47 +1459,122 @@ def _label_dimension(cfg, suspect_b64s, ref_b64s, t0):
     return result, usage
 
 
-def _chat_dimension(cfg, dim, suspect_b64s, ref_b64s, t0):
+def _chat_dimension(cfg, dim, suspect_b64s, ref_b64s, t0, brand="TNF"):
+    # Every dimension now runs an explicit rubric whose roll-up is computed
+    # server-side. Label uses its own check-list form; Logo, Stitching, Hardware
+    # and Material share the forensic-primitive form. The generic comparison
+    # prompt below survives only as a fallback for an unrecognised dimension.
     if dim == "Label":
         return _label_dimension(cfg, suspect_b64s, ref_b64s, t0)
-    schema = {
-        "type": "object",
-        "properties": {
-            "score": {"type": "integer"},
-            "finding": {"type": "string"},
-            "reasoning": {"type": "string"},
-            "confidence": {"type": "number"},
-        },
-        "required": ["score", "finding", "reasoning", "confidence"],
-        "additionalProperties": False,
-    }
-    prompt = (
-        f"You are a brand-protection vision specialist. Compare the SUSPECT product photos "
-        f"(one or more views) against the AUTHENTIC reference photo(s) for the '{dim}' dimension "
-        f"of a counterfeit authentication. Use whichever suspect photo best shows this dimension; "
-        f"inspect fine detail closely. Return a counterfeit-probability score 0-100 "
-        f"(0=clearly authentic, 100=clearly counterfeit), a one-line finding, a short "
-        f"reasoning, and a confidence 0-1."
-    )
-    content = [{"type": "text", "text": prompt}]
+    if dim in _RUBRICS:
+        return _rubric_dimension(cfg, dim, suspect_b64s, ref_b64s, t0)
+    content = [{"type": "text", "text": _dim_prompt(dim, brand)}]
     for i, b in enumerate(suspect_b64s):
         content.append({"type": "text", "text": f"SUSPECT photo {i + 1}:"})
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}", "detail": "high"}})
     for j, rb in enumerate(ref_b64s):
         content.append({"type": "text", "text": f"AUTHENTIC REFERENCE {j + 1}:"})
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rb}", "detail": "high"}})
-    parsed, tin, tout = _chat(cfg, content, schema, "dimension", CHAT_TIMEOUT)
-    score = int(max(0, min(100, parsed["score"])))
-    band = _band(score)
-    usage = {"agent": dim, "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
+    if not ref_b64s:
+        content.append({"type": "text", "text":
+                        "NOTE: no authentic reference photo is available for this dimension. "
+                        "You have nothing to compare against — set assessable to false."})
+    parsed, tin, tout = _chat(cfg, content, _DIM_SCHEMA, "dimension", CHAT_TIMEOUT)
+    return _dim_result(dim, parsed, cfg["label"], tin, tout, t0)
+
+
+# ---------------------------------------------------------------------------
+# Pairing gate — runs BEFORE any dimension scoring.
+#
+# Every dimension score is a statement about deviation from a reference. If the
+# reference is a different product, the deviation is meaningless and the whole
+# run is void. This gate catches that case up front instead of letting five
+# agents produce confident numbers about an incomparable pair.
+# ---------------------------------------------------------------------------
+PAIRING_MIN_CONFIDENCE = float(os.environ.get("PAIRING_MIN_CONFIDENCE", "0.7"))
+
+_PAIRING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "same_product_type": {"type": "boolean"},
+        "suspect_item": {"type": "string"},
+        "reference_item": {"type": "string"},
+        "confidence": {"type": "number"},
+        "note": {"type": "string"},
+    },
+    "required": ["same_product_type", "suspect_item", "reference_item", "confidence", "note"],
+    "additionalProperties": False,
+}
+
+_PAIRING_PROMPT = (
+    "You are validating the INPUTS to a counterfeit authentication before any scoring runs.\n\n"
+    "Decide one thing: do the SUSPECT photos and the AUTHENTIC REFERENCE photos show the "
+    "same kind of product, such that a like-for-like forensic comparison is meaningful?\n\n"
+    "Name the item in each set as specifically as the photos allow (e.g. 'down puffer "
+    "jacket', 'cotton crew-neck t-shirt', 'knit beanie', 'close-up of an interior care "
+    "label'). Then set same_product_type:\n"
+    "  - true  — same garment category, so the comparison is valid;\n"
+    "  - false — different categories (a jacket vs a t-shirt), or one side shows only an "
+    "isolated detail such as a care label with no garment visible, so there is nothing "
+    "comparable.\n\n"
+    "Report confidence 0-1. Judge ONLY what the photos show — do not infer from any product "
+    "title. A mismatch here voids the whole analysis, so be decisive but do not guess: if "
+    "the photos are too poor to tell, say so in 'note' and give a low confidence."
+)
+
+
+def run_pairing_check(brand, suspect_images, ref_b64s, provider="openai"):
+    """Verify suspect and reference are comparable. Returns (result, usage|None).
+
+    status is 'ok' (comparable), 'mismatch' (do not score), or 'skipped' (could
+    not run the check — the pipeline proceeds rather than blocking on it)."""
+    t0 = time.time()
+    imgs = [b for b in (suspect_images or []) if b][:3]
+    refs = [b for b in (ref_b64s or []) if b][:2]
+    cfg = _cfg(provider)
+    skipped = {"status": "skipped", "same_product": None, "suspect_item": "",
+               "reference_item": "", "confidence": 0.0,
+               "note": "Pairing check not run (no reference, no suspect photo, or no provider)."}
+    if not cfg or not imgs or not refs:
+        return skipped, None
+
+    content = [{"type": "text", "text": _PAIRING_PROMPT}]
+    for i, b in enumerate(imgs):
+        content.append({"type": "text", "text": f"SUSPECT photo {i + 1}:"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}", "detail": "low"}})
+    for j, rb in enumerate(refs):
+        content.append({"type": "text", "text": f"AUTHENTIC REFERENCE {j + 1}:"})
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rb}", "detail": "low"}})
+    try:
+        parsed, tin, tout = _chat(cfg, content, _PAIRING_SCHEMA, "pairing", CHAT_TIMEOUT)
+    except Exception as e:
+        # A failed gate must not take the run down — fall through to scoring and
+        # say so, rather than blocking on an input check.
+        if not ALLOW_MOCK:
+            print(f"[{provider}] pairing check failed, proceeding unchecked: {e}")
+        return {**skipped, "note": f"Pairing check failed ({e}) — analysis proceeded unchecked."}, None
+
+    try:
+        conf = round(float(parsed.get("confidence") or 0), 2)
+    except (TypeError, ValueError):
+        conf = 0.0
+    same = bool(parsed.get("same_product_type", True))
+    sus = (parsed.get("suspect_item") or "").strip()
+    ref = (parsed.get("reference_item") or "").strip()
+    note = (parsed.get("note") or "").strip()
+
+    # Only a CONFIDENT mismatch blocks the run; an unsure gate lets it through.
+    if not same and conf >= PAIRING_MIN_CONFIDENCE:
+        status = "mismatch"
+        note = (f"Suspect appears to be '{sus or 'unknown'}' but the authentic reference is "
+                f"'{ref or 'unknown'}'. A like-for-like comparison is not possible, so no "
+                f"dimension scores were produced." + (f" {note}" if note else ""))
+    else:
+        status = "ok"
+    usage = {"agent": "Pairing", "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
              "latency_ms": int((time.time() - t0) * 1000)}
-    result = {
-        "dimension": dim, "score": score, "band": band,
-        "finding": parsed["finding"], "reasoning": parsed["reasoning"],
-        "box": _BOXES[dim], "confidence": round(float(parsed.get("confidence", 0.8)), 2),
-        "status": "scored",
-    }
-    return result, usage
+    return {"status": status, "same_product": same, "suspect_item": sus,
+            "reference_item": ref, "confidence": conf, "note": note}, usage
 
 
 # ---------------------------------------------------------------------------
@@ -685,11 +1605,15 @@ def run_upc_tool(brand, case_id, upc_image, provider="openai"):
     elif upc_image and not cfg and not ALLOW_MOCK:
         raise RuntimeError(f"Provider '{provider}' is not configured — set its API key "
                            f"(or ALLOW_MOCK=1 to use demo data).")
-    # No UPC image supplied (or mock allowed): return the honest "no code" stub.
+    # No UPC image supplied. This is the ABSENCE of a check, not a failed one —
+    # it must never nudge the composite. 'nomatch' used to be returned here and
+    # graph.py added +6 to every score in the corpus as a result.
     expected = _MASTER_UPC.get(brand, "")
     usage = {"agent": "UPC / Tag", "model": f"{_label_for(provider)} (mock)",
              "tokens_in": 0, "tokens_out": 0, "latency_ms": int((time.time() - t0) * 1000)}
-    return {"status": "nomatch", "note": "No UPC image provided — upload a barcode photo to extract and verify.",
+    return {"status": "not_provided",
+            "note": "No UPC image provided — upload a barcode photo to extract and verify. "
+                    "Not counted as evidence either way.",
             "expected": expected, "extracted": "", "belongs": None}, usage
 
 
@@ -707,7 +1631,9 @@ def _chat_upc(cfg, brand, upc_b64, t0):
     expected = _MASTER_UPC.get(brand, "")
     belongs = None
     if not parsed.get("readable") or not digits:
-        status, note = "nomatch", "No readable UPC could be extracted from the uploaded image."
+        # Unreadable is a capture failure, not a counterfeit signal — keep it
+        # distinct from 'nomatch' (a code that really is absent from the PIM).
+        status, note = "unreadable", "No readable UPC could be extracted from the uploaded image."
     elif digits == expected:
         status, note = "match", f"UPC {digits} resolves to the matching {brand} master record in SAP MDG."
     elif digits in _UPC_CATALOG:
@@ -724,22 +1650,31 @@ def _chat_upc(cfg, brand, upc_b64, t0):
 # Verdict tier — OpenAI synthesis + adversarial verify (two calls), or mock.
 # ---------------------------------------------------------------------------
 def run_verdict(provider, brand, composite, dimensions, upc):
-    # Run the synthesis and adversarial-verify calls concurrently instead of
-    # back-to-back — halves the verdict-tier latency for slow reasoning models.
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    # Synthesis plus VERIFY_VOTES independent adversarial reviews, all concurrent.
+    # The tally is computed here: a single call asked to report its own "votes"
+    # string simply invents one, which is not a second opinion.
+    n = VERIFY_VOTES
+    with ThreadPoolExecutor(max_workers=1 + n) as ex:
         fs = ex.submit(_verdict_call, provider, "synthesize", brand, composite, dimensions, upc)
-        fv = ex.submit(_verdict_call, provider, "verify", brand, composite, dimensions, upc)
+        fvs = [ex.submit(_verdict_call, provider, "verify", brand, composite, dimensions, upc)
+               for _ in range(n)]
         synth, u1 = fs.result()
-        verify, u2 = fv.result()
+        votes = []
+        usages = [u1]
+        for f in fvs:
+            v, u = f.result()
+            votes.append(bool(v["confirmed"]))
+            usages.append(u)
+    yes = sum(votes)
     verdict = {
         "label": composite["verdict_label"],
         "summary": synth["summary"],
-        "escalated": composite["band"] != "authentic",
-        "verifier_confirmed": verify["confirmed"],
-        "verifier_votes": verify["votes"],
+        "escalated": composite["band"] not in ("authentic", "insufficient", "mismatch"),
+        "verifier_confirmed": yes * 2 > len(votes),      # strict majority
+        "verifier_votes": f"{yes}/{len(votes)}",
         "key_evidence": synth["key_evidence"],
     }
-    return verdict, [u1, u2]
+    return verdict, usages
 
 
 def _verdict_call(provider, kind, brand, composite, dimensions, upc):
@@ -766,18 +1701,22 @@ def _top_findings(dimensions, n=3):
 
 
 def _mock_verdict(kind, brand, composite, dimensions, upc, t0, label):
-    rnd = _rng(f"{brand}|{composite['score']}|{kind}")
+    score = composite.get("score")
+    rnd = _rng(f"{brand}|{score}|{kind}")
+    score_txt = "not computed (insufficient evidence)" if score is None else f"{score}/100"
     if kind == "synthesize":
         out = {
-            "summary": (f"Composite counterfeit probability {composite['score']}/100 "
+            "summary": (f"Composite counterfeit probability {score_txt} "
                         f"({composite['verdict_label']}). UPC {upc['status']}. "
-                        f"Multiple construction dimensions deviate from the authentic reference."),
+                        f"{_coverage_line(dimensions)}"),
             "key_evidence": _top_findings(dimensions),
         }
         toks_out = 640 + int(rnd() * 160)
     else:
-        confirmed = composite["score"] >= 55
-        out = {"confirmed": confirmed, "votes": "2/2" if confirmed else "1/2"}
+        # No score means nothing to confirm — an unverifiable verdict is refuted.
+        confirmed = score is not None and score >= 55
+        out = {"confirmed": confirmed,
+               "reason": "mock reviewer" if confirmed else "mock reviewer — unsupported or no score"}
         toks_out = 480 + int(rnd() * 140)
     usage = {
         "agent": "Verdict synth." if kind == "synthesize" else "Verify",
@@ -788,23 +1727,48 @@ def _mock_verdict(kind, brand, composite, dimensions, upc, t0, label):
     return out, usage
 
 
+def _coverage_line(dimensions):
+    """Tell the verdict tier exactly what was and was not assessed, so it cannot
+    write a confident summary over dimensions that abstained."""
+    scored = [d["dimension"] for d in dimensions if d.get("score") is not None]
+    absent = [d["dimension"] for d in dimensions if d.get("score") is None]
+    line = f"Dimensions actually assessed: {', '.join(scored) or 'NONE'} ({len(scored)}/{len(dimensions)})."
+    if absent:
+        line += (f" NOT assessable (no evidence — treat as unknown, never as clean): "
+                 f"{', '.join(absent)}.")
+    return line
+
+
 def _chat_verdict(cfg, kind, brand, composite, dimensions, upc, t0):
-    findings = "; ".join(_top_findings(dimensions, 6))
+    findings = "; ".join(_top_findings(dimensions, 6)) or "none"
+    coverage = _coverage_line(dimensions)
+    score_txt = ("not computed — insufficient evidence" if composite.get("score") is None
+                 else f"{composite['score']}/100")
     if kind == "synthesize":
         schema = {"type": "object", "properties": {
             "summary": {"type": "string"},
             "key_evidence": {"type": "array", "items": {"type": "string"}}},
             "required": ["summary", "key_evidence"], "additionalProperties": False}
-        prompt = (f"Brand {brand}. Composite score {composite['score']}/100 "
-                  f"({composite['verdict_label']}). UPC {upc['status']}. Findings: {findings}. "
-                  f"Write a concise litigation-ready verdict summary and 3 key-evidence bullets.")
+        prompt = (f"Brand {brand}. Composite score {score_txt} "
+                  f"({composite['verdict_label']}). UPC status: {upc['status']}. {coverage} "
+                  f"Findings from assessed dimensions: {findings}.\n\n"
+                  f"Write a concise litigation-ready verdict summary and up to 3 key-evidence "
+                  f"bullets. Ground every claim in an assessed dimension. Do NOT describe an "
+                  f"unassessed dimension as consistent, clean or authentic — say explicitly "
+                  f"that it could not be evaluated. If little was assessed, the honest summary "
+                  f"is that the evidence is insufficient and a recapture is required.")
     else:
         schema = {"type": "object", "properties": {
-            "confirmed": {"type": "boolean"}, "votes": {"type": "string"}},
-            "required": ["confirmed", "votes"], "additionalProperties": False}
-        prompt = (f"Adversarially review this counterfeit verdict. Composite {composite['score']}/100. "
-                  f"Findings: {findings}. Is the counterfeit conclusion supported? "
-                  f"Return confirmed (bool) and votes like '2/2'.")
+            "confirmed": {"type": "boolean"}, "reason": {"type": "string"}},
+            "required": ["confirmed", "reason"], "additionalProperties": False}
+        prompt = (f"You are an adversarial reviewer. Your job is to REFUTE the following "
+                  f"counterfeit conclusion if it is not fully supported.\n\n"
+                  f"Brand {brand}. Composite {score_txt} ({composite['verdict_label']}). "
+                  f"UPC status: {upc['status']}. {coverage} Findings: {findings}.\n\n"
+                  f"Set confirmed=false if the conclusion rests on too few assessed dimensions, "
+                  f"on an unassessable dimension being read as clean, on evidence cited under "
+                  f"the wrong dimension, or on any claim the findings do not actually support. "
+                  f"Default to confirmed=false when uncertain. Give a one-line reason.")
     out, tin, tout = _chat(cfg, prompt, schema, "verdict", CHAT_TIMEOUT)
     usage = {
         "agent": "Verdict synth." if kind == "synthesize" else "Verify",

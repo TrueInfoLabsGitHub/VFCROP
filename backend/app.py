@@ -112,6 +112,7 @@ def _run_one(req: AnalyzeReq, provider: str) -> dict:
         "composite": out["composite"], "dimensions": dims,
         "upc": out["upc_result"], "verdict": out["verdict"], "report": out["report"],
         "references": out["references"], "fetched_meta": out.get("fetched_meta", {"used": False}),
+        "pairing": out.get("pairing", {"status": "skipped"}),
     }
 
 
@@ -294,7 +295,10 @@ def _build_record(req: ExportSaveReq) -> dict:
             _ref_imgs = []
     comp = d.get("composite") or {}
     dims = d.get("dimensions") or []
-    dim_map = {x.get("dimension"): {"score": x.get("score"), "finding": x.get("finding") or ""}
+    # Carry `status` through to the export: a null score alone cannot tell the
+    # reader whether the dimension abstained or the engine never ran.
+    dim_map = {x.get("dimension"): {"score": x.get("score"), "finding": x.get("finding") or "",
+                                    "status": x.get("status") or ""}
                for x in dims if x.get("dimension")}
     upc = d.get("upc") or {}
     verd = d.get("verdict") or {}
@@ -310,6 +314,8 @@ def _build_record(req: ExportSaveReq) -> dict:
         "verdict": comp.get("verdict_label", ""),
         "score": comp.get("score"),
         "band": comp.get("band", ""),
+        "assessed": (comp.get("coverage") or {}).get("assessed"),
+        "pairing": (d.get("pairing") or {}).get("status", ""),
         "dimensions": dim_map,
         "upc": {"status": upc.get("status", ""), "extracted": upc.get("extracted", ""),
                 "expected": upc.get("expected", "")},
