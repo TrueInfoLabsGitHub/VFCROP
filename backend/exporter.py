@@ -31,7 +31,7 @@ _PERROW = 3                              # thumbnails per grid row inside a cell
 
 _BAND_FONT = {"authentic": "1E8A4C", "caution": "B07D0A", "counterfeit": "C0392B",
               # no-answer outcomes — grey, so they never read as a result
-              "insufficient": "6B7280", "mismatch": "6B7280"}
+              "insufficient": "6B7280", "mismatch": "6B7280", "hard_fail": "C0392B"}
 
 # Printed in a dimension cell that abstained. A blank cell is ambiguous (it could
 # mean the engine never ran); an explicit marker is not, and it must never be
@@ -411,7 +411,7 @@ def _build_scorecard_sheet(wb, runs):
             continue
         a = agg.setdefault(k, {"label": "", "n": 0, "score": [], "conf": [], "cost": [],
                                "lat": [], "band": {"authentic": 0, "caution": 0, "counterfeit": 0,
-                                                   "insufficient": 0, "mismatch": 0},
+                                                   "insufficient": 0, "mismatch": 0, "hard_fail": 0},
                                "confirmed": 0, "verifier_n": 0, "dims": {d: [] for d in DIMS},
                                "assessed": [], "order": len(agg)})
         a["label"] = (rec.get("engine") or a["label"])
@@ -460,10 +460,11 @@ def _build_scorecard_sheet(wb, runs):
         # are their own outcome. Folding them into % Inconclusive would hide an
         # input problem inside what looks like a model judgement.
         no_answer = a["band"]["insufficient"] + a["band"]["mismatch"]
+        hard = a["band"]["hard_fail"]
         rows.append([
             a["label"], n, _avg(a["score"], 1), _avg(a["assessed"], 1),
             pct(a["band"]["authentic"], n), pct(a["band"]["caution"], n),
-            pct(a["band"]["counterfeit"], n), pct(no_answer, n),
+            pct(a["band"]["counterfeit"] + hard, n), pct(no_answer, n),
             pct(a["confirmed"], a["verifier_n"]), _avg(a["conf"], 2),
             *[_avg(a["dims"][d], 1) for d in DIMS],
             _avg(a["cost"], 4), _avg(a["lat"], 1),

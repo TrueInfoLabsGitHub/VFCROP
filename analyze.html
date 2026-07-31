@@ -446,16 +446,16 @@ function updateCaseHeader(){ const el=$('#caseheader'); if(el) el.innerHTML=case
 let caseId='', brand='TNF';
 const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
 const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
-const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'}}[b]||{c:'b-gray',l:'N/A'});
+const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'},hard_fail:{c:'b-red',l:'Hard fail'}}[b]||{c:'b-gray',l:'N/A'});
 let findingLayout='radar', lastSingleData=null, cmpRes=null;
 const engineName=p=>ENGINE_LABEL[p]||p;
 const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 // 'insufficient' and 'mismatch' are deliberately NOT amber: they are not a
 // judgement about the item, they mean the run could not judge it. Grey keeps
 // them from reading as a soft counterfeit signal.
-const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)'}[b]||'var(--mut)');
-const verdictLabel=b=>({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare'}[b]||'—');
-const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray'}[b]||'b-gray');
+const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)',hard_fail:'var(--red)'}[b]||'var(--mut)');
+const verdictLabel=b=>({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed'}[b]||'—');
+const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray',hard_fail:'b-red'}[b]||'b-gray');
 function caseName(){ return curCase().id || 'Analysis'; }   // the case/run identifier (unique per run)
 function refLabel(){ const p=(products||[]).find(x=>x.id===productId); return (refSource==='product'&&p&&p.name)?p.name:'The North Face'; }
 

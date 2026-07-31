@@ -113,6 +113,7 @@ def _run_one(req: AnalyzeReq, provider: str) -> dict:
         "upc": out["upc_result"], "verdict": out["verdict"], "report": out["report"],
         "references": out["references"], "fetched_meta": out.get("fetched_meta", {"used": False}),
         "pairing": out.get("pairing", {"status": "skipped"}),
+        "label_id": out.get("label_id", {}),
     }
 
 
@@ -315,6 +316,13 @@ def _build_record(req: ExportSaveReq) -> dict:
         "score": comp.get("score"),
         "band": comp.get("band", ""),
         "assessed": (comp.get("coverage") or {}).get("assessed"),
+        "label_validation": {
+            "hard_fail": bool((((d.get("label_id") or {}).get("validation")) or {}).get("hard_fail")),
+            "failed": (((d.get("label_id") or {}).get("validation")) or {}).get("failed", []),
+            "counts": (((d.get("label_id") or {}).get("validation")) or {}).get("counts", {}),
+            "summary": (((d.get("label_id") or {}).get("validation")) or {}).get("summary", ""),
+        },
+        "style_number": (((d.get("label_id") or {}).get("fields")) or {}).get("style_number", ""),
         "pairing": (d.get("pairing") or {}).get("status", ""),
         "dimensions": dim_map,
         "upc": {"status": upc.get("status", ""), "extracted": upc.get("extracted", ""),

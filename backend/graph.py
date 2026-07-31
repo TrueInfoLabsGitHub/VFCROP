@@ -19,8 +19,8 @@ import os
 
 import supa
 from pricing import price_usage
-from providers import (_cfg, run_dimension_agent, run_pairing_check, run_upc_tool,
-                       run_verdict)
+from providers import (_cfg, run_dimension_agent, run_label_identity,
+                       run_pairing_check, run_upc_tool, run_verdict)
 from references import DIMENSIONS, load_ref_b64, select_references
 from rimage import fetch_authentic_references
 
@@ -58,6 +58,7 @@ class RunState(TypedDict, total=False):
     usage_log: Annotated[list, operator.add]
     upc_result: dict
     pairing: dict
+    label_id: dict
     composite: dict
     verdict: dict
     report: dict
@@ -83,6 +84,10 @@ _VERDICT_LABEL = {
     # These mean "could not assess" — an input problem, routed differently.
     "insufficient": "Insufficient Evidence — Recapture",
     "mismatch": "Reference Mismatch — Cannot Compare",
+    # Deterministic label failure: a fibre list that cannot sum to 100, an RN
+    # that resolves to another company. No vision confidence is involved, so
+    # this is deliberately a distinct outcome from a vision-derived verdict.
+    "hard_fail": "Counterfeit — Label Validation Failed",
 }
 
 
@@ -145,6 +150,22 @@ def dimension_node(dim: str, state: RunState) -> dict:
     return {"dimension_results": [result], "usage_log": [usage]}
 
 
+def label_id_node(state: RunState) -> dict:
+    """OCR the tags, then run the deterministic rules. Independent of the
+    reference images — these checks need no comparison at all."""
+    prior = []
+    try:
+        prior = supa.prior_styles() if hasattr(supa, "prior_styles") else []
+    except Exception:
+        prior = []
+    result, usage = run_label_identity(state["brand"], state.get("suspect_images", []),
+                                       prior=prior, provider=state.get("provider", "openai"))
+    out = {"label_id": result}
+    if usage:
+        out["usage_log"] = [usage]
+    return out
+
+
 def upc_node(state: RunState) -> dict:
     result, usage = run_upc_tool(state["brand"], state["case_id"], state.get("upc_image", ""),
                                  state.get("provider", "openai"))
@@ -165,6 +186,18 @@ def aggregate_node(state: RunState) -> dict:
     abstained = [d["dimension"] for d in dims if d.get("score") is None]
     coverage = {"assessed": len(scored), "total": len(DIMENSIONS),
                 "abstained": abstained}
+
+    # 0. Deterministic label failure outranks everything below it. These checks
+    #    carry no model uncertainty and need no reference image, so they stand
+    #    even when the comparison itself is void or nothing was assessable.
+    validation = ((state.get("label_id") or {}).get("validation") or {})
+    if validation.get("hard_fail"):
+        return {"composite": {
+            "score": None, "band": "hard_fail", "verdict_label": _VERDICT_LABEL["hard_fail"],
+            "coverage": coverage, "capped": False, "deterministic": True,
+            "failed_checks": validation.get("failed", []),
+            "reason": validation.get("summary", "A deterministic label check failed."),
+        }}
 
     # 1. Incomparable inputs — the whole run is void, no score.
     if (state.get("pairing") or {}).get("status") == "mismatch":
@@ -227,6 +260,7 @@ def report_node(state: RunState) -> dict:
     rows, total_in, total_out, total_cost, serial_ms = [], 0, 0, 0.0, 0
     # Stable display order: reverse-image pre-steps, dimensions, UPC, verdict, verify.
     order = {"Reverse image": -3, "Curate refs": -2, "Pairing": -1,
+             "Label ID": 9,
              **{d: i for i, d in enumerate(DIMENSIONS)},
              "UPC / Tag": 10, "Verdict synth.": 11, "Verify": 12}
     for u in sorted(state["usage_log"], key=lambda x: order.get(x["agent"], 99)):
@@ -247,7 +281,7 @@ def report_node(state: RunState) -> dict:
     pre = sum(u["latency_ms"] for u in state["usage_log"]
               if u["agent"] in ("Reverse image", "Curate refs", "Pairing"))
     parallel = [u["latency_ms"] for u in state["usage_log"]
-                if u["agent"] in DIMENSIONS or u["agent"] == "UPC / Tag"]
+                if u["agent"] in DIMENSIONS or u["agent"] in ("UPC / Tag", "Label ID")]
     # Synthesis and the N verify calls all run concurrently, so the tail costs
     # the slowest of them, not their sum.
     tail = [u["latency_ms"] for u in state["usage_log"]
@@ -281,6 +315,7 @@ def _evals(state: RunState) -> dict:
         "abstentions": f"{abst} / {len(DIMENSIONS)}",
         "assessed": f"{comp.get('coverage', {}).get('assessed', 0)} / {len(DIMENSIONS)}",
         "pairing": (state.get("pairing") or {}).get("status", "skipped"),
+        "label_checks": ((state.get("label_id") or {}).get("validation") or {}).get("counts"),
     }
     truth = GROUND_TRUTH.get(state["case_id"])
     # A run with no score makes no prediction — scoring it against ground truth
@@ -302,6 +337,7 @@ def build_graph():
     g.add_node("pairing", pairing_node)
     for dim in DIMENSIONS:
         g.add_node(f"dim_{dim}", partial(dimension_node, dim))
+    g.add_node("label_id", label_id_node)
     g.add_node("upc", upc_node)
     g.add_node("aggregate", aggregate_node)
     g.add_node("synthesize", verdict_node)   # node name must differ from state key
@@ -316,6 +352,8 @@ def build_graph():
         g.add_edge(f"dim_{dim}", "aggregate")  # fan-in
     g.add_edge("pairing", "upc")
     g.add_edge("upc", "aggregate")
+    g.add_edge("pairing", "label_id")      # runs alongside the dimension band
+    g.add_edge("label_id", "aggregate")
     g.add_edge("aggregate", "synthesize")
     g.add_edge("synthesize", "build_report")
     g.add_edge("build_report", END)

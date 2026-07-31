@@ -27,10 +27,12 @@ def dim(name, score, status="scored", confidence=0.8):
             "confidence": confidence, "status": status}
 
 
-def state(dims, upc_status="not_provided", pairing_status="ok"):
+def state(dims, upc_status="not_provided", pairing_status="ok", hard_fail=False):
     return {"dimension_results": dims,
             "upc_result": {"status": upc_status},
-            "pairing": {"status": pairing_status, "note": "n"}}
+            "pairing": {"status": pairing_status, "note": "n"},
+            "label_id": {"validation": {"hard_fail": hard_fail, "failed": ["R3"],
+                                        "summary": "RN resolves to another company."}}}
 
 
 def agg(dims, **kw):
@@ -411,6 +413,30 @@ def test_chat_dimension_routes_to_the_rubric(dim, method, heavy, light, monkeypa
     assert seen["schema_name"] == dim.lower()
     assert seen["prompt"] == providers._RUBRICS[dim]["prompt"]
     assert res["score"] == 10 and res["method"] == method
+
+
+# ---- deterministic label failure outranks the vision tier ------------------
+def test_label_hard_fail_overrides_a_clean_vision_result():
+    """An RN that resolves to another company is decisive on its own — it must
+    not be averaged against five reassuring dimension scores."""
+    dims = [dim(d, 5) for d in DIMENSIONS]          # every dimension says 'clean'
+    c = agg(dims, hard_fail=True)
+    assert c["band"] == "hard_fail"
+    assert c["verdict_label"] == "Counterfeit — Label Validation Failed"
+    assert c["deterministic"] is True
+    assert c["failed_checks"] == ["R3"]
+
+
+def test_label_hard_fail_stands_even_with_no_assessable_dimensions():
+    """These checks need no reference and no legible garment — only the tag."""
+    dims = [dim(d, None, "abstain", 0.0) for d in DIMENSIONS]
+    c = agg(dims, hard_fail=True, pairing_status="mismatch")
+    assert c["band"] == "hard_fail"
+
+
+def test_no_hard_fail_leaves_the_normal_path_untouched():
+    dims = [dim(d, 5) for d in DIMENSIONS]
+    assert agg(dims, hard_fail=False)["band"] == "authentic"
 
 
 if __name__ == "__main__":

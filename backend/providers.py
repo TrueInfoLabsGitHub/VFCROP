@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 from dotenv import load_dotenv
 
+import label_rules
 import rimage
 import supa
 from references import reference_path
@@ -1481,6 +1482,89 @@ def _chat_dimension(cfg, dim, suspect_b64s, ref_b64s, t0, brand="TNF"):
                         "You have nothing to compare against — set assessable to false."})
     parsed, tin, tout = _chat(cfg, content, _DIM_SCHEMA, "dimension", CHAT_TIMEOUT)
     return _dim_result(dim, parsed, cfg["label"], tin, tout, t0)
+
+
+# ---------------------------------------------------------------------------
+# Label identity — OCR by the model, VALIDATION by deterministic rules.
+#
+# The model's only job here is to read fields off the tag. Everything that
+# decides anything lives in label_rules.py: fibre sums, style syntax, RN
+# resolution against the FTC registry, cross-field agreement, batch duplicates.
+# A hard fail from those rules is auditable and needs no vision confidence.
+# ---------------------------------------------------------------------------
+_LABEL_ID_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "rn": {"type": "string"}, "ca": {"type": "string"},
+        "style_number": {"type": "string"}, "fiber_content": {"type": "string"},
+        "country_of_origin": {"type": "string"},
+        "size_neck": {"type": "string"}, "size_care": {"type": "string"},
+        "care_text": {"type": "string"}, "product_family": {"type": "string"},
+        "legible": {"type": "boolean"},
+    },
+    "required": ["rn", "ca", "style_number", "fiber_content", "country_of_origin",
+                 "size_neck", "size_care", "care_text", "product_family", "legible"],
+    "additionalProperties": False,
+}
+
+_LABEL_ID_PROMPT = (
+    "TRANSCRIBE ONLY. You are an OCR step, not an analyst. Read the label and tag "
+    "text in these photos and return the fields verbatim.\n\n"
+    "Rules:\n"
+    "- Copy characters EXACTLY as printed, including spacing, punctuation and any "
+    "misspellings. Do NOT correct anything — a misspelling is evidence, and "
+    "silently fixing it destroys it.\n"
+    "- Return an EMPTY STRING for any field you cannot read. Never guess, never "
+    "infer from what this brand usually prints.\n"
+    "- rn / ca: digits only, without the 'RN'/'CA' prefix.\n"
+    "- style_number: the product style code only (e.g. NF0A3C8D or A71V). RN, CA "
+    "and RW codes are NOT style numbers — leave style_number empty if only those "
+    "are visible.\n"
+    "- fiber_content: the whole fibre declaration verbatim, including component "
+    "headers like 'SHELL:' and phrases like 'EXCLUSIVE OF DECORATION'.\n"
+    "- size_neck / size_care: size as printed on the neck tag and on the care tag "
+    "respectively; leave a field empty if that tag is not shown.\n"
+    "- care_text: the care/washing instruction text verbatim.\n"
+    "- legible: true only if at least one tag was clearly readable.\n\n"
+    "Return JSON only."
+)
+
+
+def run_label_identity(brand, suspect_images, prior=None, provider="openai"):
+    """OCR the label, then validate deterministically. Returns (result, usage|None).
+
+    The returned dict always carries `validation` from label_rules — including
+    when OCR was impossible, in which case every check reports UNKNOWN rather
+    than passing by default."""
+    t0 = time.time()
+    imgs = [b for b in (suspect_images or []) if b][:4]
+    cfg = _cfg(provider)
+    if not cfg or not imgs:
+        return {"ran": False, "fields": {}, "legible": False,
+                "validation": label_rules.validate({}, brand=brand, prior=prior),
+                "note": "Label identity not run (no provider or no suspect photo)."}, None
+
+    content = [{"type": "text", "text": _LABEL_ID_PROMPT}]
+    for i, b in enumerate(imgs):
+        content.append({"type": "text", "text": f"LABEL photo {i + 1}:"})
+        content.append({"type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b}", "detail": "high"}})
+    try:
+        parsed, tin, tout = _chat(cfg, content, _LABEL_ID_SCHEMA, "label_identity",
+                                  CHAT_TIMEOUT)
+    except Exception as e:
+        # OCR failure must not fabricate a result; every rule reports UNKNOWN.
+        return {"ran": False, "fields": {}, "legible": False,
+                "validation": label_rules.validate({}, brand=brand, prior=prior),
+                "note": f"Label OCR failed ({e}); deterministic checks unavailable."}, None
+
+    fields = {k: (str(parsed.get(k) or "").strip()) for k in _LABEL_ID_SCHEMA["properties"]
+              if k != "legible"}
+    validation = label_rules.validate(fields, brand=brand, prior=prior)
+    usage = {"agent": "Label ID", "model": cfg["label"], "tokens_in": tin,
+             "tokens_out": tout, "latency_ms": int((time.time() - t0) * 1000)}
+    return {"ran": True, "fields": fields, "legible": bool(parsed.get("legible")),
+            "validation": validation, "note": validation["summary"]}, usage
 
 
 # ---------------------------------------------------------------------------
