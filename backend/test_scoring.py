@@ -415,6 +415,24 @@ def test_chat_dimension_routes_to_the_rubric(dim, method, heavy, light, monkeypa
     assert res["score"] == 10 and res["method"] == method
 
 
+# ---- graph wiring ----------------------------------------------------------
+def test_no_node_name_collides_with_a_state_key():
+    """LangGraph forbids a node named after a state key. Older pinned versions
+    raise at build_graph() and newer ones do not, so a local build passing is no
+    guarantee — this took production down once. Assert it directly."""
+    nodes = {n for n in graph.build_graph().get_graph().nodes
+             if not n.startswith("__")}
+    keys = set(graph.RunState.__annotations__)
+    assert not (nodes & keys), f"node names collide with state keys: {nodes & keys}"
+
+
+def test_graph_has_every_expected_node():
+    nodes = {n for n in graph.build_graph().get_graph().nodes if not n.startswith("__")}
+    expected = {"intake", "check_pairing", "label_identity", "upc", "aggregate",
+                "synthesize", "build_report"} | {f"dim_{d}" for d in DIMENSIONS}
+    assert nodes == expected
+
+
 # ---- deterministic label failure outranks the vision tier ------------------
 def test_label_hard_fail_overrides_a_clean_vision_result():
     """An RN that resolves to another company is decisive on its own — it must

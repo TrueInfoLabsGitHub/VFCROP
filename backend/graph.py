@@ -334,10 +334,10 @@ def _evals(state: RunState) -> dict:
 def build_graph():
     g = StateGraph(RunState)
     g.add_node("intake", intake_node)
-    g.add_node("pairing", pairing_node)
+    g.add_node("check_pairing", pairing_node)      # node name must differ from state key
     for dim in DIMENSIONS:
         g.add_node(f"dim_{dim}", partial(dimension_node, dim))
-    g.add_node("label_id", label_id_node)
+    g.add_node("label_identity", label_id_node)    # node name must differ from state key
     g.add_node("upc", upc_node)
     g.add_node("aggregate", aggregate_node)
     g.add_node("synthesize", verdict_node)   # node name must differ from state key
@@ -346,14 +346,14 @@ def build_graph():
     # Pairing sits between intake and the fan-out so every dimension agent can
     # see its verdict and skip the call when the inputs are incomparable.
     g.add_edge(START, "intake")
-    g.add_edge("intake", "pairing")
+    g.add_edge("intake", "check_pairing")
     for dim in DIMENSIONS:                 # fan-out
-        g.add_edge("pairing", f"dim_{dim}")
+        g.add_edge("check_pairing", f"dim_{dim}")
         g.add_edge(f"dim_{dim}", "aggregate")  # fan-in
-    g.add_edge("pairing", "upc")
+    g.add_edge("check_pairing", "upc")
     g.add_edge("upc", "aggregate")
-    g.add_edge("pairing", "label_id")      # runs alongside the dimension band
-    g.add_edge("label_id", "aggregate")
+    g.add_edge("check_pairing", "label_identity")   # runs alongside the dimension band
+    g.add_edge("label_identity", "aggregate")
     g.add_edge("aggregate", "synthesize")
     g.add_edge("synthesize", "build_report")
     g.add_edge("build_report", END)
