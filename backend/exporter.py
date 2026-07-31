@@ -29,7 +29,25 @@ _CELL = 46                               # px, box each tiled thumbnail fits int
 _GAP = 3                                 # px, gap between tiled thumbnails
 _PERROW = 3                              # thumbnails per grid row inside a cell
 
-_BAND_FONT = {"authentic": "1E8A4C", "caution": "B07D0A", "counterfeit": "C0392B"}
+_BAND_FONT = {"authentic": "1E8A4C", "caution": "B07D0A", "counterfeit": "C0392B",
+              # no-answer outcomes — grey, so they never read as a result
+              "insufficient": "6B7280", "mismatch": "6B7280"}
+
+# Printed in a dimension cell that abstained. A blank cell is ambiguous (it could
+# mean the engine never ran); an explicit marker is not, and it must never be
+# mistaken for a 0.
+_NA = "n/a"
+
+
+def _dim_cell(dims, d):
+    """Dimension score for the sheet: the number when it was assessed, 'n/a' when
+    the agent abstained, blank when the dimension is absent from the record."""
+    x = dims.get(d)
+    if not isinstance(x, dict):
+        return ""
+    if x.get("score") is None:
+        return _NA if x.get("status") == "abstain" else ""
+    return _fnum(x.get("score"))
 
 
 def thumb(b64, px=_THUMB_PX):
@@ -138,9 +156,9 @@ def _build_analyses_sheet(ws, runs):
                 seen.add(k)
                 engines.append((k, rec.get("engine") or k))
 
-    metrics = (["Verdict", "Score"] + DIMS
+    metrics = (["Verdict", "Score", "Assessed"] + DIMS
                + ["Verifier", "Cost ($)", "Latency (s)"]
-               + [f"{d} finding" for d in DIMS])            # 15 columns per engine
+               + [f"{d} finding" for d in DIMS])            # 16 columns per engine
 
     # ---- header (two rows) -------------------------------------------------
     shared = [("#", 5), ("Case", 15), ("Brand", 8), ("Product", 22),
@@ -234,8 +252,10 @@ def _build_analyses_sheet(ws, runs):
                 dims = rec.get("dimensions") or {}
                 cost = round(float(rec.get("cost") or 0), 4)
                 lat = round(float(rec.get("latency_ms") or 0) / 1000, 1)
-                vals = [rec.get("verdict", ""), s,
-                        *[_fnum((dims.get(d) or {}).get("score")) for d in DIMS],
+                nass = rec.get("assessed")
+                assessed = f"{nass}/{len(DIMS)}" if isinstance(nass, int) else ""
+                vals = [rec.get("verdict", ""), s, assessed,
+                        *[_dim_cell(dims, d) for d in DIMS],
                         rec.get("verifier", ""), cost, lat,
                         *[(dims.get(d) or {}).get("finding", "") for d in DIMS]]
                 for j, v in enumerate(vals):
@@ -243,6 +263,10 @@ def _build_analyses_sheet(ws, runs):
                     cell.alignment = top
                     if j <= 1 and band in _BAND_FONT:        # colour verdict + score
                         cell.font = Font(color=_BAND_FONT[band], bold=True)
+                    # flag partial coverage — a score over <5 dimensions is weaker
+                    # than the same number over all five
+                    if j == 2 and isinstance(nass, int) and nass < len(DIMS):
+                        cell.font = Font(color="B07D0A", bold=True)
             col += len(metrics)
 
         if len(scores) >= 2:
@@ -300,7 +324,7 @@ def _build_comparison_sheet(wb, runs):
                 seen.add(k)
                 engines.append((k, (rec.get("engine") or k)))
 
-    metrics = ["Verdict", "Score"] + DIMS           # 7 columns per engine
+    metrics = ["Verdict", "Score", "Assessed"] + DIMS     # 8 columns per engine
     # header row 1: grouped engine bands; header row 2: metric names
     ws.cell(row=1, column=1, value="Case").fill = _HEAD_FILL
     ws.cell(row=1, column=2, value="Product").fill = _HEAD_FILL
@@ -348,13 +372,17 @@ def _build_comparison_sheet(wb, runs):
                 if isinstance(sc, (int, float)):
                     scores.append(sc)
                 dims = rec.get("dimensions") or {}
+                nass = rec.get("assessed")
                 vals = [rec.get("verdict", ""), sc,
-                        *[_fnum((dims.get(d) or {}).get("score")) for d in DIMS]]
+                        f"{nass}/{len(DIMS)}" if isinstance(nass, int) else "",
+                        *[_dim_cell(dims, d) for d in DIMS]]
                 for j, v in enumerate(vals):
                     cell = ws.cell(row=r, column=col + j, value=v)
                     cell.alignment = top
                     if j <= 1 and band in _BAND_FONT:      # colour verdict + score
                         cell.font = Font(color=_BAND_FONT[band], bold=True)
+                    if j == 2 and isinstance(nass, int) and nass < len(DIMS):
+                        cell.font = Font(color="B07D0A", bold=True)
             col += len(metrics)
         if len(scores) >= 2:
             spread = max(scores) - min(scores)
@@ -382,9 +410,10 @@ def _build_scorecard_sheet(wb, runs):
         if not k:
             continue
         a = agg.setdefault(k, {"label": "", "n": 0, "score": [], "conf": [], "cost": [],
-                               "lat": [], "band": {"authentic": 0, "caution": 0, "counterfeit": 0},
+                               "lat": [], "band": {"authentic": 0, "caution": 0, "counterfeit": 0,
+                                                   "insufficient": 0, "mismatch": 0},
                                "confirmed": 0, "verifier_n": 0, "dims": {d: [] for d in DIMS},
-                               "order": len(agg)})
+                               "assessed": [], "order": len(agg)})
         a["label"] = (rec.get("engine") or a["label"])
         a["n"] += 1
         a["score"].append(_num(rec.get("score")))
@@ -400,13 +429,14 @@ def _build_scorecard_sheet(wb, runs):
             a["verifier_n"] += 1
             if verifier == "confirmed":
                 a["confirmed"] += 1
+        a["assessed"].append(_num(rec.get("assessed")))
         dims = rec.get("dimensions") or {}
         for d in DIMS:
             a["dims"][d].append(_num((dims.get(d) or {}).get("score")))
 
     engines = sorted(agg.values(), key=lambda a: a["order"])
-    cols = ["Engine", "Runs", "Avg score", "% Authentic", "% Inconclusive",
-            "% Counterfeit", "Verifier confirmed %", "Avg confidence",
+    cols = ["Engine", "Runs", "Avg score", "Avg assessed", "% Authentic", "% Inconclusive",
+            "% Counterfeit", "% No answer", "Verifier confirmed %", "Avg confidence",
             *[f"Avg {d}" for d in DIMS], "Avg cost ($)", "Avg latency (s)"]
     for ci, label in enumerate(cols, start=1):
         c = ws.cell(row=1, column=ci, value=label)
@@ -426,10 +456,14 @@ def _build_scorecard_sheet(wb, runs):
     rows = []
     for a in engines:
         n = a["n"]
+        # Runs that produced no answer (insufficient evidence / reference mismatch)
+        # are their own outcome. Folding them into % Inconclusive would hide an
+        # input problem inside what looks like a model judgement.
+        no_answer = a["band"]["insufficient"] + a["band"]["mismatch"]
         rows.append([
-            a["label"], n, _avg(a["score"], 1),
+            a["label"], n, _avg(a["score"], 1), _avg(a["assessed"], 1),
             pct(a["band"]["authentic"], n), pct(a["band"]["caution"], n),
-            pct(a["band"]["counterfeit"], n),
+            pct(a["band"]["counterfeit"], n), pct(no_answer, n),
             pct(a["confirmed"], a["verifier_n"]), _avg(a["conf"], 2),
             *[_avg(a["dims"][d], 1) for d in DIMS],
             _avg(a["cost"], 4), _avg(a["lat"], 1),

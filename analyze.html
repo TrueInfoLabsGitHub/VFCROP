@@ -446,13 +446,16 @@ function updateCaseHeader(){ const el=$('#caseheader'); if(el) el.innerHTML=case
 let caseId='', brand='TNF';
 const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
 const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
-const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'}}[b]||{c:'b-gray',l:'N/A'});
+const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'}}[b]||{c:'b-gray',l:'N/A'});
 let findingLayout='radar', lastSingleData=null, cmpRes=null;
 const engineName=p=>ENGINE_LABEL[p]||p;
 const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
-const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)'}[b]);
-const verdictLabel=b=>({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit'}[b]||'—');
-const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray'}[b]||'b-gray');
+// 'insufficient' and 'mismatch' are deliberately NOT amber: they are not a
+// judgement about the item, they mean the run could not judge it. Grey keeps
+// them from reading as a soft counterfeit signal.
+const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)'}[b]||'var(--mut)');
+const verdictLabel=b=>({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare'}[b]||'—');
+const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray'}[b]||'b-gray');
 function caseName(){ return curCase().id || 'Analysis'; }   // the case/run identifier (unique per run)
 function refLabel(){ const p=(products||[]).find(x=>x.id===productId); return (refSource==='product'&&p&&p.name)?p.name:'The North Face'; }
 
@@ -690,7 +693,7 @@ function dimRing(dims, comp){
     <text x="150" y="178" text-anchor="middle" font-size="14.5" fill="#8b96a6">composite risk</text></svg>`;
 }
 function ringLegend(dims){
-  return `<div class="ringleg">`+dims.map((d,i)=>`<span class="rlchip" onclick="focusDim(${i})" title="${d.dimension}: ${d.score}/100"><span class="rld" style="background:${bandColor(d.band||band(d.score))}"></span>${d.dimension} ${d.score==null?'—':d.score}</span>`).join('')+`</div>`;
+  return `<div class="ringleg">`+dims.map((d,i)=>`<span class="rlchip" onclick="focusDim(${i})" title="${d.dimension}: ${d.score==null?'not assessed — insufficient evidence':d.score+'/100'}"><span class="rld" style="background:${bandColor(d.band||band(d.score))}"></span>${d.dimension} ${d.score==null?'—':d.score}</span>`).join('')+`</div>`;
 }
 function dimRows(dims){
   return dims.map((d,i)=>{ const col=bandColor(d.band); const conf=Math.round((d.confidence??0)*100);
@@ -718,13 +721,13 @@ function radar(dims){
   dims.forEach((x,i)=>{ const [ex,ey]=pt(i,R); spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" style="stroke:var(--chart-grid)" stroke-width="1"/>`;
     const [lx,ly]=pt(i,R+15),anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
     labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="12" font-weight="500" style="fill:var(--chart-label);cursor:pointer" onclick="focusDim(${i})">${x.dimension}</text>`;
-    const [px,py]=pt(i,R*((x.score||0)/100)); dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${bandColor(x.band)}" stroke-width="2" style="stroke:var(--dot-stroke);cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score}/100</title></circle>`; });
+    const [px,py]=pt(i,R*((x.score||0)/100)); dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${bandColor(x.band)}" stroke-width="2" style="stroke:var(--dot-stroke);cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score==null?'not assessed — insufficient evidence':x.score+'/100'}</title></circle>`; });
   const poly=dims.map((x,i)=>pt(i,R*((x.score||0)/100)).map(n=>n.toFixed(1)).join(',')).join(' '); const dc=bandColor('counterfeit');
   return `<svg width="360" height="252" viewBox="-45 -5 350 245" role="img" aria-label="Deviation radar">${rings}${spokes}<polygon points="${poly}" fill="${dc}" fill-opacity=".12" stroke="${dc}" stroke-width="2" stroke-linejoin="round"/>${dots}${labels}</svg>`;
 }
 function radarLegend(dims){
   return dims.map((x,i)=>{ const col=bandColor(x.band);
-    return `<div class="legrow" onclick="focusDim(${i})"><span class="legdot" style="background:${col}"></span><span class="legname">${x.dimension}</span><span class="legbar"><i style="width:${x.score}%;background:${col}"></i></span><span class="legscore" style="color:${col}">${x.score}</span></div>`; }).join('');
+    return `<div class="legrow" onclick="focusDim(${i})"><span class="legdot" style="background:${col}"></span><span class="legname">${x.dimension}</span><span class="legbar"><i style="width:${x.score==null?0:x.score}%;background:${col}"></i></span><span class="legscore" style="color:${col}">${x.score==null?'n/a':x.score}</span></div>`; }).join('');
 }
 // multi-engine radar: one polygon per engine, coloured by engine
 function radarOverlay(oks,res,dimNames){
@@ -763,8 +766,11 @@ function compareStrip(d){
   return `<div class="cmp"><div><div class="cmplbl" style="color:var(--red-deep)">Suspect</div><div class="refs3">${sus}</div></div><div><div class="cmplbl" style="color:var(--green)">Reference</div><div class="refs3">${refs}</div></div></div>`;
 }
 function upcDetail(u){
-  const map={match:['b-green','Match — authentic record','var(--green)'],mismatch:['b-amber','Mismatch — belongs to another product','var(--amber)'],nomatch:['b-red','No match — counterfeit indicator','var(--red)']};
-  const [cls,label,col]=map[(u||{}).status]||map.nomatch;
+  // not_provided / unreadable are the ABSENCE of a check — grey, never red, and
+  // never the fallback. Defaulting an unknown status to 'No match — counterfeit
+  // indicator' is what made every un-photographed barcode look incriminating.
+  const map={match:['b-green','Match — authentic record','var(--green)'],mismatch:['b-amber','Mismatch — belongs to another product','var(--amber)'],nomatch:['b-red','No match — counterfeit indicator','var(--red)'],unreadable:['b-gray','Barcode unreadable — not counted','var(--mut)'],not_provided:['b-gray','No barcode photo — not counted','var(--mut)']};
+  const [cls,label,col]=map[(u||{}).status]||map.not_provided;
   const ext=(u&&u.extracted)?`<div class="upc-num">${u.extracted}</div>`:`<div class="upc-num muted">— no code read —</div>`;
   return `<div class="row" style="justify-content:space-between;margin-bottom:8px"><div class="sect-lbl" style="margin:0">UPC / security tag</div><span class="badge ${cls}">${(u||{}).status||'nomatch'}</span></div>
     <div class="card pad">${ext}<div style="font-size:16.1px;font-weight:500;color:${col};margin:6px 0">${label}</div>
@@ -775,7 +781,7 @@ function renderSingle(d){
   const c=d.composite,v=d.verdict,dims=d.dimensions,t=(d.report||{}).totals||{},ev=(d.report||{}).evals||{};
   const conf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
   const nM=dims.filter(x=>x.band==='authentic').length,nR=dims.filter(x=>x.band==='caution').length,nD=dims.filter(x=>x.band==='counterfeit').length;
-  const um={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match']}[(d.upc||{}).status]||['b-red','No match'];
+  const um={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match'],unreadable:['b-gray','Unreadable'],not_provided:['b-gray','Not provided']}[(d.upc||{}).status]||['b-gray','Not provided'];
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
@@ -784,11 +790,12 @@ function renderSingle(d){
       <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
     <div class="metrics">
-      <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(c.band)}">${c.score}</div></div>
+      <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
       <div class="metric"><div class="k">Confidence</div><div class="v">${conf}</div></div>
       <div class="metric"><div class="k">Run cost</div><div class="v" style="color:var(--green)">$${(t.cost||0).toFixed(4)}</div></div>
       <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
     </div>
+    ${c.reason?`<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)"><div style="font-weight:600;margin-bottom:4px">${c.band==='mismatch'?'Reference mismatch':(c.capped?'Verdict held back':'Insufficient evidence')}</div><div class="muted" style="font-size:14px">${c.reason}</div></div>`:''}
     <div class="card pad" style="margin-bottom:14px">
       <div class="verdict"><div class="ringwrap">${dimRing(dims,c)}${ringLegend(dims)}</div>
         <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
@@ -858,7 +865,7 @@ function renderCompare(data,provs){
   const dimNames=['Logo','Stitching','Hardware','Label','Material'];
   activeEngine=oks[0]||'all';
   const metrics = primary ? `
-    <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(primary.composite.band)}">${primary.composite.score}</div></div>
+    <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(primary.composite.band)}">${primary.composite.score==null?'—':primary.composite.score}</div></div>
     <div class="metric"><div class="k">Consensus</div><div class="v">${oks.length?oks.length+'/'+oks.length:'—'}</div></div>
     <div class="metric"><div class="k">Cheapest</div><div class="v" style="color:var(--green);font-size:18.5px">${cheapest?engineName(cheapest):'—'}</div></div>
     <div class="metric"><div class="k">Engines</div><div class="v">${provs.length}</div></div>` : '';
@@ -870,7 +877,7 @@ function renderCompare(data,provs){
     const cf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
     return `<tr class="${isCheap?'hl':''}"><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}${isCheap?' <span class="badge b-green" style="font-size:12.3px;padding:1px 7px">cheapest</span>':''}</td>
       <td><span class="badge ${badgeClass(c.band)}" style="font-size:13.5px">${verdictLabel(c.band)}</span></td>
-      <td class="num" style="color:${bandColor(c.band)}">${c.score}</td>
+      <td class="num" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</td>
       <td class="num">${(r.upc||{}).status||'—'}</td>
       <td class="num">${(r.verdict||{}).verifier_confirmed?'✓':'✕'}</td>
       <td class="num">${cf}</td>
@@ -1046,7 +1053,7 @@ function renderDashCases(){
   const cases=all.filter(c=>dashFilter==='all'||c.band===dashFilter);
   const cnt=$('#dashcount'); if(cnt) cnt.textContent=cases.length+' case'+(cases.length===1?'':'s');
   if(!cases.length){ $('#dashcases').innerHTML='<div class="card pad muted" style="font-size:14.3px">No cases in this view.</div>'; return; }
-  const upcCls={match:'b-green',mismatch:'b-amber',nomatch:'b-red'};
+  const upcCls={match:'b-green',mismatch:'b-amber',nomatch:'b-red',unreadable:'b-gray',not_provided:'b-gray'};
   const rows=cases.map(c=>{ const bd=c.band||band(c.score), col=bandColor(bd), vi=vinfo(bd), dt=(c.created_at||'').slice(0,10);
     return `<div class="caserow" style="border-left:3px solid ${col};cursor:pointer" onclick="openCaseRun('${c.rid||''}')" title="Open this case">
       <div style="min-width:0">
@@ -1095,7 +1102,7 @@ function renderStoredCase(rec){
   const d=storedToData(rec), c=d.composite, v=d.verdict, t=d.report.totals, dims=d.dimensions;
   const conf=rec.confidence!=null?Math.round(rec.confidence*100)+'%':'—';
   const nM=dims.filter(x=>x.band==='authentic').length,nR=dims.filter(x=>x.band==='caution').length,nD=dims.filter(x=>x.band==='counterfeit').length;
-  const um={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match']}[(d.upc||{}).status]||['b-red','No match'];
+  const um={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match'],unreadable:['b-gray','Unreadable'],not_provided:['b-gray','Not provided']}[(d.upc||{}).status]||['b-gray','Not provided'];
   const title=rec.product||rec.case_id||'Case', dt=(rec.created_at||'').slice(0,10);
   $('#v-result').innerHTML=`
     <div class="rhead">
@@ -1110,6 +1117,7 @@ function renderStoredCase(rec){
       <div class="metric"><div class="k">Run cost</div><div class="v" style="color:var(--green)">$${(t.cost||0).toFixed(4)}</div></div>
       <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
     </div>
+    ${c.reason?`<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)"><div style="font-weight:600;margin-bottom:4px">${c.band==='mismatch'?'Reference mismatch':(c.capped?'Verdict held back':'Insufficient evidence')}</div><div class="muted" style="font-size:14px">${c.reason}</div></div>`:''}
     <div class="card pad" style="margin-bottom:14px">
       <div class="verdict"><div class="ringwrap">${dimRing(dims,c)}${ringLegend(dims)}</div>
         <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
