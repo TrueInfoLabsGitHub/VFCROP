@@ -182,10 +182,19 @@ def aggregate_node(state: RunState) -> dict:
     """
     dims = state["dimension_results"]
     by = {d["dimension"]: d for d in dims}
-    scored = [d for d in dims if d.get("score") is not None]
+    # Two different counts, deliberately kept apart:
+    #   evidence  — a real measurement stood behind the number
+    #   usable    — has a number at all (includes ALWAYS_SCORE estimates)
+    # The composite is computed over `usable`, but `coverage.assessed` reports
+    # `evidence`, so a filled grid never masquerades as a fully-measured one.
+    evidence = [d for d in dims if d.get("status") == "scored"]
+    usable = [d for d in dims if d.get("score") is not None]
+    estimated = [d["dimension"] for d in dims if d.get("status") == "estimated"]
     abstained = [d["dimension"] for d in dims if d.get("score") is None]
-    coverage = {"assessed": len(scored), "total": len(DIMENSIONS),
-                "abstained": abstained}
+    scored = usable
+    coverage = {"assessed": len(evidence), "total": len(DIMENSIONS),
+                "abstained": abstained, "estimated": estimated,
+                "scored_from": len(usable)}
 
     # 0. Deterministic label failure outranks everything below it. These checks
     #    carry no model uncertainty and need no reference image, so they stand
@@ -241,7 +250,7 @@ def aggregate_node(state: RunState) -> dict:
     # 5. Label carries the identity evidence. Without it, allow suspicion but not
     #    a counterfeit conclusion.
     if REQUIRE_LABEL_FOR_VERDICT and band == "counterfeit" and \
-            (by.get("Label") or {}).get("score") is None:
+            (by.get("Label") or {}).get("status") != "scored":
         band, capped = "caution", True
         reason = ("Composite reached the counterfeit band but the Label dimension could not be "
                   "assessed; held at Inconclusive pending a legible tag photo.")
@@ -314,6 +323,7 @@ def _evals(state: RunState) -> dict:
         "verifier_votes": v["verifier_votes"],
         "abstentions": f"{abst} / {len(DIMENSIONS)}",
         "assessed": f"{comp.get('coverage', {}).get('assessed', 0)} / {len(DIMENSIONS)}",
+        "estimated": len((comp.get("coverage", {}) or {}).get("estimated", [])),
         "pairing": (state.get("pairing") or {}).get("status", "skipped"),
         "label_checks": ((state.get("label_id") or {}).get("validation") or {}).get("counts"),
     }

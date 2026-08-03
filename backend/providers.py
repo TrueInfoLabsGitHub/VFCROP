@@ -93,6 +93,24 @@ VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()
 # averaging it in is worse than having no value at all.
 MIN_DIM_CONFIDENCE = float(os.environ.get("MIN_DIM_CONFIDENCE", "0.35"))
 
+# Fill every dimension cell with a number, even where the evidence does not
+# support one. The model supplies a low-confidence best estimate, the result is
+# marked status="estimated", and the run report still records how many
+# dimensions were actually evidence-backed — so the number is there for whoever
+# needs a populated grid, and the audit trail survives alongside it.
+# Set ALWAYS_SCORE=0 to restore honest abstention (n/a in the export).
+ALWAYS_SCORE = os.environ.get("ALWAYS_SCORE", "1").strip().lower() in ("1", "true", "yes", "on")
+
+_ESTIMATE_NOTE = (
+    "\n\nADDITIONAL FIELD — best_estimate_deviation (0-100). Always provide it. "
+    "When you CAN assess normally it should equal your assessed deviation. When "
+    "you cannot — the region is not visible, the method is undetermined, the "
+    "primitives are unresolvable — give your single best impression anyway, on "
+    "the same 0-100 scale, knowing it will be recorded as a low-confidence "
+    "estimate and never as a measurement. Do not let this field change any of "
+    "your other answers: keep reporting INSUFFICIENT where that is the truth."
+)
+
 # How many independent adversarial verify calls tally the verdict. Votes are
 # counted server-side — a single call asked to report its own "votes" string
 # just makes one up.
@@ -383,9 +401,10 @@ _DIM_SCHEMA = {
         "finding": {"type": "string"},
         "reasoning": {"type": "string"},
         "confidence": {"type": "number"},
+        "best_estimate_deviation": {"type": "integer"},
     },
     "required": ["assessable", "insufficient_reason", "score", "finding",
-                 "reasoning", "confidence"],
+                 "reasoning", "confidence", "best_estimate_deviation"],
     "additionalProperties": False,
 }
 
@@ -415,8 +434,37 @@ def _dim_prompt(dim, brand):
         f"(0 = matches the authentic reference, 100 = clearly counterfeit), a one-line "
         f"finding, short reasoning citing what you actually saw in the pixels, and a "
         f"confidence 0-1 that reflects image quality and how much of the region you could "
-        f"resolve."
+        f"resolve." + _ESTIMATE_NOTE
     )
+
+
+def _estimate_from(parsed, default=50):
+    """The model's low-confidence best impression, used only to fill a cell that
+    has no measurement behind it."""
+    try:
+        return int(max(0, min(100, int(parsed.get("best_estimate_deviation")))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _fill_estimate(result, estimate):
+    """ALWAYS_SCORE: put a number in a cell that would otherwise read n/a.
+
+    The number is the model's impression, not a measurement. status becomes
+    'estimated' (never 'scored'), so the coverage count, the export and the
+    verdict tier can all still tell the two apart.
+    """
+    if not ALWAYS_SCORE or result.get("score") is not None:
+        return result
+    score = int(max(0, min(100, estimate)))
+    reason = result.get("insufficient_reason") or result.get("finding") or "not assessable"
+    result["score"] = score
+    result["band"] = _band(score)
+    result["status"] = "estimated"
+    result["estimated"] = True
+    result["finding"] = f"ESTIMATE ({score}/100, low confidence) — {reason}"
+    result["confidence"] = min(float(result.get("confidence") or 0.0), 0.3)
+    return result
 
 
 def _dim_result(dim, parsed, model_label, tin, tout, t0):
@@ -447,7 +495,7 @@ def _dim_result(dim, parsed, model_label, tin, tout, t0):
             "box": _BOXES[dim], "confidence": conf, "status": "abstain",
             "insufficient_reason": reason,
         }
-        return result, usage
+        return _fill_estimate(result, _estimate_from(parsed)), usage
 
     score = int(max(0, min(100, int(parsed["score"]))))
     result = {
@@ -496,6 +544,7 @@ _LABEL_PROMPT = (
     "not clearly shown — NEVER assume genuine for something you cannot see.\n\n"
     + "\n".join(f"{cid}. {desc}" for cid, _sev, desc in _LABEL_CHECKS)
     + "\n\nReturn JSON only, matching the schema."
+    + _ESTIMATE_NOTE
 )
 
 _LABEL_SCHEMA = {
@@ -517,8 +566,9 @@ _LABEL_SCHEMA = {
             },
         },
         "summary_finding": {"type": "string"},
+        "best_estimate_deviation": {"type": "integer"},
     },
-    "required": ["checks", "summary_finding"],
+    "required": ["checks", "summary_finding", "best_estimate_deviation"],
     "additionalProperties": False,
 }
 
@@ -727,7 +777,7 @@ OUTPUT — valid JSON only, no preamble, no markdown fences
 TRANSPORT NOTE: the response schema is enforced, so every key above must be
 present. To signal HARD RULE 1 under that constraint, set "error" to
 "NO_REFERENCE" and "reference_used" to false; leave "primitives" empty. In
-every other case set "error" to "".""" # noqa: E501
+every other case set "error" to "".""" + _ESTIMATE_NOTE  # noqa: E501
 
 # ---------------------------------------------------------------------------
 # Stitching dimension — forensic primitive rubric.
@@ -1083,27 +1133,27 @@ _RUBRICS = {
         "heavy": _STITCH_CONSTRUCTION,
         "light": {"metrics": _STITCH_METRICS, "alignment": _STITCH_ALIGNMENT},
         "dev_key": "stitching_deviation",
-        "prompt": _STITCHING_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
+        "prompt": _ESTIMATE_NOTE.join([_STITCHING_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
             method_key="construction_class", dev_key="stitching_deviation",
-            method_enum="lockstitch|chainstitch|overlock|flatlock|coverstitch|bonded"),
+            method_enum="lockstitch|chainstitch|overlock|flatlock|coverstitch|bonded"), ""]),
     },
     "Hardware": {
         "method_key": "component_type", "method_word": "marking-and-finish",
         "heavy": _HW_MARKING,
         "light": {"geometry": _HW_GEOMETRY, "assembly": _HW_ASSEMBLY},
         "dev_key": "hardware_deviation",
-        "prompt": _HARDWARE_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
+        "prompt": _ESTIMATE_NOTE.join([_HARDWARE_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
             method_key="component_type", dev_key="hardware_deviation",
-            method_enum="zip|snap|rivet|buckle|drawcord_aglet|button"),
+            method_enum="zip|snap|rivet|buckle|drawcord_aglet|button"), ""]),
     },
     "Material": {
         "method_key": "structure_type", "method_word": "structure",
         "heavy": _MAT_STRUCTURE,
         "light": {"surface": _MAT_SURFACE, "consistency": _MAT_CONSISTENCY},
         "dev_key": "material_deviation",
-        "prompt": _MATERIAL_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
+        "prompt": _ESTIMATE_NOTE.join([_MATERIAL_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
             method_key="structure_type", dev_key="material_deviation",
-            method_enum="woven|knit|fleece_pile|coated_laminate|nonwoven"),
+            method_enum="woven|knit|fleece_pile|coated_laminate|nonwoven"), ""]),
     },
 }
 
@@ -1150,8 +1200,10 @@ def _rubric_schema(dim):
             "top_deviations": {"type": "array", "items": {"type": "string"}},
             "capture_issues": {"type": "array", "items": {"type": "string"}},
             "recapture_instructions": {"type": "array", "items": {"type": "string"}},
+            "best_estimate_deviation": {"type": "integer"},
         },
-        "required": ["error", "reference_used", spec["method_key"], "primitives",
+        "required": ["best_estimate_deviation",
+                     "error", "reference_used", spec["method_key"], "primitives",
                      spec["dev_key"], "assessment", "top_deviations", "capture_issues",
                      "recapture_instructions"],
         "additionalProperties": False,
@@ -1301,10 +1353,12 @@ def _rubric_dimension(cfg, dim, suspect_b64s, ref_b64s, t0):
         content.append({"type": "text", "text": f"REFERENCE (verified authentic) {j + 1}:"})
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rb}", "detail": "high"}})
     parsed, tin, tout = _chat(cfg, content, _rubric_schema(dim), dim.lower(), CHAT_TIMEOUT)
+    estimate = _estimate_from(parsed)
     # json_object fallback mode may return the rubric's bare error object.
     if str(parsed.get("error") or "").upper() == "NO_REFERENCE":
         parsed = {"reference_used": False}
     agg = _aggregate_rubric(dim, parsed)
+    agg["estimate"] = estimate
     usage = {"agent": dim, "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
              "latency_ms": int((time.time() - t0) * 1000)}
     return _rubric_result(dim, agg), usage
@@ -1312,7 +1366,7 @@ def _rubric_dimension(cfg, dim, suspect_b64s, ref_b64s, t0):
 
 def _rubric_result(dim, agg):
     spec = _RUBRICS[dim]
-    return {
+    result = {
         "dimension": dim, "score": agg["score"], "band": agg["band"],
         "finding": agg["finding"],
         "reasoning": (f"{spec['method_key'].replace('_', ' ').capitalize()}: "
@@ -1330,6 +1384,7 @@ def _rubric_result(dim, agg):
         "recapture_instructions": agg.get("recapture_instructions") or [],
         "insufficient_reason": (agg["finding"] if agg["score"] is None else ""),
     }
+    return _fill_estimate(result, agg.get("estimate", 50))
 
 
 # Back-compat aliases — the Logo rubric landed first and is referenced by name.
@@ -1448,6 +1503,7 @@ def _label_dimension(cfg, suspect_b64s, ref_b64s, t0):
         content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rb}", "detail": "high"}})
     parsed, tin, tout = _chat(cfg, content, _LABEL_SCHEMA, "label", CHAT_TIMEOUT)
     agg = _aggregate_label(parsed.get("checks"))
+    label_estimate = _estimate_from(parsed)
     summary = (parsed.get("summary_finding") or "").strip()
     usage = {"agent": "Label", "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
              "latency_ms": int((time.time() - t0) * 1000)}
@@ -1457,7 +1513,7 @@ def _label_dimension(cfg, suspect_b64s, ref_b64s, t0):
         "box": _BOXES["Label"], "confidence": agg["confidence"],
         "status": agg["status"], "checks": agg["checks"],
     }
-    return result, usage
+    return _fill_estimate(result, label_estimate), usage
 
 
 def _chat_dimension(cfg, dim, suspect_b64s, ref_b64s, t0, brand="TNF"):

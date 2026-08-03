@@ -39,6 +39,11 @@ _BAND_FONT = {"authentic": "1E8A4C", "caution": "B07D0A", "counterfeit": "C0392B
 _NA = "n/a"
 
 
+def _dim_status(dims, d):
+    x = dims.get(d)
+    return (x or {}).get("status", "") if isinstance(x, dict) else ""
+
+
 def _dim_cell(dims, d):
     """Dimension score for the sheet: the number when it was assessed, 'n/a' when
     the agent abstained, blank when the dimension is absent from the record."""
@@ -267,6 +272,10 @@ def _build_analyses_sheet(ws, runs):
                     # than the same number over all five
                     if j == 2 and isinstance(nass, int) and nass < len(DIMS):
                         cell.font = Font(color="B07D0A", bold=True)
+                    # dimension cells sit at 3..7; an ESTIMATED number is real
+                    # output, not a measurement — mark it without changing the value
+                    if 3 <= j <= 7 and _dim_status(dims, DIMS[j - 3]) == "estimated":
+                        cell.font = Font(color="B07D0A", italic=True)
             col += len(metrics)
 
         if len(scores) >= 2:
@@ -383,6 +392,10 @@ def _build_comparison_sheet(wb, runs):
                         cell.font = Font(color=_BAND_FONT[band], bold=True)
                     if j == 2 and isinstance(nass, int) and nass < len(DIMS):
                         cell.font = Font(color="B07D0A", bold=True)
+                    # dimension cells sit at 3..7; an ESTIMATED number is real
+                    # output, not a measurement — mark it without changing the value
+                    if 3 <= j <= 7 and _dim_status(dims, DIMS[j - 3]) == "estimated":
+                        cell.font = Font(color="B07D0A", italic=True)
             col += len(metrics)
         if len(scores) >= 2:
             spread = max(scores) - min(scores)

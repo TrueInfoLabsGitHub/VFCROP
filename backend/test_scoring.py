@@ -40,7 +40,13 @@ def agg(dims, **kw):
 
 
 # ---- the abstain gate ------------------------------------------------------
-def test_unassessable_dimension_yields_no_score():
+@pytest.fixture
+def honest(monkeypatch):
+    """ALWAYS_SCORE off — the honest-abstention mode."""
+    monkeypatch.setattr(providers, "ALWAYS_SCORE", False)
+
+
+def test_unassessable_dimension_yields_no_score(honest):
     """A model saying it cannot evaluate must not produce a number."""
     parsed = {"assessable": False, "insufficient_reason": "logo not visible",
               "score": 0, "finding": "x", "reasoning": "y", "confidence": 0.9}
@@ -50,7 +56,7 @@ def test_unassessable_dimension_yields_no_score():
     assert "INSUFFICIENT" in result["finding"]
 
 
-def test_low_confidence_is_treated_as_abstention():
+def test_low_confidence_is_treated_as_abstention(honest):
     """A confident-looking score with 0.1 confidence is a guess, not a measurement."""
     parsed = {"assessable": True, "insufficient_reason": "", "score": 50,
               "finding": "x", "reasoning": "y", "confidence": 0.1}
@@ -268,7 +274,7 @@ def test_logo_prompt_carries_every_rubric_primitive():
         assert rule in providers._LOGO_PROMPT
 
 
-def test_logo_abstention_flows_through_to_the_composite():
+def test_logo_abstention_flows_through_to_the_composite(honest):
     """An INSUFFICIENT_CAPTURE logo must reach the aggregator as score=None."""
     a = logo([prim("satin_angle_consistency", "INSUFFICIENT")])
     result = providers._logo_result(a)
@@ -384,7 +390,7 @@ def test_rubric_clean_comparison_scores_consistent(dim, method, heavy, light):
 
 @pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
 def test_rubric_dimension_skips_the_call_without_a_reference(dim, method, heavy, light,
-                                                             monkeypatch):
+                                                             monkeypatch, honest):
     calls = []
     monkeypatch.setattr(providers, "_chat",
                         lambda *a, **k: calls.append(1) or ({}, 0, 0))
@@ -413,6 +419,49 @@ def test_chat_dimension_routes_to_the_rubric(dim, method, heavy, light, monkeypa
     assert seen["schema_name"] == dim.lower()
     assert seen["prompt"] == providers._RUBRICS[dim]["prompt"]
     assert res["score"] == 10 and res["method"] == method
+
+
+# ---- ALWAYS_SCORE: every cell filled, audit trail preserved ----------------
+def test_always_score_fills_an_unassessable_dimension():
+    """Requested behaviour: a number in every cell. It must still be marked
+    'estimated' rather than 'scored', so nothing downstream mistakes the
+    model's impression for a measurement."""
+    parsed = {"assessable": False, "insufficient_reason": "logo not visible",
+              "score": 0, "finding": "x", "reasoning": "y", "confidence": 0.9,
+              "best_estimate_deviation": 64}
+    result, _ = providers._dim_result("Logo", parsed, "test-model", 0, 0, 0.0)
+    assert result["score"] == 64
+    assert result["status"] == "estimated"
+    assert result["confidence"] <= 0.3
+    assert "ESTIMATE" in result["finding"]
+
+
+def test_always_score_leaves_a_real_measurement_alone():
+    parsed = {"assessable": True, "insufficient_reason": "", "score": 82,
+              "finding": "x", "reasoning": "y", "confidence": 0.9,
+              "best_estimate_deviation": 12}
+    result, _ = providers._dim_result("Material", parsed, "test-model", 0, 0, 0.0)
+    assert result["score"] == 82 and result["status"] == "scored"
+
+
+def test_coverage_still_reports_only_evidence_backed_dimensions():
+    """The whole point of keeping the switch honest: a fully populated grid must
+    not report 5/5 assessed when only one number was measured."""
+    dims = [dim("Logo", 55, "estimated"), dim("Stitching", 60, "estimated"),
+            dim("Hardware", 50, "estimated"), dim("Label", 36, "scored"),
+            dim("Material", 58, "estimated")]
+    c = agg(dims)
+    assert c["score"] is not None                 # every cell filled -> a composite
+    assert c["coverage"]["assessed"] == 1         # ...but only one was measured
+    assert len(c["coverage"]["estimated"]) == 4
+
+
+def test_estimated_label_still_caps_the_counterfeit_verdict():
+    """An estimated Label is not a read Label."""
+    dims = [dim("Logo", 90), dim("Stitching", 90), dim("Hardware", 90),
+            dim("Label", 90, "estimated"), dim("Material", 90)]
+    c = agg(dims)
+    assert c["band"] == "caution" and c["capped"] is True
 
 
 # ---- graph wiring ----------------------------------------------------------
