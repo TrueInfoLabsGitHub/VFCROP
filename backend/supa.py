@@ -190,6 +190,19 @@ def runs_count():
         return 0
 
 
+def delete_runs(rids):
+    """Delete specific saved runs by id. Returns the number requested.
+
+    Deliberately separate from clear_runs(): that one wipes the history, this
+    one removes a named subset."""
+    names = [f"{_RUNS}{rid}.json" for rid in rids if rid]
+    if names:
+        httpx.request("DELETE", f"{_url()}/storage/v1/object/{_bucket()}",
+                      headers=_h({"Content-Type": "application/json"}),
+                      content=json.dumps({"prefixes": names}), timeout=45)
+    return len(names)
+
+
 def clear_runs():
     names = [f"{_RUNS}{nm}" for nm in _run_files()]
     if names:
