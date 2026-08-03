@@ -130,3 +130,58 @@ def test_failed_run_is_excluded_from_score_averages():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---- blocks must never be silently blank -----------------------------------
+def test_an_unnamed_engine_block_is_labelled():
+    """A record saved with no engine label used to create a nameless block. The
+    data was there, off to the right, under a blank header — which reads as
+    'nothing was saved'."""
+    ws = _wb([base(engine="gpt-5.5"), base(case_id="C2", engine="")])["VERITAS analyses"]
+    assert ws.cell(1, 11).value == "GPT-5.5"          # canonicalised for display
+    assert ws.cell(1, 11 + 16).value == "(engine not recorded)"
+
+
+def test_a_case_not_run_on_an_engine_says_so():
+    """Distinguishes 'never attempted' from 'ran and vanished'."""
+    ws = _wb([base(engine="gpt-5.5"), base(case_id="C2", engine="Kimi K2.6")])["VERITAS analyses"]
+    assert ws.cell(3, 11).value == "Inconclusive"          # C1 on engine 1
+    assert ws.cell(3, 11 + 16).value == "not run"          # C1 never ran on engine 2
+    assert ws.cell(4, 11).value == "not run"               # C2 never ran on engine 1
+    assert ws.cell(4, 11 + 16).value == "Inconclusive"
+
+
+def test_failed_runs_are_not_relabelled_as_not_run():
+    ws = _wb([base(engine="gpt-5.5"), FAILED])["VERITAS analyses"]
+    assert ws.cell(3, 11 + 16).value.startswith("Run Failed")
+
+
+# ---- one engine, one block -------------------------------------------------
+def test_label_drift_collapses_into_a_single_block():
+    """The bug that hid half the sheet: the same engine saved under different
+    spellings created several column blocks, so scores existed but sat off to
+    the right under a header the user never scrolled to."""
+    runs = [base(case_id="C1", engine="gpt-5.5", score=48),
+            base(case_id="C2", engine="GPT-5.5", score=17),
+            base(case_id="C3", engine="GPT 5.5", score=20),
+            base(case_id="C4", engine="openai", score=33)]
+    ws = _wb(runs)["VERITAS analyses"]
+    assert ws.cell(1, 11).value == "GPT-5.5"
+    assert ws.cell(1, 27).value == "Score\nspread"          # no second engine block
+    assert [ws.cell(r, 12).value for r in range(3, 7)] == [48, 17, 20, 33]
+
+
+def test_distinct_engines_still_get_their_own_block():
+    runs = [base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")]
+    ws = _wb(runs)["VERITAS analyses"]
+    assert ws.cell(1, 11).value == "GPT-5.5"
+    assert ws.cell(1, 27).value == "Kimi K2.6"
+
+
+def test_engine_label_is_canonicalised_at_save_time():
+    """The provider on the response is authoritative, so a missing or drifted
+    client label cannot split the block."""
+    assert app._canonical_engine("", {"provider": "openai"}) == "GPT-5.5"
+    assert app._canonical_engine("  gpt-5.5 ", {}) == "GPT-5.5"
+    assert app._canonical_engine("gpt-5.5", {"provider": "gemini"}) == "Gemini 3.1 Pro"
+    assert app._canonical_engine("", {}) == "(engine not recorded)"

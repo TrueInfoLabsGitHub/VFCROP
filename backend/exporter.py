@@ -128,10 +128,31 @@ def _avg(xs, nd=1):
     return round(sum(xs) / len(xs), nd)
 
 
+# Engine families, matched loosely so historical label drift still collapses.
+# Records already saved under 'gpt-5.5' / 'GPT-5.5' / 'GPT 5.5' must land in ONE
+# column block — a split block leaves half the rows looking unsaved even though
+# their scores are sitting a screen to the right.
+_ENGINE_FAMILY = (("gpt", "GPT-5.5"), ("openai", "GPT-5.5"),
+                  ("gemini", "Gemini 3.1 Pro"),
+                  ("kimi", "Kimi K2.6"), ("moonshot", "Kimi K2.6"))
+
+
 def _engine_key(name):
-    """Collapse engine labels that differ only by casing/whitespace (e.g.
-    'GPT-5.5' vs 'gpt-5.5') so they aggregate as one engine."""
-    return (name or "").strip().lower()
+    """Canonical grouping key for an engine label."""
+    n = (name or "").strip().lower()
+    for token, canon in _ENGINE_FAMILY:
+        if token in n:
+            return canon.lower()
+    return n
+
+
+def _engine_display(name):
+    """Canonical display label, so the block header is stable too."""
+    n = (name or "").strip()
+    for token, canon in _ENGINE_FAMILY:
+        if token in n.lower():
+            return canon
+    return n or "(engine not recorded)"
 
 
 def _build_analyses_sheet(ws, runs):
@@ -161,7 +182,7 @@ def _build_analyses_sheet(ws, runs):
         for k, rec in c["engines"].items():
             if k not in seen:
                 seen.add(k)
-                engines.append((k, rec.get("engine") or k))
+                engines.append((k, _engine_display(rec.get("engine"))))
 
     metrics = (["Verdict", "Score", "Assessed"] + DIMS
                + ["Verifier", "Cost ($)", "Latency (s)"]
@@ -281,6 +302,12 @@ def _build_analyses_sheet(ws, runs):
                     # output, not a measurement — mark it without changing the value
                     if 3 <= j <= 7 and _dim_status(dims, DIMS[j - 3]) == "estimated":
                         cell.font = Font(color="B07D0A", italic=True)
+            else:
+                # This case was never run on this engine. Saying so beats a blank,
+                # which is indistinguishable from "the run vanished".
+                nr = ws.cell(row=r, column=col, value="not run")
+                nr.alignment = top
+                nr.font = Font(color="9AA0A6", italic=True)
             col += len(metrics)
 
         if len(scores) >= 2:
@@ -336,7 +363,7 @@ def _build_comparison_sheet(wb, runs):
         for k, rec in c["engines"].items():
             if k not in seen:
                 seen.add(k)
-                engines.append((k, (rec.get("engine") or k)))
+                engines.append((k, _engine_display(rec.get("engine"))))
 
     metrics = ["Verdict", "Score", "Assessed"] + DIMS     # 8 columns per engine
     # header row 1: grouped engine bands; header row 2: metric names

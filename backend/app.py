@@ -288,6 +288,25 @@ class ExportSaveReq(BaseModel):
     error: str = ""                         # non-empty records a failed run
 
 
+# One canonical label per provider. The export groups engines by this value, so
+# any drift — a differently-spelled label, or an empty one — silently splits a
+# single engine into two column blocks and leaves half the rows looking unsaved.
+# The provider on the response is authoritative; the client-supplied label is
+# only a fallback.
+_ENGINE_CANON = {"openai": "GPT-5.5", "gemini": "Gemini 3.1 Pro", "kimi": "Kimi K2.6"}
+
+
+def _canonical_engine(req_engine: str, data: dict) -> str:
+    prov = str((data or {}).get("provider") or "").strip().lower()
+    if prov in _ENGINE_CANON:
+        return _ENGINE_CANON[prov]
+    label = (req_engine or "").strip()
+    for canon in _ENGINE_CANON.values():          # tolerate case/spacing drift
+        if label.lower() == canon.lower():
+            return canon
+    return label or "(engine not recorded)"
+
+
 def _build_record(req: ExportSaveReq) -> dict:
     d = req.data or {}
     _sus_imgs = req.suspect_images or ([req.suspect_image] if req.suspect_image else [])
@@ -320,7 +339,7 @@ def _build_record(req: ExportSaveReq) -> dict:
         # fall back to the request when the run failed before producing a result
         "case_id": d.get("case_id") or req.case_id or "",
         "brand": d.get("brand") or req.brand or "",
-        "engine": req.engine or "",
+        "engine": _canonical_engine(req.engine, d),
         "product": req.product or "",
         "verdict": ("Run Failed" if failed else comp.get("verdict_label", "")),
         "score": comp.get("score"),
