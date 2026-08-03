@@ -198,8 +198,15 @@ def label_id_node(state: RunState) -> dict:
 
 
 def upc_node(state: RunState) -> dict:
-    result, usage = run_upc_tool(state["brand"], state["case_id"], state.get("upc_image", ""),
-                                 state.get("provider", "openai"))
+    try:
+        result, usage = run_upc_tool(state["brand"], state["case_id"],
+                                     state.get("upc_image", ""),
+                                     state.get("provider", "openai"))
+    except Exception as e:
+        # A barcode OCR failure is not a reason to lose the analysis.
+        return {"upc_result": {"status": "unreadable", "note": f"UPC OCR failed: {e}",
+                               "expected": "", "extracted": "", "belongs": None},
+                "usage_log": []}
     return {"upc_result": result, "usage_log": [usage]}
 
 
@@ -301,9 +308,28 @@ def aggregate_node(state: RunState) -> dict:
 
 
 def verdict_node(state: RunState) -> dict:
-    verdict, usages = run_verdict(
-        state.get("provider", "openai"), state["brand"], state["composite"],
-        state["dimension_results"], state["upc_result"])
+    comp = state["composite"]
+    try:
+        verdict, usages = run_verdict(
+            state.get("provider", "openai"), state["brand"], comp,
+            state["dimension_results"], state["upc_result"])
+    except Exception as e:
+        # The composite is ALREADY computed by the time this runs. Letting a
+        # failed summary call kill the run threw away every dimension score for
+        # the sake of a paragraph of prose — which is how a rate-limited verdict
+        # tier wiped out otherwise complete runs.
+        dims = sorted((d for d in state["dimension_results"] if d.get("score") is not None),
+                      key=lambda d: -d["score"])
+        return {"verdict": {
+            "label": comp.get("verdict_label", ""),
+            "summary": (f"Verdict synthesis unavailable ({e}). The composite score and "
+                        f"the dimension findings are unaffected."),
+            "escalated": comp.get("band") not in ("authentic", "insufficient", "mismatch"),
+            "verifier_confirmed": False,
+            "verifier_votes": "0/0",
+            "key_evidence": [f"{d['dimension']}: {d.get('finding') or ''}" for d in dims[:3]],
+            "degraded": True,
+        }, "usage_log": []}
     return {"verdict": verdict, "usage_log": usages}
 
 

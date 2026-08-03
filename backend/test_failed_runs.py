@@ -247,3 +247,75 @@ def test_export_marks_a_failed_dimension_distinctly():
     ws = _wb([r])["VERITAS analyses"]
     assert ws.cell(3, 14).value == 20          # Logo
     assert ws.cell(3, 18).value == "failed"    # Material
+
+
+# ---- a rate limit late in the run must not erase the scores ----------------
+def test_verdict_tier_failure_keeps_the_composite():
+    """Observed: '#28 Run Failed — openai verdict (synthesize) failed: 429'.
+    The composite is already computed when the verdict tier runs, so a failure
+    there was discarding five completed dimension scores for the sake of prose."""
+    import graph
+
+    def boom(*a, **k):
+        raise RuntimeError("openai verdict (synthesize) failed: 429 Too Many Requests")
+
+    original = graph.run_verdict
+    graph.run_verdict = boom
+    try:
+        d = lambda n, s: {"dimension": n, "score": s, "band": graph._band(s),
+                          "status": "scored", "confidence": 0.9, "finding": f"{n} finding"}
+        out = graph.verdict_node({
+            "composite": {"score": 62, "band": "counterfeit",
+                          "verdict_label": "Suspected Counterfeit"},
+            "dimension_results": [d("Logo", 81), d("Label", 100)],
+            "upc_result": {"status": "not_provided"}, "brand": "TNF", "provider": "openai"})
+    finally:
+        graph.run_verdict = original
+    v = out["verdict"]
+    assert v["label"] == "Suspected Counterfeit"      # the score survives
+    assert v["degraded"] is True
+    assert v["verifier_confirmed"] is False
+    assert v["verifier_votes"] == "0/0"
+    assert v["key_evidence"]                          # falls back to the findings
+
+
+def test_upc_failure_does_not_kill_the_run():
+    import graph
+
+    def boom(*a, **k):
+        raise RuntimeError("429 Too Many Requests")
+
+    original = graph.run_upc_tool
+    graph.run_upc_tool = boom
+    try:
+        out = graph.upc_node({"brand": "TNF", "case_id": "c", "upc_image": "x",
+                              "provider": "openai"})
+    finally:
+        graph.run_upc_tool = original
+    assert out["upc_result"]["status"] == "unreadable"
+
+
+def test_calls_are_throttled_per_provider():
+    """Prevent the 429 rather than recover from it."""
+    import threading
+    import time as _t
+
+    import providers
+    peak = cur = 0
+    lock = threading.Lock()
+
+    def work():
+        nonlocal peak, cur
+        with providers._limiter("https://test.example/v1"):
+            with lock:
+                cur += 1
+                peak = max(peak, cur)
+            _t.sleep(0.02)
+            with lock:
+                cur -= 1
+
+    ts = [threading.Thread(target=work) for _ in range(12)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert peak <= providers.MAX_INFLIGHT
+    assert providers._limiter("prov-a") is not providers._limiter("prov-b")

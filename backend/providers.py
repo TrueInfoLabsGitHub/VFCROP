@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import random
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -92,6 +93,24 @@ CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "240"))
 RETRY_ATTEMPTS = max(1, int(os.environ.get("RETRY_ATTEMPTS", "4")))
 RETRY_BASE_DELAY = float(os.environ.get("RETRY_BASE_DELAY", "2"))
 RETRY_MAX_DELAY = float(os.environ.get("RETRY_MAX_DELAY", "30"))
+
+# Cap concurrent in-flight calls PER PROVIDER. Five dimension agents fan out at
+# once, and Compare multiplies that by the number of engines — a burst large
+# enough to trip a provider's per-minute request/token limit before any retry
+# logic gets a chance. Throttling at the source prevents the 429 rather than
+# recovering from it. Per provider, so a slow engine never blocks a fast one.
+MAX_INFLIGHT = max(1, int(os.environ.get("MAX_INFLIGHT_PER_PROVIDER", "3")))
+_inflight_sems = {}
+_inflight_lock = threading.Lock()
+
+
+def _limiter(base):
+    with _inflight_lock:
+        sem = _inflight_sems.get(base)
+        if sem is None:
+            sem = threading.Semaphore(MAX_INFLIGHT)
+            _inflight_sems[base] = sem
+        return sem
 
 # Which provider runs the vision (dimension) agents by default: "openai" or "gemini".
 VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()
@@ -236,12 +255,15 @@ def _chat(cfg, content, schema, schema_name, timeout):
         last = None
         for attempt in range(RETRY_ATTEMPTS):
             try:
-                if cfg.get("stream"):
-                    return _stream_post(body, to)
-                r = httpx.post(cfg["base"] + "/chat/completions", json=body,
-                               headers=headers, timeout=to)
-                r.raise_for_status()
-                return r.json()
+                # Held only around the request itself — a backing-off retry must
+                # not keep a slot reserved while it sleeps.
+                with _limiter(cfg["base"]):
+                    if cfg.get("stream"):
+                        return _stream_post(body, to)
+                    r = httpx.post(cfg["base"] + "/chat/completions", json=body,
+                                   headers=headers, timeout=to)
+                    r.raise_for_status()
+                    return r.json()
             except httpx.HTTPStatusError as e:
                 code = e.response.status_code
                 if code not in (408, 429, 500, 502, 503, 504):
