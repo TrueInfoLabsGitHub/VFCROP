@@ -164,9 +164,20 @@ def dimension_node(dim: str, state: RunState) -> dict:
             "box": None, "confidence": 0.0, "status": "abstain",
             "insufficient_reason": "reference mismatch",
         }], "usage_log": []}
-    result, usage = run_dimension_agent(
-        dim, state["brand"], state["case_id"], state.get("suspect_images", []),
-        _refs_for(state, dim), state.get("provider", "openai"))
+    try:
+        result, usage = run_dimension_agent(
+            dim, state["brand"], state["case_id"], state.get("suspect_images", []),
+            _refs_for(state, dim), state.get("provider", "openai"))
+    except Exception as e:
+        # One agent failing must not destroy the run. Previously a single 429 on
+        # any dimension propagated out and discarded the other four dimensions'
+        # results along with everything already spent on them.
+        return {"dimension_results": [{
+            "dimension": dim, "score": None, "band": "neutral",
+            "finding": f"AGENT FAILED — {e}",
+            "reasoning": str(e), "box": None, "confidence": 0.0,
+            "status": "error", "insufficient_reason": str(e),
+        }], "usage_log": []}
     return {"dimension_results": [result], "usage_log": [usage]}
 
 
@@ -212,9 +223,10 @@ def aggregate_node(state: RunState) -> dict:
     estimated = [d["dimension"] for d in dims if d.get("status") == "estimated"]
     abstained = [d["dimension"] for d in dims if d.get("score") is None]
     scored = usable
+    errored = [d["dimension"] for d in dims if d.get("status") == "error"]
     coverage = {"assessed": len(evidence), "total": len(DIMENSIONS),
                 "abstained": abstained, "estimated": estimated,
-                "scored_from": len(usable)}
+                "errored": errored, "scored_from": len(usable)}
 
     # 0. Deterministic label failure outranks everything below it. These checks
     #    carry no model uncertainty and need no reference image, so they stand

@@ -10,6 +10,7 @@ import base64
 import hashlib
 import json
 import os
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -83,6 +84,14 @@ ALLOW_MOCK = os.environ.get("ALLOW_MOCK", "0").strip().lower() in ("1", "true", 
 # seconds thinking before the first token, especially under the concurrent load
 # of Compare mode (5 dimension agents x N engines). Keep this generous.
 CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "240"))
+
+# Retry policy for rate limits and transient upstream errors. The dimension
+# agents run concurrently, so a burst can trip a provider's per-minute limit;
+# backing off and retrying is the difference between a complete run and losing
+# every dimension to one 429.
+RETRY_ATTEMPTS = max(1, int(os.environ.get("RETRY_ATTEMPTS", "4")))
+RETRY_BASE_DELAY = float(os.environ.get("RETRY_BASE_DELAY", "2"))
+RETRY_MAX_DELAY = float(os.environ.get("RETRY_MAX_DELAY", "30"))
 
 # Which provider runs the vision (dimension) agents by default: "openai" or "gemini".
 VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()
@@ -216,22 +225,45 @@ def _chat(cfg, content, schema, schema_name, timeout):
         return {"choices": [{"message": {"content": "".join(parts)}}], "usage": usage}
 
     def post(body):
-        # Generous per-call read timeout; one retry on a transient timeout /
-        # dropped connection. Slow reasoning engines (Kimi) stream, so the timeout
-        # applies per chunk rather than to the whole response.
+        # Generous per-call read timeout, plus backoff on the retryable failures.
+        # 429 matters most: five dimension agents fire concurrently per engine
+        # (fifteen in Compare), which is a burst big enough to trip a provider
+        # rate limit. Without this a single 429 killed the whole run and threw
+        # away every other dimension's work — and its cost.
         to = httpx.Timeout(timeout, connect=20.0)
+        transient = (httpx.ConnectTimeout, httpx.PoolTimeout, httpx.ReadTimeout,
+                     httpx.RemoteProtocolError, httpx.ConnectError)
         last = None
-        for _ in range(2):
+        for attempt in range(RETRY_ATTEMPTS):
             try:
                 if cfg.get("stream"):
                     return _stream_post(body, to)
-                r = httpx.post(cfg["base"] + "/chat/completions", json=body, headers=headers, timeout=to)
+                r = httpx.post(cfg["base"] + "/chat/completions", json=body,
+                               headers=headers, timeout=to)
                 r.raise_for_status()
                 return r.json()
-            except (httpx.ConnectTimeout, httpx.PoolTimeout, httpx.ReadTimeout,
-                    httpx.RemoteProtocolError) as e:
-                last = e  # transient — retry once
-                continue
+            except httpx.HTTPStatusError as e:
+                code = e.response.status_code
+                if code not in (408, 429, 500, 502, 503, 504):
+                    raise                        # a real error — surface it now
+                last = e
+                # Honour Retry-After when the provider sends one.
+                wait = None
+                try:
+                    ra = e.response.headers.get("retry-after")
+                    if ra:
+                        wait = float(ra)
+                except (TypeError, ValueError):
+                    wait = None
+                if wait is None:
+                    wait = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                wait += random.uniform(0, 0.75)   # jitter: agents retry together
+            except transient as e:
+                last = e
+                wait = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+            if attempt == RETRY_ATTEMPTS - 1:
+                break
+            time.sleep(wait)
         raise last
 
     def extract(data):

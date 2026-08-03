@@ -53,7 +53,10 @@ def _dim_cell(dims, d):
     if not isinstance(x, dict):
         return ""
     if x.get("score") is None:
-        return _NA if x.get("status") == "abstain" else ""
+        st = x.get("status")
+        if st == "error":
+            return "failed"          # the agent errored — distinct from abstaining
+        return _NA if st == "abstain" else ""
     return _fnum(x.get("score"))
 
 

@@ -185,3 +185,65 @@ def test_engine_label_is_canonicalised_at_save_time():
     assert app._canonical_engine("  gpt-5.5 ", {}) == "GPT-5.5"
     assert app._canonical_engine("gpt-5.5", {"provider": "gemini"}) == "Gemini 3.1 Pro"
     assert app._canonical_engine("", {}) == "(engine not recorded)"
+
+
+# ---- rate limits must not destroy a run ------------------------------------
+def test_a_429_is_retried_not_raised():
+    """The observed production failure: 'Client error 429 Too Many Requests' on
+    one dimension killed the entire run. 429 was not in the retry set."""
+    import inspect
+
+    import providers
+    src = inspect.getsource(providers._chat)
+    assert "429" in src, "429 is not handled in the HTTP retry path"
+    assert "retry-after" in src.lower(), "Retry-After is ignored"
+    assert providers.RETRY_ATTEMPTS >= 2
+
+
+def test_one_failed_dimension_does_not_kill_the_run():
+    import graph
+
+    def boom(*a, **k):
+        raise RuntimeError("openai Material agent failed: 429 Too Many Requests")
+
+    original = graph.run_dimension_agent
+    graph.run_dimension_agent = boom
+    try:
+        out = graph.dimension_node("Material", {
+            "pairing": {"status": "ok"}, "brand": "TNF", "case_id": "c",
+            "suspect_images": ["x"], "references": {}, "fetched_refs": []})
+    finally:
+        graph.run_dimension_agent = original
+    d = out["dimension_results"][0]
+    assert d["status"] == "error"
+    assert d["score"] is None
+    assert "AGENT FAILED" in d["finding"]
+
+
+def test_the_other_dimensions_still_produce_a_verdict():
+    import graph
+
+    def ok(name, score):
+        return {"dimension": name, "score": score, "band": graph._band(score),
+                "status": "scored", "confidence": 0.9, "finding": "f"}
+
+    failed = {"dimension": "Material", "score": None, "band": "neutral",
+              "status": "error", "confidence": 0.0, "finding": "AGENT FAILED — 429"}
+    c = graph.aggregate_node({
+        "dimension_results": [ok("Logo", 20), ok("Stitching", 20), ok("Hardware", 20),
+                              ok("Label", 20), failed],
+        "upc_result": {"status": "not_provided"}, "pairing": {"status": "ok"},
+        "label_id": {"validation": {"hard_fail": False}}})["composite"]
+    assert c["score"] == 20
+    assert c["coverage"]["assessed"] == 4
+    assert c["coverage"]["errored"] == ["Material"]
+
+
+def test_export_marks_a_failed_dimension_distinctly():
+    """'failed' must not read as 'n/a' (abstained) or as a blank."""
+    r = base(dimensions={"Logo": {"score": 20, "finding": "f", "status": "scored"},
+                         "Material": {"score": None, "finding": "AGENT FAILED",
+                                      "status": "error"}})
+    ws = _wb([r])["VERITAS analyses"]
+    assert ws.cell(3, 14).value == 20          # Logo
+    assert ws.cell(3, 18).value == "failed"    # Material
