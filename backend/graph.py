@@ -19,8 +19,9 @@ import os
 
 import supa
 from pricing import price_usage
-from providers import (_cfg, run_dimension_agent, run_label_identity,
-                       run_pairing_check, run_upc_tool, run_verdict)
+from providers import (ALWAYS_SCORE, _cfg, run_dimension_agent,
+                       run_label_identity, run_pairing_check, run_upc_tool,
+                       run_verdict)
 from references import DIMENSIONS, load_ref_b64, select_references
 from rimage import fetch_authentic_references
 
@@ -133,7 +134,7 @@ def _refs_for(state: RunState, dim: str) -> list:
     fetched = state.get("fetched_refs") or []
     if fetched:
         return fetched[:2]                           # Google-fetched authentic shots
-    b = load_ref_b64(state["references"].get(dim))    # local data/ reference
+    b = load_ref_b64((state.get("references") or {}).get(dim))   # local data/ ref
     return [b] if b else []
 
 
@@ -153,8 +154,9 @@ def pairing_node(state: RunState) -> dict:
 def dimension_node(dim: str, state: RunState) -> dict:
     # Suspect and reference are not the same product — every dimension score
     # would be a comparison against the wrong thing. Abstain without spending a
-    # model call.
-    if (state.get("pairing") or {}).get("status") == "mismatch":
+    # model call. ALWAYS_SCORE overrides this: if every cell must carry a number,
+    # the agents have to run so the number is the model's own estimate.
+    if not ALWAYS_SCORE and (state.get("pairing") or {}).get("status") == "mismatch":
         return {"dimension_results": [{
             "dimension": dim, "score": None, "band": "neutral",
             "finding": "NOT SCORED — suspect and reference are different products.",
@@ -226,8 +228,11 @@ def aggregate_node(state: RunState) -> dict:
             "reason": validation.get("summary", "A deterministic label check failed."),
         }}
 
-    # 1. Incomparable inputs — the whole run is void, no score.
-    if (state.get("pairing") or {}).get("status") == "mismatch":
+    # 1. Incomparable inputs. Without ALWAYS_SCORE the run is void; with it we
+    #    still fill the numbers but keep the mismatch verdict, so the row is
+    #    populated and the warning is not lost.
+    pairing_mismatch = (state.get("pairing") or {}).get("status") == "mismatch"
+    if pairing_mismatch and not ALWAYS_SCORE:
         return {"composite": {
             "score": None, "band": "mismatch", "verdict_label": _VERDICT_LABEL["mismatch"],
             "coverage": coverage, "capped": False,
@@ -272,6 +277,12 @@ def aggregate_node(state: RunState) -> dict:
         band, capped = "caution", True
         reason = ("Composite reached the counterfeit band but the Label dimension could not be "
                   "assessed; held at Inconclusive pending a legible tag photo.")
+    if pairing_mismatch:
+        reason = ((state.get("pairing") or {}).get("note")
+                  or "Suspect and reference are different products.")
+        return {"composite": {"score": score, "band": "mismatch",
+                              "verdict_label": _VERDICT_LABEL["mismatch"],
+                              "coverage": coverage, "capped": capped, "reason": reason}}
     return {"composite": {"score": score, "band": band,
                           "verdict_label": _verdict_label(band, score),
                           "coverage": coverage, "capped": capped, "reason": reason}}

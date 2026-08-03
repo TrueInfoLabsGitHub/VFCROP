@@ -37,6 +37,8 @@ def reference_path(filename: str) -> str:
 
 
 def load_ref_b64(filename: str):
+    if not filename:                      # no reference mapped for this dimension
+        return None
     try:
         with open(reference_path(filename), "rb") as f:
             return base64.b64encode(f.read()).decode()

@@ -42,8 +42,12 @@ def agg(dims, **kw):
 # ---- the abstain gate ------------------------------------------------------
 @pytest.fixture
 def honest(monkeypatch):
-    """ALWAYS_SCORE off — the honest-abstention mode."""
+    """ALWAYS_SCORE off — the honest-abstention mode.
+
+    graph.py does `from providers import ALWAYS_SCORE`, which binds its own copy
+    at import time, so both names have to be patched."""
     monkeypatch.setattr(providers, "ALWAYS_SCORE", False)
+    monkeypatch.setattr(graph, "ALWAYS_SCORE", False)
 
 
 def test_unassessable_dimension_yields_no_score(honest):
@@ -99,6 +103,33 @@ def test_enough_coverage_scores_over_assessed_only():
     assert set(c["coverage"]["abstained"]) == {"Hardware", "Material"}
 
 
+# ---- the pairing gate must not fire on ordinary evidence shots -------------
+def test_pairing_prompt_allows_detail_shots_against_a_full_garment():
+    """The real-world submission shape is close-ups of the SUSPECT's tags against
+    a full-garment REFERENCE. Treating that as a mismatch voided whole runs and
+    produced 0/5 rows, so the prompt must say so explicitly."""
+    p = providers._PAIRING_PROMPT
+    assert "NORMAL shape of this work, not a mismatch" in p
+    assert "cannot contradict the reference" in p
+    assert "ONLY when the two sets positively show DIFFERENT product categories" in p
+
+
+def test_always_score_keeps_the_mismatch_warning_but_still_fills_numbers():
+    dims = [dim(d, 40, "estimated") for d in DIMENSIONS]
+    c = agg(dims, pairing_status="mismatch")
+    assert c["score"] == 40                                   # cells populated
+    assert c["verdict_label"] == "Reference Mismatch — Cannot Compare"
+    assert c["band"] == "mismatch"                            # warning preserved
+
+
+def test_missing_reference_file_does_not_crash():
+    """load_ref_b64(None) used to raise; a brand map missing a dimension would
+    take the whole run down."""
+    from references import load_ref_b64
+    assert load_ref_b64(None) is None
+    assert load_ref_b64("") is None
+
+
 # ---- weights and verdict bands ---------------------------------------------
 def test_every_dimension_carries_equal_weight():
     assert len(set(graph.WEIGHTS.values())) == 1
@@ -151,7 +182,7 @@ def test_real_upc_mismatch_still_counts():
 
 
 # ---- the pairing gate ------------------------------------------------------
-def test_reference_mismatch_voids_the_run():
+def test_reference_mismatch_voids_the_run(honest):
     dims = [dim(d, 90) for d in DIMENSIONS]
     c = agg(dims, pairing_status="mismatch")
     assert c["score"] is None
@@ -159,7 +190,7 @@ def test_reference_mismatch_voids_the_run():
     assert "Cannot Compare" in c["verdict_label"]
 
 
-def test_mismatch_short_circuits_dimension_agents(monkeypatch):
+def test_mismatch_short_circuits_dimension_agents(monkeypatch, honest):
     """A mismatched pairing must not spend a model call per dimension."""
     called = []
     monkeypatch.setattr(providers, "run_dimension_agent",
