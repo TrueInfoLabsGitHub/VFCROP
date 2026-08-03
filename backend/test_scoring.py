@@ -99,6 +99,42 @@ def test_enough_coverage_scores_over_assessed_only():
     assert set(c["coverage"]["abstained"]) == {"Hardware", "Material"}
 
 
+# ---- weights and verdict bands ---------------------------------------------
+def test_every_dimension_carries_equal_weight():
+    assert len(set(graph.WEIGHTS.values())) == 1
+    assert set(graph.WEIGHTS) == set(DIMENSIONS)
+    assert round(sum(graph.WEIGHTS.values()), 6) == 1.0
+
+
+def test_equal_weights_make_the_composite_a_plain_average():
+    dims = [dim("Logo", 10), dim("Stitching", 20), dim("Hardware", 30),
+            dim("Label", 40), dim("Material", 50)]
+    assert agg(dims)["score"] == 30          # (10+20+30+40+50)/5
+
+
+@pytest.mark.parametrize("score,label", [
+    (0, "Authentic"),                        # no deviation on any dimension
+    (1, "Likely Authentic"),
+    (30, "Likely Authentic"),
+    (31, "Inconclusive"),
+    (60, "Inconclusive"),
+    (61, "Suspected Counterfeit"),
+    (100, "Suspected Counterfeit"),
+])
+def test_verdict_band_boundaries(score, label):
+    c = agg([dim(d, score) for d in DIMENSIONS])
+    assert c["score"] == score
+    assert c["verdict_label"] == label
+
+
+def test_zero_is_a_stronger_statement_than_likely():
+    """0 and 1 sit in the same colour band but must not read the same."""
+    assert agg([dim(d, 0) for d in DIMENSIONS])["band"] == "authentic"
+    assert agg([dim(d, 1) for d in DIMENSIONS])["band"] == "authentic"
+    assert (agg([dim(d, 0) for d in DIMENSIONS])["verdict_label"]
+            != agg([dim(d, 1) for d in DIMENSIONS])["verdict_label"])
+
+
 # ---- the UPC bias ----------------------------------------------------------
 def test_missing_upc_image_does_not_inflate_the_score():
     """'No barcode photo supplied' is the absence of a check, not a finding.

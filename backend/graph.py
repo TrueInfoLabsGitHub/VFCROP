@@ -25,7 +25,11 @@ from references import DIMENSIONS, load_ref_b64, select_references
 from rimage import fetch_authentic_references
 
 # Per-dimension weights for the composite (sum = 1.0).
-WEIGHTS = {"Logo": 0.22, "Stitching": 0.16, "Hardware": 0.22, "Label": 0.22, "Material": 0.18}
+# Even across all five: no dimension is treated as a better predictor than
+# another. The previous uneven split (.22/.22/.22/.18/.16) was an inherited
+# assumption that had never been fitted to outcome data, so weighting them
+# equally is the honest default until there is labelled data to fit against.
+WEIGHTS = {d: 0.20 for d in ("Logo", "Stitching", "Hardware", "Label", "Material")}
 
 # A composite is only meaningful when enough of the item was actually assessed.
 # Below this many scored dimensions the run returns REQUEST_RECAPTURE instead of
@@ -66,6 +70,10 @@ class RunState(TypedDict, total=False):
 
 
 def _band(score):
+    """0 = no deviation detected, 100 = clearly different.
+    0 -> Authentic | 1-30 -> Likely Authentic | 31-60 -> Inconclusive |
+    61-100 -> Suspected Counterfeit. The first two share the 'authentic' band;
+    only the verdict wording differs (see _verdict_label)."""
     if score is None:
         return "neutral"
     if score <= 30:
@@ -73,6 +81,16 @@ def _band(score):
     if score <= 60:
         return "caution"
     return "counterfeit"
+
+
+def _verdict_label(band, score):
+    """Verdict text for a band. A composite of exactly 0 means no deviation was
+    detected on any dimension, which is a stronger statement than "likely" —
+    so it gets its own wording. The band stays 'authentic' so colours and the
+    scorecard's % Authentic keep counting it with the 1-30 range."""
+    if band == "authentic" and score == 0:
+        return "Authentic"
+    return _VERDICT_LABEL[band]
 
 
 _VERDICT_LABEL = {
@@ -254,7 +272,8 @@ def aggregate_node(state: RunState) -> dict:
         band, capped = "caution", True
         reason = ("Composite reached the counterfeit band but the Label dimension could not be "
                   "assessed; held at Inconclusive pending a legible tag photo.")
-    return {"composite": {"score": score, "band": band, "verdict_label": _VERDICT_LABEL[band],
+    return {"composite": {"score": score, "band": band,
+                          "verdict_label": _verdict_label(band, score),
                           "coverage": coverage, "capped": capped, "reason": reason}}
 
 

@@ -454,7 +454,9 @@ const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 // judgement about the item, they mean the run could not judge it. Grey keeps
 // them from reading as a soft counterfeit signal.
 const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)',hard_fail:'var(--red)'}[b]||'var(--mut)');
-const verdictLabel=b=>({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed'}[b]||'—');
+// score is optional: a composite of exactly 0 means no deviation was found on
+// any dimension, which reads stronger than 'likely'.
+const verdictLabel=(b,score)=>(b==='authentic'&&score===0)?'Authentic':({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed'}[b]||'—');
 const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray',hard_fail:'b-red'}[b]||'b-gray');
 function caseName(){ return curCase().id || 'Analysis'; }   // the case/run identifier (unique per run)
 function refLabel(){ const p=(products||[]).find(x=>x.id===productId); return (refSource==='product'&&p&&p.name)?p.name:'The North Face'; }
@@ -876,7 +878,7 @@ function renderCompare(data,provs){
     const c=r.composite,t=r.report.totals,ev=(r.report||{}).evals||{},isCheap=p===cheapest;
     const cf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
     return `<tr class="${isCheap?'hl':''}"><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}${isCheap?' <span class="badge b-green" style="font-size:12.3px;padding:1px 7px">cheapest</span>':''}</td>
-      <td><span class="badge ${badgeClass(c.band)}" style="font-size:13.5px">${verdictLabel(c.band)}</span></td>
+      <td><span class="badge ${badgeClass(c.band)}" style="font-size:13.5px">${verdictLabel(c.band,c.score)}</span></td>
       <td class="num" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</td>
       <td class="num">${(r.upc||{}).status||'—'}</td>
       <td class="num">${(r.verdict||{}).verifier_confirmed?'✓':'✕'}</td>
@@ -903,7 +905,7 @@ function renderCompare(data,provs){
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
       <div><div style="font-size:19.7px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:14.7px">${refLabel()} · ${provs.length} engines · ${agree?'consensus':'split'}</div></div>
-      <span class="badge ${primary?badgeClass(primary.composite.band):'b-gray'}" style="margin-left:auto">${primary?verdictLabel(primary.composite.band):'—'}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
+      <span class="badge ${primary?badgeClass(primary.composite.band):'b-gray'}" style="margin-left:auto">${primary?verdictLabel(primary.composite.band,primary.composite.score):'—'}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
       <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
     <div class="metrics">${metrics}</div>
@@ -933,7 +935,7 @@ function benchSave(rows){ try{ localStorage.setItem(BENCH_KEY,JSON.stringify(row
 function benchRow(engineLabel,cid,d){
   const c=d.composite||{},t=(d.report||{}).totals||{},ev=(d.report||{}).evals||{},dm={};
   (d.dimensions||[]).forEach(x=>{ dm[x.dimension]=x.score; });
-  const row={ts:new Date().toISOString(),case:cid,engine:engineLabel,score:c.score,band:c.band||'',verdict:verdictLabel(c.band),
+  const row={ts:new Date().toISOString(),case:cid,engine:engineLabel,score:c.score,band:c.band||'',verdict:verdictLabel(c.band,c.score),
     upc:(d.upc||{}).status||'',verifier:(d.verdict||{}).verifier_confirmed?'confirmed':'refuted',confidence:ev.confidence,
     cost_usd:t.cost,latency_s:t.wall_ms!=null?+(t.wall_ms/1000).toFixed(1):''};
   DIM_ORDER.forEach(dn=>{ row[dn]=dm[dn]!=null?dm[dn]:''; }); return row;
