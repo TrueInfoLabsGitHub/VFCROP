@@ -31,7 +31,9 @@ _PERROW = 3                              # thumbnails per grid row inside a cell
 
 _BAND_FONT = {"authentic": "1E8A4C", "caution": "B07D0A", "counterfeit": "C0392B",
               # no-answer outcomes — grey, so they never read as a result
-              "insufficient": "6B7280", "mismatch": "6B7280", "hard_fail": "C0392B"}
+              "insufficient": "6B7280", "mismatch": "6B7280", "hard_fail": "C0392B",
+              # a failed run is not a verdict — grey, and it says why
+              "error": "6B7280"}
 
 # Printed in a dimension cell that abstained. A blank cell is ambiguous (it could
 # mean the engine never ran); an explicit marker is not, and it must never be
@@ -259,7 +261,10 @@ def _build_analyses_sheet(ws, runs):
                 lat = round(float(rec.get("latency_ms") or 0) / 1000, 1)
                 nass = rec.get("assessed")
                 assessed = f"{nass}/{len(DIMS)}" if isinstance(nass, int) else ""
-                vals = [rec.get("verdict", ""), s, assessed,
+                verdict_txt = rec.get("verdict", "")
+                if rec.get("band") == "error" and rec.get("error"):
+                    verdict_txt = f"Run Failed — {rec['error']}"
+                vals = [verdict_txt, s, assessed,
                         *[_dim_cell(dims, d) for d in DIMS],
                         rec.get("verifier", ""), cost, lat,
                         *[(dims.get(d) or {}).get("finding", "") for d in DIMS]]
@@ -382,7 +387,8 @@ def _build_comparison_sheet(wb, runs):
                     scores.append(sc)
                 dims = rec.get("dimensions") or {}
                 nass = rec.get("assessed")
-                vals = [rec.get("verdict", ""), sc,
+                vals = [("Run Failed" if rec.get("band") == "error"
+                         else rec.get("verdict", "")), sc,
                         f"{nass}/{len(DIMS)}" if isinstance(nass, int) else "",
                         *[_dim_cell(dims, d) for d in DIMS]]
                 for j, v in enumerate(vals):
@@ -424,7 +430,8 @@ def _build_scorecard_sheet(wb, runs):
             continue
         a = agg.setdefault(k, {"label": "", "n": 0, "score": [], "conf": [], "cost": [],
                                "lat": [], "band": {"authentic": 0, "caution": 0, "counterfeit": 0,
-                                                   "insufficient": 0, "mismatch": 0, "hard_fail": 0},
+                                                   "insufficient": 0, "mismatch": 0, "hard_fail": 0,
+                                                   "error": 0},
                                "confirmed": 0, "verifier_n": 0, "dims": {d: [] for d in DIMS},
                                "assessed": [], "order": len(agg)})
         a["label"] = (rec.get("engine") or a["label"])
@@ -449,7 +456,7 @@ def _build_scorecard_sheet(wb, runs):
 
     engines = sorted(agg.values(), key=lambda a: a["order"])
     cols = ["Engine", "Runs", "Avg score", "Avg assessed", "% Authentic", "% Inconclusive",
-            "% Counterfeit", "% No answer", "Verifier confirmed %", "Avg confidence",
+            "% Counterfeit", "% No answer", "% Failed", "Verifier confirmed %", "Avg confidence",
             *[f"Avg {d}" for d in DIMS], "Avg cost ($)", "Avg latency (s)"]
     for ci, label in enumerate(cols, start=1):
         c = ws.cell(row=1, column=ci, value=label)
@@ -478,6 +485,7 @@ def _build_scorecard_sheet(wb, runs):
             a["label"], n, _avg(a["score"], 1), _avg(a["assessed"], 1),
             pct(a["band"]["authentic"], n), pct(a["band"]["caution"], n),
             pct(a["band"]["counterfeit"] + hard, n), pct(no_answer, n),
+            pct(a["band"]["error"], n),
             pct(a["confirmed"], a["verifier_n"]), _avg(a["conf"], 2),
             *[_avg(a["dims"][d], 1) for d in DIMS],
             _avg(a["cost"], 4), _avg(a["lat"], 1),

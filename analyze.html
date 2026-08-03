@@ -446,18 +446,18 @@ function updateCaseHeader(){ const el=$('#caseheader'); if(el) el.innerHTML=case
 let caseId='', brand='TNF';
 const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
 const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
-const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'},hard_fail:{c:'b-red',l:'Hard fail'}}[b]||{c:'b-gray',l:'N/A'});
+const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'},hard_fail:{c:'b-red',l:'Hard fail'},error:{c:'b-gray',l:'Failed'}}[b]||{c:'b-gray',l:'N/A'});
 let findingLayout='radar', lastSingleData=null, cmpRes=null;
 const engineName=p=>ENGINE_LABEL[p]||p;
 const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 // 'insufficient' and 'mismatch' are deliberately NOT amber: they are not a
 // judgement about the item, they mean the run could not judge it. Grey keeps
 // them from reading as a soft counterfeit signal.
-const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)',hard_fail:'var(--red)'}[b]||'var(--mut)');
+const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)',hard_fail:'var(--red)',error:'var(--mut)'}[b]||'var(--mut)');
 // score is optional: a composite of exactly 0 means no deviation was found on
 // any dimension, which reads stronger than 'likely'.
-const verdictLabel=(b,score)=>(b==='authentic'&&score===0)?'Authentic':({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed'}[b]||'—');
-const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray',hard_fail:'b-red'}[b]||'b-gray');
+const verdictLabel=(b,score)=>(b==='authentic'&&score===0)?'Authentic':({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed',error:'Run failed'}[b]||'—');
+const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray',hard_fail:'b-red',error:'b-gray'}[b]||'b-gray');
 function caseName(){ return curCase().id || 'Analysis'; }   // the case/run identifier (unique per run)
 function refLabel(){ const p=(products||[]).find(x=>x.id===productId); return (refSource==='product'&&p&&p.name)?p.name:'The North Face'; }
 
@@ -649,7 +649,9 @@ $('#run').onclick=async()=>{
       if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);
       stopProc(); renderCompare(data,provs);
       const oksP=provs.filter(p=>data.results[p]&&data.results[p].ok);
-      setLastRuns(oksP.map(p=>({data:data.results[p], engine:engineName(p)})));
+      // save every engine, failures included: a dropped failure is
+      // indistinguishable from an engine that was never run
+      setLastRuns(provs.map(p=>({data:data.results[p]||{ok:false,error:'no result returned'}, engine:engineName(p)})));
       benchAppend(oksP.map(p=>benchRow(engineName(p),caseId,data.results[p])));
     } else {
       activeEngine=provider;
@@ -664,6 +666,9 @@ $('#run').onclick=async()=>{
   }catch(e){
     clearInterval(procTimer); $('#v-proc').classList.add('hidden'); $('#v-input').classList.remove('hidden');
     $('#runerr').innerHTML=`<div class="errbox">Run failed — ${e.message}</div>`;
+    // record the failure too, so the case does not silently vanish from the export
+    try{ setLastRuns([{data:{ok:false,error:e.message,case_id:caseId,brand:brand},
+                       engine:engineName(provider==='all'?'openai':provider)}]); }catch(_){}
   }
 };
 function backToInput(){ $('#v-result').classList.add('hidden'); $('#v-proc').classList.add('hidden'); $('#v-input').classList.remove('hidden'); }
@@ -965,7 +970,9 @@ function setLastRun(dataObj, engineLbl){ setLastRuns([{data:dataObj, engine:engi
 // auto-saves to the Excel history (see saveRuns), so no click is needed.
 function setLastRuns(list){
   const meta=runMeta();
-  lastRuns=(list||[]).map(x=>({ data:x.data, engine:x.engine, ...meta }));
+  lastRuns=(list||[]).map(x=>({ data:x.data, engine:x.engine,
+    case_id:(x.data&&x.data.case_id)||caseId||'', brand:(x.data&&x.data.brand)||brand||'',
+    error:(x.data&&x.data.ok===false)?(x.data.error||'run failed'):'', ...meta }));
   lastRunsSaved=false;
   if(exportOn){ const b=$('#expsave'); if(b) b.disabled=!lastRuns.length; if(lastRuns.length) saveRuns(); }
 }

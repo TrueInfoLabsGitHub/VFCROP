@@ -145,7 +145,8 @@ def compare(req: CompareReq):
         try:
             return {"ok": True, **_run_one(req, p)}
         except Exception as e:
-            return {"ok": False, "provider": p, "error": str(e)}
+            return {"ok": False, "provider": p, "error": str(e),
+                    "case_id": req.case_id, "brand": req.brand}
 
     def work(set_partial):
         results = {}
@@ -160,6 +161,7 @@ def compare(req: CompareReq):
                 pass
         for p in provs:
             results.setdefault(p, {"ok": False, "provider": p,
+                                   "case_id": req.case_id, "brand": req.brand,
                                    "error": "engine exceeded the time budget (still reasoning)"})
         return {"mode": mode(), "providers": provs, "results": results}
 
@@ -281,6 +283,9 @@ class ExportSaveReq(BaseModel):
     reference_images: list[str] = []        # authentic reference photos (optional override)
     upc_image: str | None = None
     data: dict = {}                         # the /api/analyze response
+    case_id: str = ""                       # used when the run failed and data is empty
+    brand: str = ""
+    error: str = ""                         # non-empty records a failed run
 
 
 def _build_record(req: ExportSaveReq) -> dict:
@@ -294,6 +299,10 @@ def _build_record(req: ExportSaveReq) -> dict:
             _ref_imgs = supa.product_images_b64(req.product_id, cap=12)
         except Exception:
             _ref_imgs = []
+    # A failed run is recorded, not dropped. Losing it makes "this engine failed"
+    # indistinguishable from "this engine was never run" — the row simply
+    # disappears from the export with no trace.
+    failed = (d.get("ok") is False) or bool(d.get("error")) or bool(req.error)
     comp = d.get("composite") or {}
     dims = d.get("dimensions") or []
     # Carry `status` through to the export: a null score alone cannot tell the
@@ -308,13 +317,15 @@ def _build_record(req: ExportSaveReq) -> dict:
     return {
         "id": f"{int(time.time())}-{uuid.uuid4().hex[:6]}",
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "case_id": d.get("case_id", ""),
-        "brand": d.get("brand", ""),
+        # fall back to the request when the run failed before producing a result
+        "case_id": d.get("case_id") or req.case_id or "",
+        "brand": d.get("brand") or req.brand or "",
         "engine": req.engine or "",
         "product": req.product or "",
-        "verdict": comp.get("verdict_label", ""),
+        "verdict": ("Run Failed" if failed else comp.get("verdict_label", "")),
         "score": comp.get("score"),
-        "band": comp.get("band", ""),
+        "band": ("error" if failed else comp.get("band", "")),
+        "error": (str(d.get("error") or req.error or "run failed") if failed else ""),
         "assessed": (comp.get("coverage") or {}).get("assessed"),
         "label_validation": {
             "hard_fail": bool((((d.get("label_id") or {}).get("validation")) or {}).get("hard_fail")),
@@ -349,7 +360,7 @@ def export_count():
 def export_save(req: ExportSaveReq):
     if not supa.available():
         raise HTTPException(503, "Supabase not configured")
-    if not req.data:
+    if not req.data and not req.error:
         raise HTTPException(400, "no analysis data to save")
     rec = _build_record(req)
     supa.save_run(rec)
