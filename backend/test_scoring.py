@@ -98,7 +98,7 @@ def test_enough_coverage_scores_over_assessed_only():
     c = agg(dims)
     # 80 across every assessed dimension must average to 80 — if the two
     # abstentions were coerced to 0 this would come out near 48.
-    assert c["score"] == 80
+    assert c["score"] == 20          # 100 - 80; dimensions stay on the deviation scale
     assert c["coverage"]["assessed"] == 3
     assert set(c["coverage"]["abstained"]) == {"Hardware", "Material"}
 
@@ -117,7 +117,7 @@ def test_pairing_prompt_allows_detail_shots_against_a_full_garment():
 def test_always_score_keeps_the_mismatch_warning_but_still_fills_numbers():
     dims = [dim(d, 40, "estimated") for d in DIMENSIONS]
     c = agg(dims, pairing_status="mismatch")
-    assert c["score"] == 40                                   # cells populated
+    assert c["score"] == 60                                   # 100 - 40, cells populated
     assert c["verdict_label"] == "Reference Mismatch — Cannot Compare"
     assert c["band"] == "mismatch"                            # warning preserved
 
@@ -140,30 +140,33 @@ def test_every_dimension_carries_equal_weight():
 def test_equal_weights_make_the_composite_a_plain_average():
     dims = [dim("Logo", 10), dim("Stitching", 20), dim("Hardware", 30),
             dim("Label", 40), dim("Material", 50)]
-    assert agg(dims)["score"] == 30          # (10+20+30+40+50)/5
+    assert agg(dims)["score"] == 70          # 100 - (10+20+30+40+50)/5
 
 
-@pytest.mark.parametrize("score,label", [
-    (0, "Authentic"),                        # no deviation on any dimension
-    (1, "Likely Authentic"),
-    (30, "Likely Authentic"),
-    (31, "Inconclusive"),
-    (60, "Inconclusive"),
-    (61, "Suspected Counterfeit"),
-    (100, "Suspected Counterfeit"),
+@pytest.mark.parametrize("deviation,score,label", [
+    (0,   100, "Authentic"),            # every dimension identical to the reference
+    (1,    99, "Likely Authentic"),
+    (24,   76, "Likely Authentic"),
+    (25,   75, "Inconclusive"),
+    (49,   51, "Inconclusive"),
+    (50,   50, "Likely Counterfeit"),
+    (74,   26, "Likely Counterfeit"),
+    (75,   25, "Counterfeit"),
+    (100,   0, "Counterfeit"),
 ])
-def test_verdict_band_boundaries(score, label):
-    c = agg([dim(d, score) for d in DIMENSIONS])
+def test_verdict_band_boundaries(deviation, score, label):
+    """Dimensions are fed DEVIATION; the verdict reads AUTHENTICITY."""
+    c = agg([dim(d, deviation) for d in DIMENSIONS])
     assert c["score"] == score
     assert c["verdict_label"] == label
 
 
-def test_zero_is_a_stronger_statement_than_likely():
-    """0 and 1 sit in the same colour band but must not read the same."""
-    assert agg([dim(d, 0) for d in DIMENSIONS])["band"] == "authentic"
-    assert agg([dim(d, 1) for d in DIMENSIONS])["band"] == "authentic"
-    assert (agg([dim(d, 0) for d in DIMENSIONS])["verdict_label"]
-            != agg([dim(d, 1) for d in DIMENSIONS])["verdict_label"])
+def test_a_perfect_match_is_a_stronger_statement_than_likely():
+    """A composite of exactly 100 — no deviation anywhere — is its own verdict."""
+    perfect = agg([dim(d, 0) for d in DIMENSIONS])
+    near = agg([dim(d, 1) for d in DIMENSIONS])
+    assert perfect["score"] == 100 and perfect["verdict_label"] == "Authentic"
+    assert near["score"] == 99 and near["verdict_label"] == "Likely Authentic"
 
 
 # ---- the UPC bias ----------------------------------------------------------
@@ -177,8 +180,8 @@ def test_missing_upc_image_does_not_inflate_the_score():
 
 def test_real_upc_mismatch_still_counts():
     dims = [dim(d, 50) for d in DIMENSIONS]
-    assert agg(dims, upc_status="mismatch")["score"] == 56
-    assert agg(dims, upc_status="nomatch")["score"] == 56
+    assert agg(dims, upc_status="mismatch")["score"] == 44    # 50 - 6
+    assert agg(dims, upc_status="nomatch")["score"] == 44
 
 
 # ---- the pairing gate ------------------------------------------------------
@@ -209,7 +212,7 @@ def test_counterfeit_verdict_capped_without_a_readable_label():
     dims = [dim("Logo", 90), dim("Stitching", 90), dim("Hardware", 90),
             dim("Label", None, "abstain", 0.0), dim("Material", 90)]
     c = agg(dims)
-    assert c["score"] == 90
+    assert c["score"] == 10             # 100 - 90
     assert c["band"] == "caution"       # held back from 'counterfeit'
     assert c["capped"] is True
 
@@ -570,7 +573,7 @@ def test_label_hard_fail_stands_even_with_no_assessable_dimensions():
 
 def test_no_hard_fail_leaves_the_normal_path_untouched():
     dims = [dim(d, 5) for d in DIMENSIONS]
-    assert agg(dims, hard_fail=False)["band"] == "authentic"
+    assert agg(dims, hard_fail=False)["band"] == "likely_authentic"   # 100 - 5 = 95
 
 
 if __name__ == "__main__":
@@ -585,7 +588,7 @@ def test_zero_evidence_cannot_be_cleared_as_authentic():
     dims = [dim(d, v, "estimated", 0.3) for d, v in
             zip(DIMENSIONS, (15, 12, 10, 14, 8))]
     c = agg(dims)
-    assert c["score"] == 12                       # the number is unchanged
+    assert c["score"] == 88                       # the number is unchanged
     assert c["verdict_label"] == "Inconclusive"   # but it is not cleared
     assert c["capped"] is True
     assert "not enough evidence" in c["reason"]
@@ -619,7 +622,7 @@ def test_the_guard_does_not_touch_a_counterfeit_verdict():
             dim("Hardware", 85, "estimated", 0.3), dim("Label", 85),
             dim("Material", 85, "estimated", 0.3)]
     c = agg(dims)
-    assert c["verdict_label"] == "Suspected Counterfeit"
+    assert c["verdict_label"] == "Counterfeit"
     assert c["capped"] is False
 
 
@@ -629,3 +632,34 @@ def test_an_unread_label_still_holds_a_counterfeit_verdict():
     c = agg(dims)
     assert c["verdict_label"] == "Inconclusive"
     assert c["capped"] is True
+
+
+# ---- the scale itself ------------------------------------------------------
+def test_dimensions_keep_the_deviation_scale():
+    """Only the VERDICT flipped. A dimension still reports deviation, so a
+    near-perfect logo is a LOW dimension number."""
+    parsed = {"assessable": True, "insufficient_reason": "", "score": 8,
+              "finding": "x", "reasoning": "y", "confidence": 0.9}
+    r, _ = providers._dim_result("Logo", parsed, "m", 0, 0, 0.0)
+    assert r["score"] == 8                      # unchanged, not inverted
+    assert r["band"] == "authentic"             # low deviation reads as a match
+
+
+def test_composite_is_the_inverse_of_the_dimension_average():
+    for deviation in (0, 12, 37, 64, 91, 100):
+        c = agg([dim(d, deviation) for d in DIMENSIONS])
+        assert c["score"] == 100 - deviation
+
+
+def test_a_failed_barcode_lowers_authenticity():
+    """+6 used to make a run MORE suspicious on the deviation scale; on the
+    authenticity scale the same evidence has to subtract."""
+    dims = [dim(d, 50) for d in DIMENSIONS]
+    assert agg(dims)["score"] == 50
+    assert agg(dims, upc_status="mismatch")["score"] == 44
+
+
+def test_every_band_has_a_verdict_label():
+    for b in ("authentic", "likely_authentic", "caution",
+              "likely_counterfeit", "counterfeit"):
+        assert graph._VERDICT_LABEL[b]

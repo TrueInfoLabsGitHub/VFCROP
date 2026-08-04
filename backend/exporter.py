@@ -60,7 +60,8 @@ _PERROW = 3                              # thumbnails per grid row inside a cell
 
 
 
-_BAND_FONT = {"authentic": "1E8A4C", "caution": "B07D0A", "counterfeit": "C0392B",
+_BAND_FONT = {"authentic": "1E8A4C", "likely_authentic": "3C9D63",
+              "caution": "B07D0A", "likely_counterfeit": "D2691E", "counterfeit": "C0392B",
 
               # no-answer outcomes — grey, so they never read as a result
 
@@ -262,7 +263,9 @@ def build_workbook(runs):
 
 # ---------------------------------------------------------------------------
 
-_BAND_LABEL = {"authentic": "Authentic", "caution": "Inconclusive", "counterfeit": "Counterfeit"}
+_BAND_LABEL = {"authentic": "Authentic", "likely_authentic": "Likely Authentic",
+               "caution": "Inconclusive", "likely_counterfeit": "Likely Counterfeit",
+               "counterfeit": "Counterfeit"}
 
 _HEAD_FILL = PatternFill("solid", fgColor="1A2B3C")
 
@@ -954,7 +957,8 @@ def _build_scorecard_sheet(wb, runs):
 
         a = agg.setdefault(k, {"label": "", "n": 0, "score": [], "conf": [], "cost": [],
 
-                               "lat": [], "band": {"authentic": 0, "caution": 0, "counterfeit": 0,
+                               "lat": [], "band": {"authentic": 0, "likely_authentic": 0, "caution": 0,
+                                                   "likely_counterfeit": 0, "counterfeit": 0,
 
                                                    "insufficient": 0, "mismatch": 0, "hard_fail": 0,
 

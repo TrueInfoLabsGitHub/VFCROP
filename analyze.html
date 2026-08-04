@@ -449,18 +449,20 @@ function updateCaseHeader(){ const el=$('#caseheader'); if(el) el.innerHTML=case
 let caseId='', brand='TNF';
 const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
 const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
-const vinfo=b=>({authentic:{c:'b-green',l:'Match'},caution:{c:'b-amber',l:'Review'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'},hard_fail:{c:'b-red',l:'Hard fail'},error:{c:'b-gray',l:'Failed'}}[b]||{c:'b-gray',l:'N/A'});
+const vinfo=b=>({authentic:{c:'b-green',l:'Match'},likely_authentic:{c:'b-green',l:'Close match'},caution:{c:'b-amber',l:'Review'},likely_counterfeit:{c:'b-amber',l:'Suspect'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'},hard_fail:{c:'b-red',l:'Hard fail'},error:{c:'b-gray',l:'Failed'}}[b]||{c:'b-gray',l:'N/A'});
 let findingLayout='radar', lastSingleData=null, cmpRes=null;
 const engineName=p=>ENGINE_LABEL[p]||p;
+// DIMENSION bands: deviation, low = matches. The composite band comes from the
+// backend on the authenticity scale and uses the likely_* names below.
 const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 // 'insufficient' and 'mismatch' are deliberately NOT amber: they are not a
 // judgement about the item, they mean the run could not judge it. Grey keeps
 // them from reading as a soft counterfeit signal.
-const bandColor=b=>({authentic:'var(--green)',caution:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)',hard_fail:'var(--red)',error:'var(--mut)'}[b]||'var(--mut)');
+const bandColor=b=>({authentic:'var(--green)',likely_authentic:'var(--green)',caution:'var(--amber)',likely_counterfeit:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)',hard_fail:'var(--red)',error:'var(--mut)'}[b]||'var(--mut)');
 // score is optional: a composite of exactly 0 means no deviation was found on
 // any dimension, which reads stronger than 'likely'.
-const verdictLabel=(b,score)=>(b==='authentic'&&score===0)?'Authentic':({authentic:'Likely authentic',caution:'Inconclusive',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed',error:'Run failed'}[b]||'—');
-const badgeClass=b=>({authentic:'b-green',caution:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray',hard_fail:'b-red',error:'b-gray'}[b]||'b-gray');
+const verdictLabel=(b,score)=>(b==='authentic'&&score===0)?'Authentic':({authentic:'Authentic',likely_authentic:'Likely authentic',caution:'Inconclusive',likely_counterfeit:'Likely counterfeit',counterfeit:'Counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed',error:'Run failed'}[b]||'—');
+const badgeClass=b=>({authentic:'b-green',likely_authentic:'b-green',caution:'b-amber',likely_counterfeit:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray',hard_fail:'b-red',error:'b-gray'}[b]||'b-gray');
 function caseName(){ return curCase().id || 'Analysis'; }   // the case/run identifier (unique per run)
 function refLabel(){ const p=(products||[]).find(x=>x.id===productId); return (refSource==='product'&&p&&p.name)?p.name:'The North Face'; }
 

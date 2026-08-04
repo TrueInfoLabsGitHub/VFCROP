@@ -1868,7 +1868,8 @@ def run_verdict(provider, brand, composite, dimensions, upc):
     verdict = {
         "label": composite["verdict_label"],
         "summary": synth["summary"],
-        "escalated": composite["band"] not in ("authentic", "insufficient", "mismatch"),
+        # composite bands are AUTHENTICITY now; the adverse ones are the low bands
+        "escalated": composite["band"] in ("counterfeit", "likely_counterfeit", "hard_fail"),
         "verifier_confirmed": yes * 2 > len(votes),      # strict majority
         "verifier_votes": f"{yes}/{len(votes)}",
         "key_evidence": synth["key_evidence"],

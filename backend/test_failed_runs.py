@@ -254,7 +254,7 @@ def test_the_other_dimensions_still_produce_a_verdict():
                               ok("Label", 20), failed],
         "upc_result": {"status": "not_provided"}, "pairing": {"status": "ok"},
         "label_id": {"validation": {"hard_fail": False}}})["composite"]
-    assert c["score"] == 20
+    assert c["score"] == 80          # 100 - 20; dimensions report deviation
     assert c["coverage"]["assessed"] == 4
     assert c["coverage"]["errored"] == ["Material"]
 

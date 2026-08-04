@@ -78,33 +78,40 @@ class RunState(TypedDict, total=False):
 
 
 def _band(score):
-    """0 = no deviation detected, 100 = clearly different.
-    0 -> Authentic | 1-30 -> Likely Authentic | 31-60 -> Inconclusive |
-    61-100 -> Suspected Counterfeit. The first two share the 'authentic' band;
-    only the verdict wording differs (see _verdict_label)."""
+    """AUTHENTICITY, not deviation: 100 = matches the authentic reference on every
+    dimension, 0 = matches none of it. High is good.
+
+        100      Authentic
+        76-99    Likely Authentic
+        51-75    Inconclusive
+        26-50    Likely Counterfeit
+        0-25     Counterfeit
+    """
     if score is None:
         return "neutral"
-    if score <= 30:
+    if score >= 100:
         return "authentic"
-    if score <= 60:
+    if score >= 76:
+        return "likely_authentic"
+    if score >= 51:
         return "caution"
+    if score >= 26:
+        return "likely_counterfeit"
     return "counterfeit"
 
 
-def _verdict_label(band, score):
-    """Verdict text for a band. A composite of exactly 0 means no deviation was
-    detected on any dimension, which is a stronger statement than "likely" —
-    so it gets its own wording. The band stays 'authentic' so colours and the
-    scorecard's % Authentic keep counting it with the 1-30 range."""
-    if band == "authentic" and score == 0:
-        return "Authentic"
+def _verdict_label(band, score=None):
+    """Verdict text for a band. `score` is kept for call-site compatibility; the
+    exact-100 case is now a band of its own."""
     return _VERDICT_LABEL[band]
 
 
 _VERDICT_LABEL = {
-    "authentic": "Likely Authentic",
+    "authentic": "Authentic",
+    "likely_authentic": "Likely Authentic",
     "caution": "Inconclusive",
-    "counterfeit": "Suspected Counterfeit",
+    "likely_counterfeit": "Likely Counterfeit",
+    "counterfeit": "Counterfeit",
     # Two distinct "no answer" outcomes, deliberately separate from Inconclusive.
     # Inconclusive means "assessed, genuinely ambiguous" — a human-review item.
     # These mean "could not assess" — an input problem, routed differently.
@@ -284,28 +291,31 @@ def aggregate_node(state: RunState) -> dict:
         if d and d.get("score") is not None:
             num += d["score"] * w
             den += w
-    score = round(num / den) if den else None
+    # Dimensions report DEVIATION (0 = matches the reference). The verdict scale
+    # is AUTHENTICITY (100 = matches). Invert once, here — the dimension cells
+    # keep their own logic untouched.
+    score = (100 - round(num / den)) if den else None
 
     # 4. UPC only moves the score on REAL evidence. 'not_provided' (no barcode
     #    photo) and 'unreadable' (capture failure) are absences of a check, not
     #    findings — treating them as findings added +6 to every run in the corpus.
     upc_status = (state.get("upc_result") or {}).get("status")
     if upc_status in ("nomatch", "mismatch") and score is not None:
-        score = min(100, score + 6)
+        score = max(0, score - 6)          # a failed barcode is evidence AGAINST
 
     band = _band(score)
     reason = ""
     capped = False
     # 5. Label carries the identity evidence. Without it, allow suspicion but not
     #    a counterfeit conclusion.
-    if REQUIRE_LABEL_FOR_VERDICT and band == "counterfeit" and \
+    if REQUIRE_LABEL_FOR_VERDICT and band in ("counterfeit", "likely_counterfeit") and \
             (by.get("Label") or {}).get("status") != "scored":
         band, capped = "caution", True
         reason = ("Composite reached the counterfeit band but the Label dimension could not be "
                   "assessed; held at Inconclusive pending a legible tag photo.")
     # 6. The same restraint in the other direction: no clearing an item that was
     #    never really examined.
-    elif band == "authentic" and len(evidence) < MIN_MEASURED_FOR_AUTHENTIC:
+    elif band in ("authentic", "likely_authentic") and len(evidence) < MIN_MEASURED_FOR_AUTHENTIC:
         band, capped = "caution", True
         reason = (f"only {len(evidence)} of {len(DIMENSIONS)} dimensions measured — "
                   f"not enough evidence to clear as authentic")
@@ -412,7 +422,8 @@ def _evals(state: RunState) -> dict:
     # A run with no score makes no prediction — scoring it against ground truth
     # would silently count "I don't know" as a wrong (or right) answer.
     if truth and comp.get("score") is not None:
-        predicted = "counterfeit" if comp["band"] != "authentic" else "authentic"
+        predicted = ("counterfeit" if comp["band"] in ("counterfeit", "likely_counterfeit")
+                     else "authentic")
         out["ground_truth"] = truth
         out["correct"] = predicted == truth
     elif truth:
