@@ -965,7 +965,8 @@ function runMeta(){
     product_id:(refSource==='product'?productId:'')||'',
     suspect_images:suspectImgs.slice(), upc_image:upcB64 };
 }
-let savingRuns=false, lastRunsSaved=false;
+let savingRuns=false, lastRunsSaved=false, saveQueue=[], saveFailed=false;
+const SAVE_RETRIES=3;
 // Single-engine run: one record to save.
 function setLastRun(dataObj, engineLbl){ setLastRuns([{data:dataObj, engine:engineLbl}]); }
 // Compare run: one record per successful engine (all share the same case id),
@@ -979,20 +980,58 @@ function setLastRuns(list){
   lastRunsSaved=false;
   if(exportOn){ const b=$('#expsave'); if(b) b.disabled=!lastRuns.length; if(lastRuns.length) saveRuns(); }
 }
-// POST every record for the current run to the Supabase-backed Excel history.
-// Called automatically when a run completes; the button is a manual fallback.
-async function saveRuns(force){
-  if(!lastRuns.length || savingRuns) return;
-  if(lastRunsSaved && !force) return;                 // already auto-saved this run
-  savingRuns=true; const b=$('#expsave'); if(b) b.disabled=true; const t=$('#exptoast'); if(t) t.textContent='';
-  try{ let count=0;
-    for(const payload of lastRuns){
-      const r=await fetch(API+'/api/export/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-      if(!r.ok) throw new Error('HTTP '+r.status); const d=await r.json(); count=d.count;
+// Every finished run is QUEUED, never dropped. A run that completed while an
+// earlier save was still uploading used to hit a `savingRuns` guard and return
+// immediately — the record was never posted, `lastRunsSaved` was then set true
+// by the in-flight save, and the whole analysis vanished with no error shown.
+function saveRuns(force){
+  // Always enqueue new work FIRST. An early return here (e.g. "something is
+  // already pending") is exactly how a finished run gets dropped.
+  if(lastRuns.length && (force || !lastRunsSaved)){
+    const pending=new Set(saveQueue);                 // never queue the same record twice
+    const fresh=lastRuns.filter(r=>!pending.has(r));
+    if(fresh.length){ saveQueue.push(...fresh); lastRunsSaved=false; }
+  }
+  drainSaveQueue();                                   // also retries anything still pending
+}
+// Drains one record at a time. Anything enqueued while this is running is picked
+// up by the same loop, so a concurrent finish is delayed, never lost. A record
+// that will not post stays at the head of the queue for the manual Save button.
+async function drainSaveQueue(){
+  if(savingRuns) return;                              // a drain is already running
+  savingRuns=true;
+  const b=$('#expsave'), t=$('#exptoast');
+  if(b) b.disabled=true;
+  if(t && !saveFailed) t.textContent='';
+  let saved=0, count=null;
+  while(saveQueue.length){
+    const payload=saveQueue[0];
+    let ok=false;
+    for(let a=0; a<SAVE_RETRIES && !ok; a++){
+      if(a) await sleep(1200*a);                      // brief backoff between tries
+      try{
+        const r=await fetch(API+'/api/export/save',{method:'POST',
+          headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        const d=await r.json(); count=d.count; ok=true;
+      }catch(e){ /* retry */ }
     }
-    setExpCount(count); lastRunsSaved=true; const n=lastRuns.length;
-    if(t){ t.style.color='var(--green)'; t.textContent='✓ auto-saved'+(n>1?' · '+n+' engines':''); setTimeout(()=>{ const x=$('#exptoast'); if(x) x.textContent=''; },2500); }
-  }catch(e){ if(t){ t.style.color='var(--red)'; t.textContent='auto-save failed — click Save to retry'; } if(b) b.disabled=false; }
+    if(!ok){
+      saveFailed=true;
+      if(t){ t.style.color='var(--red)';
+        t.textContent='auto-save failed — '+saveQueue.length+' run(s) pending, click Save to retry'; }
+      if(b) b.disabled=false;
+      savingRuns=false;
+      return;                                         // keep the queue intact
+    }
+    saveQueue.shift(); saved++;
+  }
+  saveFailed=false; lastRunsSaved=true;
+  if(count!=null) setExpCount(count);
+  if(b) b.disabled=!lastRuns.length;
+  if(t && saved){ t.style.color='var(--green)';
+    t.textContent='✓ auto-saved'+(saved>1?' · '+saved+' records':'');
+    setTimeout(()=>{ const x=$('#exptoast'); if(x && !saveFailed) x.textContent=''; },2500); }
   savingRuns=false;
 }
 function setExpCount(n){ $('#expcount').textContent=n+' saved'; $('#expdl').disabled=!n; $('#expclear').classList.toggle('hidden',!n); }
