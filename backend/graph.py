@@ -17,6 +17,7 @@ from langgraph.graph import END, START, StateGraph
 
 import os
 
+import scoring
 import supa
 from pricing import price_usage
 from providers import (ALWAYS_SCORE, _cfg, run_dimension_agent,
@@ -25,30 +26,18 @@ from providers import (ALWAYS_SCORE, _cfg, run_dimension_agent,
 from references import DIMENSIONS, load_ref_b64, select_references
 from rimage import fetch_authentic_references
 
-# Per-dimension weights for the composite (sum = 1.0).
-# Even across all five: no dimension is treated as a better predictor than
-# another. The previous uneven split (.22/.22/.22/.18/.16) was an inherited
-# assumption that had never been fitted to outcome data, so weighting them
-# equally is the honest default until there is labelled data to fit against.
-WEIGHTS = {d: 0.20 for d in ("Logo", "Stitching", "Hardware", "Label", "Material")}
+# Every weight, threshold and factor now lives in ONE place: scoring.py's
+# SCORING_CONSTANTS. Re-exported here because callers and tests import them from
+# graph, and because a second definition is how the two drifted apart before.
+WEIGHTS = scoring.DIM_WEIGHTS
+SCORING_CONSTANTS = scoring.SCORING_CONSTANTS
 
-# A composite is only meaningful when enough of the item was actually assessed.
-# Below this many scored dimensions the run returns REQUEST_RECAPTURE instead of
-# a number — a score averaged over one or two dimensions reads as authoritative
-# and is not.
-MIN_ASSESSED_DIMS = max(1, int(os.environ.get("MIN_ASSESSED_DIMS", "3")))
-
-# Label carries the deterministic identity evidence, so a run that could not read
-# it is capped at 'caution' rather than being allowed to conclude counterfeit.
+# Kept as an env-only escape hatch for the label annotation below. It no longer
+# demotes a counterfeit-band score to Inconclusive: suppressing suspicion
+# because the tag was unreadable contradicts the rule that the coverage guard
+# never suppresses suspicion. The verdict stands and says so instead.
 REQUIRE_LABEL_FOR_VERDICT = os.environ.get(
     "REQUIRE_LABEL_FOR_VERDICT", "1").strip().lower() in ("1", "true", "yes", "on")
-
-# The mirror of the rule above, in the other direction. Clearing an item as
-# authentic on no measured evidence is the more dangerous error: a counterfeit
-# photographed badly produces low estimates — the model saw no defects, which is
-# not the same as there being none — and would otherwise be waved through. Below
-# this many MEASURED dimensions a run can be Inconclusive, never Authentic.
-MIN_MEASURED_FOR_AUTHENTIC = max(0, int(os.environ.get("MIN_MEASURED_FOR_AUTHENTIC", "3")))
 
 # Tiny labeled set so the Run Report can show accuracy vs ground truth on
 # known eval cases (live cases simply omit the "vs ground truth" tile).
@@ -61,6 +50,7 @@ class RunState(TypedDict, total=False):
     provider: str
     ref_source: str
     product_id: str
+    product_name: str
     suspect_images: list
     upc_image: str
     references: dict
@@ -78,14 +68,19 @@ class RunState(TypedDict, total=False):
 
 
 def _band(score):
-    """AUTHENTICITY, not deviation: 100 = matches the authentic reference on every
-    dimension, 0 = matches none of it. High is good.
+    """AUTHENTICITY band for a reported score: 100 = matches the authentic
+    reference on every dimension, 0 = matches none of it. High is good.
 
         100      Authentic
         76-99    Likely Authentic
         51-75    Inconclusive
         26-50    Likely Counterfeit
         0-25     Counterfeit
+
+    NOTE: this is now a DISPLAY helper only. Nothing derives a verdict from it —
+    the band comes from the decision ladder in scoring.decide(), which also
+    weighs coverage and evidence and can hold a low-deviation item at
+    Insufficient Evidence rather than clearing it on a number alone.
     """
     if score is None:
         return "neutral"
@@ -101,21 +96,26 @@ def _band(score):
 
 
 def _verdict_label(band, score=None):
-    """Verdict text for a band. `score` is kept for call-site compatibility; the
-    exact-100 case is now a band of its own."""
+    """Verdict text for a band. `score` is kept for call-site compatibility."""
     return _VERDICT_LABEL[band]
 
 
+# band key -> verdict text. The keys are unchanged so the colour maps in the
+# exporter and the UI keep working; the texts follow the decision ladder.
 _VERDICT_LABEL = {
     "authentic": "Authentic",
     "likely_authentic": "Likely Authentic",
     "caution": "Inconclusive",
-    "likely_counterfeit": "Likely Counterfeit",
-    "counterfeit": "Counterfeit",
+    # Deviation is significant but too little of the item was measured to
+    # escalate. A review item that says which way it leans.
+    "likely_counterfeit": "Inconclusive — Suspicious",
+    # 'Suspected', not 'Counterfeit': this is a vision-derived conclusion, and
+    # the only outcome entitled to the flat word is the deterministic one below.
+    "counterfeit": "Suspected Counterfeit",
     # Two distinct "no answer" outcomes, deliberately separate from Inconclusive.
     # Inconclusive means "assessed, genuinely ambiguous" — a human-review item.
     # These mean "could not assess" — an input problem, routed differently.
-    "insufficient": "Insufficient Evidence — Recapture",
+    "insufficient": "Insufficient Evidence",
     "mismatch": "Reference Mismatch — Cannot Compare",
     # Deterministic label failure: a fibre list that cannot sum to 100, an RN
     # that resolves to another company. No vision confidence is involved, so
@@ -176,6 +176,7 @@ def dimension_node(dim: str, state: RunState) -> dict:
             "finding": "NOT SCORED — suspect and reference are different products.",
             "reasoning": (state["pairing"].get("note") or ""),
             "box": None, "confidence": 0.0, "status": "abstain",
+            "state": scoring.DimState.NOT_ASSESSABLE, "internal_coverage": 0.0,
             "insufficient_reason": "reference mismatch",
         }], "usage_log": []}
     try:
@@ -190,7 +191,8 @@ def dimension_node(dim: str, state: RunState) -> dict:
             "dimension": dim, "score": None, "band": "neutral",
             "finding": f"AGENT FAILED — {e}",
             "reasoning": str(e), "box": None, "confidence": 0.0,
-            "status": "error", "insufficient_reason": str(e),
+            "status": "error", "state": scoring.DimState.FAILED,
+            "internal_coverage": 0.0, "insufficient_reason": str(e),
         }], "usage_log": []}
     return {"dimension_results": [result], "usage_log": [usage]}
 
@@ -215,7 +217,8 @@ def upc_node(state: RunState) -> dict:
     try:
         result, usage = run_upc_tool(state["brand"], state["case_id"],
                                      state.get("upc_image", ""),
-                                     state.get("provider", "openai"))
+                                     state.get("provider", "openai"),
+                                     product=state.get("product_name", ""))
     except Exception as e:
         # A barcode OCR failure is not a reason to lose the analysis.
         return {"upc_result": {"status": "unreadable", "note": f"UPC OCR failed: {e}",
@@ -224,110 +227,96 @@ def upc_node(state: RunState) -> dict:
     return {"upc_result": result, "usage_log": [usage]}
 
 
-def aggregate_node(state: RunState) -> dict:
-    """Composite over ASSESSED dimensions only, with a coverage floor.
+def _category_for(state: RunState) -> str:
+    """Best guess at the product category, for the applicability table.
 
-    Abstentions are dropped, never coerced to a number. If too few dimensions
-    were assessable the run returns no score at all — a composite averaged over
-    one or two dimensions is indistinguishable, to whoever reads it, from one
-    backed by five.
+    Three sources, none authoritative on its own: what the operator called the
+    product, what the pairing agent said the suspect photos show, and what the
+    care tag says. An unrecognised category excludes nothing — which keeps
+    Hardware in the denominator, the safe direction."""
+    return scoring.normalise_category(
+        state.get("product_name", ""),
+        (state.get("pairing") or {}).get("suspect_item", ""),
+        ((state.get("label_id") or {}).get("fields") or {}).get("product_family", ""))
+
+
+def aggregate_node(state: RunState) -> dict:
+    """Composite and verdict, via the decision ladder in scoring.py.
+
+    The three rules that matter, in the order they run:
+
+      * a confirmed dispositive defect escalates BEFORE any coverage gate — it
+        needs no corroboration;
+      * ESTIMATED dimensions are shown but never counted, so four guesses can
+        never outvote one measurement;
+      * an item is cleared only on the PRESENCE of evidence: the care tag must
+        actually have been read, plus one other forensic dimension.
     """
     dims = state["dimension_results"]
     by = {d["dimension"]: d for d in dims}
-    # Two different counts, deliberately kept apart:
-    #   evidence  — a real measurement stood behind the number
-    #   usable    — has a number at all (includes ALWAYS_SCORE estimates)
-    # The composite is computed over `usable`, but `coverage.assessed` reports
-    # `evidence`, so a filled grid never masquerades as a fully-measured one.
-    evidence = [d for d in dims if d.get("status") == "scored"]
-    usable = [d for d in dims if d.get("score") is not None]
+    dim_objs = [scoring.Dim.from_record(d["dimension"], d) for d in dims]
+
+    # Reported alongside the ladder's own numbers, for the UI and the export.
+    #   assessed  — a real measurement stood behind the number
+    #   estimated — a filled cell; displayed, never counted
+    measured = [d for d in dim_objs if d.state == scoring.DimState.MEASURED]
+    partial = [d.name for d in dim_objs if d.state == scoring.DimState.PARTIAL]
     estimated = [d["dimension"] for d in dims if d.get("status") == "estimated"]
     abstained = [d["dimension"] for d in dims if d.get("score") is None]
-    scored = usable
     errored = [d["dimension"] for d in dims if d.get("status") == "error"]
-    coverage = {"assessed": len(evidence), "total": len(DIMENSIONS),
-                "abstained": abstained, "estimated": estimated,
-                "errored": errored, "scored_from": len(usable)}
 
-    # 0. Deterministic label failure outranks everything below it. These checks
-    #    carry no model uncertainty and need no reference image, so they stand
-    #    even when the comparison itself is void or nothing was assessable.
     validation = ((state.get("label_id") or {}).get("validation") or {})
-    if validation.get("hard_fail"):
-        return {"composite": {
-            "score": None, "band": "hard_fail", "verdict_label": _VERDICT_LABEL["hard_fail"],
-            "coverage": coverage, "capped": False, "deterministic": True,
-            "failed_checks": validation.get("failed", []),
-            "reason": validation.get("summary", "A deterministic label check failed."),
-        }}
+    pairing = state.get("pairing") or {}
+    # ALWAYS_SCORE keeps the row populated on a mismatch: the numbers are filled
+    # but the mismatch verdict still wins, so the warning is never lost.
+    pairing_ok = pairing.get("status") != "mismatch"
 
-    # 1. Incomparable inputs. Without ALWAYS_SCORE the run is void; with it we
-    #    still fill the numbers but keep the mismatch verdict, so the row is
-    #    populated and the warning is not lost.
-    pairing_mismatch = (state.get("pairing") or {}).get("status") == "mismatch"
-    if pairing_mismatch and not ALWAYS_SCORE:
-        return {"composite": {
-            "score": None, "band": "mismatch", "verdict_label": _VERDICT_LABEL["mismatch"],
-            "coverage": coverage, "capped": False,
-            "reason": (state["pairing"].get("note")
-                       or "Suspect and reference are different products."),
-        }}
+    result = scoring.decide(
+        dim_objs,
+        category=_category_for(state),
+        upc_status=(state.get("upc_result") or {}).get("status") or "not_provided",
+        label_hard_fail=bool(validation.get("hard_fail")),
+        hard_fail_reason=validation.get("summary", ""),
+        pairing_ok=pairing_ok,
+        pairing_note=pairing.get("note", ""),
+        label_readable=(by.get("Label") or {}).get("status") == "scored",
+        runtime_not_applicable=[d["dimension"] for d in dims
+                                if d.get("state") == scoring.DimState.NOT_APPLICABLE],
+    )
 
-    # 2. Not enough of the item was assessable to justify any number.
-    if len(scored) < MIN_ASSESSED_DIMS:
-        return {"composite": {
-            "score": None, "band": "insufficient",
-            "verdict_label": _VERDICT_LABEL["insufficient"], "coverage": coverage, "capped": False,
-            "reason": (f"Only {len(scored)} of {len(DIMENSIONS)} dimensions could be assessed "
-                       f"(need {MIN_ASSESSED_DIMS}). Not assessable: "
-                       f"{', '.join(abstained) or 'none'}. Recapture with clearer photos of "
-                       f"those regions."),
-        }}
+    applicable = [d for d in result["dimension_states"]
+                  if d["state"] != scoring.DimState.NOT_APPLICABLE]
+    coverage = {
+        "assessed": len(measured), "total": len(DIMENSIONS),
+        "applicable": len(applicable), "partial": partial,
+        "abstained": abstained, "estimated": estimated, "errored": errored,
+        "scored_from": len(result["contributing"]),
+        # Stage 5's number. It travels with the score everywhere the score goes.
+        "effective": result["coverage_pct"],
+    }
 
-    # 3. Weighted mean over assessed dimensions, renormalised to their weights.
-    num = den = 0.0
-    for dim, w in WEIGHTS.items():
-        d = by.get(dim)
-        if d and d.get("score") is not None:
-            num += d["score"] * w
-            den += w
-    # Dimensions report DEVIATION (0 = matches the reference). The verdict scale
-    # is AUTHENTICITY (100 = matches). Invert once, here — the dimension cells
-    # keep their own logic untouched.
-    score = (100 - round(num / den)) if den else None
-
-    # 4. UPC only moves the score on REAL evidence. 'not_provided' (no barcode
-    #    photo) and 'unreadable' (capture failure) are absences of a check, not
-    #    findings — treating them as findings added +6 to every run in the corpus.
-    upc_status = (state.get("upc_result") or {}).get("status")
-    if upc_status in ("nomatch", "mismatch") and score is not None:
-        score = max(0, score - 6)          # a failed barcode is evidence AGAINST
-
-    band = _band(score)
-    reason = ""
-    capped = False
-    # 5. Label carries the identity evidence. Without it, allow suspicion but not
-    #    a counterfeit conclusion.
-    if REQUIRE_LABEL_FOR_VERDICT and band in ("counterfeit", "likely_counterfeit") and \
-            (by.get("Label") or {}).get("status") != "scored":
-        band, capped = "caution", True
-        reason = ("Composite reached the counterfeit band but the Label dimension could not be "
-                  "assessed; held at Inconclusive pending a legible tag photo.")
-    # 6. The same restraint in the other direction: no clearing an item that was
-    #    never really examined.
-    elif band in ("authentic", "likely_authentic") and len(evidence) < MIN_MEASURED_FOR_AUTHENTIC:
-        band, capped = "caution", True
-        reason = (f"only {len(evidence)} of {len(DIMENSIONS)} dimensions measured — "
-                  f"not enough evidence to clear as authentic")
-    if pairing_mismatch:
-        reason = ((state.get("pairing") or {}).get("note")
-                  or "Suspect and reference are different products.")
-        return {"composite": {"score": score, "band": "mismatch",
-                              "verdict_label": _VERDICT_LABEL["mismatch"],
-                              "coverage": coverage, "capped": capped, "reason": reason}}
-    return {"composite": {"score": score, "band": band,
-                          "verdict_label": _verdict_label(band, score),
-                          "coverage": coverage, "capped": capped, "reason": reason}}
+    return {"composite": {
+        # AUTHENTICITY for the reader (100 = matches the reference on every
+        # dimension); `deviation` is the raw internal value the ladder used.
+        "score": result["score"],
+        "deviation": result["deviation"],
+        "band": result["band"],
+        "verdict_label": result["verdict_label"],
+        "lane": result["lane"],
+        "driver": result["driver"],
+        "recapture": result["recapture"],
+        "coverage": coverage,
+        "coverage_pct": result["coverage_pct"],
+        "dimension_states": result["dimension_states"],
+        "contributing": result["contributing"],
+        "deterministic": bool(validation.get("hard_fail")),
+        "failed_checks": validation.get("failed", []),
+        # `capped` used to mean "a band was overridden". The ladder has no
+        # override step — it decides once — so it now means "this verdict is a
+        # non-answer", which is what every consumer actually used it for.
+        "capped": result["band"] in ("insufficient", "mismatch"),
+        "reason": result["reason"],
+    }}
 
 
 def verdict_node(state: RunState) -> dict:
@@ -347,9 +336,10 @@ def verdict_node(state: RunState) -> dict:
             "label": comp.get("verdict_label", ""),
             "summary": (f"Verdict synthesis unavailable ({e}). The composite score and "
                         f"the dimension findings are unaffected."),
-            "escalated": comp.get("band") not in ("authentic", "insufficient", "mismatch"),
+            "escalated": comp.get("lane") == "REJECTED",
             "verifier_confirmed": False,
             "verifier_votes": "0/0",
+            "reviewer_labels": [],
             "key_evidence": [f"{d['dimension']}: {d.get('finding') or ''}" for d in dims[:3]],
             "degraded": True,
         }, "usage_log": []}
@@ -408,22 +398,30 @@ def _evals(state: RunState) -> dict:
     abst = sum(1 for d in dims if d["status"] == "abstain")
     comp = state["composite"]
     v = state["verdict"]
+    cov = comp.get("coverage", {}) or {}
     out = {
         "confidence": round(sum(confs) / len(confs), 2) if confs else None,
         "verifier": "confirmed" if v["verifier_confirmed"] else "refuted",
         "verifier_votes": v["verifier_votes"],
+        "reviewer_labels": v.get("reviewer_labels", []),
         "abstentions": f"{abst} / {len(DIMENSIONS)}",
-        "assessed": f"{comp.get('coverage', {}).get('assessed', 0)} / {len(DIMENSIONS)}",
-        "estimated": len((comp.get("coverage", {}) or {}).get("estimated", [])),
+        # Measured out of APPLICABLE, not out of five: a T-shirt has four
+        # dimensions, and scoring it out of five guarantees it looks unassessed.
+        "assessed": f"{cov.get('assessed', 0)} / {cov.get('applicable', len(DIMENSIONS))}",
+        "coverage": comp.get("coverage_pct"),
+        "lane": comp.get("lane", ""),
+        "estimated": len(cov.get("estimated", [])),
+        "partial": cov.get("partial", []),
         "pairing": (state.get("pairing") or {}).get("status", "skipped"),
         "label_checks": ((state.get("label_id") or {}).get("validation") or {}).get("counts"),
     }
     truth = GROUND_TRUTH.get(state["case_id"])
-    # A run with no score makes no prediction — scoring it against ground truth
-    # would silently count "I don't know" as a wrong (or right) answer.
-    if truth and comp.get("score") is not None:
-        predicted = ("counterfeit" if comp["band"] in ("counterfeit", "likely_counterfeit")
-                     else "authentic")
+    # Only a run that actually committed to a lane makes a prediction. A REVIEW
+    # lane is "I don't know", and scoring it against ground truth would count
+    # that as a right or wrong answer when it is neither.
+    lane = comp.get("lane")
+    if truth and lane in ("REJECTED", "CLEARED"):
+        predicted = "counterfeit" if lane == "REJECTED" else "authentic"
         out["ground_truth"] = truth
         out["correct"] = predicted == truth
     elif truth:

@@ -461,8 +461,18 @@ const band=s=>s==null?'neutral':s<=30?'authentic':s<=60?'caution':'counterfeit';
 const bandColor=b=>({authentic:'var(--green)',likely_authentic:'var(--green)',caution:'var(--amber)',likely_counterfeit:'var(--amber)',counterfeit:'var(--red)',neutral:'var(--mut)',insufficient:'var(--mut)',mismatch:'var(--mut)',hard_fail:'var(--red)',error:'var(--mut)'}[b]||'var(--mut)');
 // score is optional: a composite of exactly 0 means no deviation was found on
 // any dimension, which reads stronger than 'likely'.
-const verdictLabel=(b,score)=>(b==='authentic'&&score===0)?'Authentic':({authentic:'Authentic',likely_authentic:'Likely authentic',caution:'Inconclusive',likely_counterfeit:'Likely counterfeit',counterfeit:'Counterfeit',insufficient:'Insufficient evidence — recapture',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed',error:'Run failed'}[b]||'—');
+const verdictLabel=(b,score)=>({authentic:'Authentic',likely_authentic:'Likely authentic',caution:'Inconclusive',likely_counterfeit:'Inconclusive — suspicious',counterfeit:'Suspected counterfeit',insufficient:'Insufficient evidence',mismatch:'Reference mismatch — cannot compare',hard_fail:'Counterfeit — label validation failed',error:'Run failed'}[b]||'—');
 const badgeClass=b=>({authentic:'b-green',likely_authentic:'b-green',caution:'b-amber',likely_counterfeit:'b-amber',counterfeit:'b-red',neutral:'b-gray',insufficient:'b-gray',mismatch:'b-gray',hard_fail:'b-red',error:'b-gray'}[b]||'b-gray');
+// Coverage is Stage 5: the share of the item's diagnostic weight that was
+// actually MEASURED. It renders next to the score everywhere the score renders,
+// because the two are one statement — a 72 over 30% of the item is not the
+// same claim as a 72 over 90% of it.
+const covPct=c=>{const v=(c||{}).coverage_pct??(c||{}).coverage; return typeof v==='number'?Math.round(v*100)+'%':'—';};
+// An Insufficient Evidence verdict is only useful if it says what would fix it.
+function recaptureCard(c){ const r=(c&&c.recapture)||[]; if(!r.length) return '';
+  return `<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)">
+    <div style="font-weight:600;margin-bottom:6px">Recapture these shots to resolve the verdict</div>
+    <ul class="keyev" style="margin:0">${r.map(x=>`<li>${x}</li>`).join('')}</ul></div>`; }
 function caseName(){ return curCase().id || 'Analysis'; }   // the case/run identifier (unique per run)
 function refLabel(){ const p=(products||[]).find(x=>x.id===productId); return (refSource==='product'&&p&&p.name)?p.name:'The North Face'; }
 
@@ -646,7 +656,10 @@ $('#run').onclick=async()=>{
   const cno=$('#caseno').value.trim();
   if(!cno){ $('#runerr').innerHTML='<div class="errbox">Enter a case number before running.</div>'; $('#caseno').focus(); return; }
   caseId=cno; updateCaseHeader(); showProc();                                        // case number entered by the user
-  const body={case_id:caseId,brand,reference_source:refSource,product_id:productId,suspect_images:suspectImgs,upc_image:upcB64};
+  // `product` drives the per-product UPC master lookup and the category
+  // applicability table (a T-shirt has no hardware), so send it with the run —
+  // not only with the save, which happens after scoring has already finished.
+  const body={case_id:caseId,brand,reference_source:refSource,product_id:productId,product:refLabel(),suspect_images:suspectImgs,upc_image:upcB64};
   try{
     if(provider==='all'){
       const provs=(LIVE_PROVIDERS.length?LIVE_PROVIDERS:['openai']).slice();
@@ -802,12 +815,15 @@ function renderSingle(d){
       <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
     <div class="metrics">
-      <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
+      <div class="metric"><div class="k">Authenticity</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
+      <div class="metric" title="Share of the item's diagnostic weight that was actually measured. Coverage never travels apart from the score: 72 over 30% of the item and 72 over 90% are not the same statement."><div class="k">Coverage</div><div class="v">${covPct(c)}</div></div>
+      <div class="metric"><div class="k">Lane</div><div class="v" style="font-size:21px">${c.lane||'—'}</div></div>
       <div class="metric"><div class="k">Confidence</div><div class="v">${conf}</div></div>
       <div class="metric"><div class="k">Run cost</div><div class="v" style="color:var(--green)">$${(t.cost||0).toFixed(4)}</div></div>
       <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
     </div>
-    ${c.reason?`<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)"><div style="font-weight:600;margin-bottom:4px">${c.band==='mismatch'?'Reference mismatch':(c.capped?'Verdict held back':'Insufficient evidence')}</div><div class="muted" style="font-size:14px">${c.reason}</div></div>`:''}
+    ${c.reason?`<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)"><div style="font-weight:600;margin-bottom:4px">${c.band==='mismatch'?'Reference mismatch':(c.capped?'Verdict held back':'Why this verdict')}</div><div class="muted" style="font-size:14px">${c.reason}</div></div>`:''}
+    ${recaptureCard(c)}
     <div class="card pad" style="margin-bottom:14px">
       <div class="verdict"><div class="ringwrap">${dimRing(dims,c)}${ringLegend(dims)}</div>
         <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
@@ -876,22 +892,29 @@ function renderCompare(data,provs){
   const cheapest=oks.slice().sort((a,b)=>(res[a].report.totals.cost-res[b].report.totals.cost))[0];
   const dimNames=['Logo','Stitching','Hardware','Label','Material'];
   activeEngine=oks[0]||'all';
+  // Stage 7: the case verdict is combined BY RULE on the server and never by
+  // averaging the engines — one engine that actually resolved the tell must not
+  // be outvoted by two that could not.
+  const cv=data.case_verdict||null;
   const metrics = primary ? `
-    <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(primary.composite.band)}">${primary.composite.score==null?'—':primary.composite.score}</div></div>
-    <div class="metric"><div class="k">Consensus</div><div class="v">${oks.length?oks.length+'/'+oks.length:'—'}</div></div>
+    <div class="metric"><div class="k">Authenticity</div><div class="v" style="color:${bandColor(primary.composite.band)}">${primary.composite.score==null?'—':primary.composite.score}</div></div>
+    <div class="metric"><div class="k">Coverage</div><div class="v">${covPct(primary.composite)}</div></div>
+    <div class="metric"><div class="k">Case lane</div><div class="v" style="font-size:21px">${cv?cv.lane:'—'}</div></div>
     <div class="metric"><div class="k">Cheapest</div><div class="v" style="color:var(--green);font-size:18.5px">${cheapest?engineName(cheapest):'—'}</div></div>
     <div class="metric"><div class="k">Engines</div><div class="v">${provs.length}</div></div>` : '';
   const engRows=provs.map(p=>{ const r=res[p];
     const nm=`<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}`;
-    if(!r) return `<tr><td>${nm}</td><td colspan="7" class="muted" style="font-size:14.2px"><span class="spin"></span> running…</td></tr>`;
-    if(!r.ok) return `<tr><td>${nm}</td><td colspan="7" style="font-size:14.2px;color:var(--red-deep)">${(r.error||'error').slice(0,90)}</td></tr>`;
+    if(!r) return `<tr><td>${nm}</td><td colspan="9" class="muted" style="font-size:14.2px"><span class="spin"></span> running…</td></tr>`;
+    if(!r.ok) return `<tr><td>${nm}</td><td colspan="9" style="font-size:14.2px;color:var(--red-deep)">${(r.error||'error').slice(0,90)}</td></tr>`;
     const c=r.composite,t=r.report.totals,ev=(r.report||{}).evals||{},isCheap=p===cheapest;
     const cf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
     return `<tr class="${isCheap?'hl':''}"><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}${isCheap?' <span class="badge b-green" style="font-size:12.3px;padding:1px 7px">cheapest</span>':''}</td>
       <td><span class="badge ${badgeClass(c.band)}" style="font-size:13.5px">${verdictLabel(c.band,c.score)}</span></td>
       <td class="num" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</td>
+      <td class="num">${covPct(c)}</td>
+      <td class="num" style="font-size:13px">${c.lane||'—'}</td>
       <td class="num">${(r.upc||{}).status||'—'}</td>
-      <td class="num">${(r.verdict||{}).verifier_confirmed?'✓':'✕'}</td>
+      <td class="num" title="independent reviewers landing in the same class as the pipeline">${(r.verdict||{}).verifier_votes||'—'}</td>
       <td class="num">${cf}</td>
       <td class="num" ${isCheap?'style="color:var(--green)"':''}>$${(t.cost||0).toFixed(4)}</td>
       <td class="num">${((t.wall_ms||0)/1000).toFixed(1)}s</td></tr>`; }).join('');
@@ -915,7 +938,7 @@ function renderCompare(data,provs){
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
       <div><div style="font-size:19.7px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:14.7px">${refLabel()} · ${provs.length} engines · ${agree?'consensus':'split'}</div></div>
-      <span class="badge ${primary?badgeClass(primary.composite.band):'b-gray'}" style="margin-left:auto">${primary?verdictLabel(primary.composite.band,primary.composite.score):'—'}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
+      <span class="badge ${cv?badgeClass(cv.band):(primary?badgeClass(primary.composite.band):'b-gray')}" style="margin-left:auto" title="${cv?(cv.reason||'').replace(/"/g,'&quot;'):''}">${cv?cv.verdict_label:(primary?verdictLabel(primary.composite.band,primary.composite.score):'—')}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
       <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
     <div class="metrics">${metrics}</div>
@@ -924,7 +947,7 @@ function renderCompare(data,provs){
     <div class="sect-lbl">Dimension scores by engine</div>
     <div class="card pad" style="margin-bottom:16px;overflow-x:auto">${heatmapTable(oks,res,dimNames)}</div>
     <div class="sect-lbl">Engine comparison</div>
-    <div class="tablewrap big" style="margin-bottom:16px;overflow-x:auto"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">UPC</th><th class="num">Verifier</th><th class="num">Conf</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
+    <div class="tablewrap big" style="margin-bottom:16px;overflow-x:auto"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">Cov</th><th class="num">Lane</th><th class="num">UPC</th><th class="num">Agree</th><th class="num">Conf</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
     ${forensic}
     <div class="sect-lbl">Evidence comparison</div>
     <div class="card pad">${compareStrip(primary||{})}</div>`;
@@ -945,7 +968,9 @@ function benchSave(rows){ try{ localStorage.setItem(BENCH_KEY,JSON.stringify(row
 function benchRow(engineLabel,cid,d){
   const c=d.composite||{},t=(d.report||{}).totals||{},ev=(d.report||{}).evals||{},dm={};
   (d.dimensions||[]).forEach(x=>{ dm[x.dimension]=x.score; });
-  const row={ts:new Date().toISOString(),case:cid,engine:engineLabel,score:c.score,band:c.band||'',verdict:verdictLabel(c.band,c.score),
+  const row={ts:new Date().toISOString(),case:cid,engine:engineLabel,score:c.score,
+    coverage:c.coverage_pct!=null?Math.round(c.coverage_pct*100):'',lane:c.lane||'',
+    driver:c.driver||'',band:c.band||'',verdict:verdictLabel(c.band,c.score),
     upc:(d.upc||{}).status||'',verifier:(d.verdict||{}).verifier_confirmed?'confirmed':'refuted',confidence:ev.confidence,
     cost_usd:t.cost,latency_s:t.wall_ms!=null?+(t.wall_ms/1000).toFixed(1):''};
   DIM_ORDER.forEach(dn=>{ row[dn]=dm[dn]!=null?dm[dn]:''; }); return row;
@@ -954,7 +979,7 @@ function benchAppend(rows){ if(!rows||!rows.length) return; const all=benchLoad(
 function updateBenchUI(){ const n=benchLoad().length; const c=$('#benchcount'); if(c)c.textContent='· '+n+' run'+(n===1?'':'s');
   const dl=$('#benchdl'); if(dl)dl.disabled=!n; const cl=$('#benchclear'); if(cl)cl.classList.toggle('hidden',!n); }
 function benchCsv(){ const rows=benchLoad(); if(!rows.length) return '';
-  const cols=['ts','case','engine','score','band','verdict',...DIM_ORDER,'upc','verifier','confidence','cost_usd','latency_s'];
+  const cols=['ts','case','engine','score','coverage','lane','driver','band','verdict',...DIM_ORDER,'upc','verifier','confidence','cost_usd','latency_s'];
   const esc=v=>{ v=(v==null?'':String(v)); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   return cols.join(',')+'\n'+rows.map(r=>cols.map(k=>esc(r[k])).join(',')).join('\n'); }
 function downloadBlob(blob,name){ const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),2000); }
@@ -1147,7 +1172,11 @@ function storedToData(rec){
   const bd=rec.band||band(rec.score);
   return {
     case_id:rec.case_id||'', brand:rec.brand||'',
-    composite:{score:rec.score,band:bd},
+    // coverage / lane / driver / recapture come back with the run. A record
+    // saved before they existed simply renders '—' rather than breaking.
+    composite:{score:rec.score,band:bd,coverage_pct:rec.coverage,lane:rec.lane||'',
+               driver:rec.driver||'',recapture:rec.recapture||[],reason:rec.reason||'',
+               capped:!!rec.capped},
     verdict:{label:rec.verdict||verdictLabel(bd), summary:(dims.find(x=>x.finding)||{}).finding||'', key_evidence:kev, verifier_confirmed:rec.verifier==='confirmed'},
     dimensions:dims, upc:rec.upc||{status:''},
     report:{totals:{wall_ms:rec.latency_ms||0,cost:rec.cost||0,tokens:rec.tokens||0}, rows:[], evals:{confidence:rec.confidence}}
@@ -1173,12 +1202,15 @@ function renderStoredCase(rec){
       <span class="badge b-gray" style="margin-left:8px;font-size:12.1px">saved run</span>
     </div>
     <div class="metrics">
-      <div class="metric"><div class="k">Composite risk</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
+      <div class="metric"><div class="k">Authenticity</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
+      <div class="metric" title="Share of the item's diagnostic weight that was actually measured. Coverage never travels apart from the score: 72 over 30% of the item and 72 over 90% are not the same statement."><div class="k">Coverage</div><div class="v">${covPct(c)}</div></div>
+      <div class="metric"><div class="k">Lane</div><div class="v" style="font-size:21px">${c.lane||'—'}</div></div>
       <div class="metric"><div class="k">Confidence</div><div class="v">${conf}</div></div>
       <div class="metric"><div class="k">Run cost</div><div class="v" style="color:var(--green)">$${(t.cost||0).toFixed(4)}</div></div>
       <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
     </div>
-    ${c.reason?`<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)"><div style="font-weight:600;margin-bottom:4px">${c.band==='mismatch'?'Reference mismatch':(c.capped?'Verdict held back':'Insufficient evidence')}</div><div class="muted" style="font-size:14px">${c.reason}</div></div>`:''}
+    ${c.reason?`<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)"><div style="font-weight:600;margin-bottom:4px">${c.band==='mismatch'?'Reference mismatch':(c.capped?'Verdict held back':'Why this verdict')}</div><div class="muted" style="font-size:14px">${c.reason}</div></div>`:''}
+    ${recaptureCard(c)}
     <div class="card pad" style="margin-bottom:14px">
       <div class="verdict"><div class="ringwrap">${dimRing(dims,c)}${ringLegend(dims)}</div>
         <div style="min-width:0"><div class="vsum">${v.summary||''}</div>

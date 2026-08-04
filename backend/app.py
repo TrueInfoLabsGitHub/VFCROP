@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import exporter
+import scoring
 import supa
 from graph import DIMENSIONS, build_graph
 from providers import mode
@@ -81,6 +82,9 @@ class AnalyzeReq(BaseModel):
     provider: str = "openai"                  # "openai" (GPT-5.5) | "gemini" | "kimi" (via router)
     reference_source: str = "local"           # "local" (data/) | "google" | "product" (catalog)
     product_id: str | None = None             # selected catalog product (when reference_source=product)
+    product: str = ""                        # product name — drives the per-product
+                                             # UPC master lookup and the category
+                                             # applicability table. Optional.
     suspect_image: str | None = None         # single product photo (back-compat)
     suspect_images: list[str] | None = None  # multiple product photos (preferred)
     upc_image: str | None = None             # barcode/UPC photo, drives the UPC OCR node
@@ -97,18 +101,36 @@ def health():
     return {"ok": True, "mode": mode()}
 
 
+def _product_name(req: AnalyzeReq) -> str:
+    """What this item is called. Used for the per-product UPC master lookup and
+    for category applicability (a T-shirt has no hardware). The client may send
+    it directly; otherwise resolve it from the selected catalog product."""
+    if (req.product or "").strip():
+        return req.product.strip()
+    if req.product_id and supa.available():
+        try:
+            for p in supa.list_products():
+                if p.get("id") == req.product_id:
+                    return (p.get("name") or "").strip()
+        except Exception:
+            pass
+    return ""
+
+
 def _run_one(req: AnalyzeReq, provider: str) -> dict:
     """Run the graph end-to-end for one provider and shape the /api/analyze result."""
     imgs = req.suspect_images if req.suspect_images else ([req.suspect_image] if req.suspect_image else [])
     ref_source = req.reference_source if req.reference_source in ("local", "google", "product") else "local"
     state = {"case_id": req.case_id, "brand": req.brand, "provider": provider,
              "ref_source": ref_source, "product_id": req.product_id or "",
+             "product_name": _product_name(req),
              "suspect_images": [b for b in imgs if b],
              "upc_image": req.upc_image or ""}
     out = GRAPH.invoke(state)
     dims = sorted(out["dimension_results"], key=lambda d: DIMENSIONS.index(d["dimension"]))
     return {
         "case_id": req.case_id, "brand": req.brand, "provider": provider,
+        "product": state["product_name"],
         "composite": out["composite"], "dimensions": dims,
         "upc": out["upc_result"], "verdict": out["verdict"], "report": out["report"],
         "references": out["references"], "fetched_meta": out.get("fetched_meta", {"used": False}),
@@ -163,9 +185,21 @@ def compare(req: CompareReq):
             results.setdefault(p, {"ok": False, "provider": p,
                                    "case_id": req.case_id, "brand": req.brand,
                                    "error": "engine exceeded the time budget (still reasoning)"})
-        return {"mode": mode(), "providers": provs, "results": results}
+        return {"mode": mode(), "providers": provs, "results": results,
+                "case_verdict": _case_verdict(results)}
 
     return _start_job(work)
+
+
+def _case_verdict(results: dict) -> dict:
+    """Stage 7 — one verdict for the case from several engines' composites.
+
+    Never an average. Averaging engines is the dilution bug one level up: the
+    single engine that actually resolved the foundry code would be voted down by
+    the two that could not."""
+    comps = {_ENGINE_CANON.get(p, p): (r or {}).get("composite") or {}
+             for p, r in (results or {}).items() if (r or {}).get("ok")}
+    return scoring.combine_engines(comps)
 
 
 @app.get("/api/job/{jid}")
@@ -325,9 +359,15 @@ def _build_record(req: ExportSaveReq) -> dict:
     comp = d.get("composite") or {}
     dims = d.get("dimensions") or []
     # Carry `status` through to the export: a null score alone cannot tell the
-    # reader whether the dimension abstained or the engine never ran.
+    # reader whether the dimension abstained or the engine never ran. `state`
+    # and `internal_coverage` travel with the score for the same reason — a
+    # stored run must be re-scorable, and a score without its state is exactly
+    # the reading that cleared four guesses as authentic.
     dim_map = {x.get("dimension"): {"score": x.get("score"), "finding": x.get("finding") or "",
-                                    "status": x.get("status") or ""}
+                                    "status": x.get("status") or "",
+                                    "state": x.get("state") or "",
+                                    "confidence": x.get("confidence"),
+                                    "internal_coverage": x.get("internal_coverage", 0.0)}
                for x in dims if x.get("dimension")}
     upc = d.get("upc") or {}
     verd = d.get("verdict") or {}
@@ -346,6 +386,14 @@ def _build_record(req: ExportSaveReq) -> dict:
         "band": ("error" if failed else comp.get("band", "")),
         "error": (str(d.get("error") or req.error or "run failed") if failed else ""),
         "assessed": (comp.get("coverage") or {}).get("assessed"),
+        "applicable": (comp.get("coverage") or {}).get("applicable"),
+        # Stage 5. Coverage must never travel apart from the score: a 72 over
+        # 30% of the item and a 72 over 90% of it are not the same statement.
+        "coverage": comp.get("coverage_pct"),
+        "deviation": comp.get("deviation"),
+        "lane": comp.get("lane", "") or "",
+        "driver": comp.get("driver") or "",
+        "recapture": comp.get("recapture") or [],
         # why a verdict was held back — the coverage column no longer shows it
         "capped": bool(comp.get("capped")),
         "reason": comp.get("reason", "") or "",

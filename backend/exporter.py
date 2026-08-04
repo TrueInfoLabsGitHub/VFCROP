@@ -34,6 +34,8 @@ from openpyxl.utils import get_column_letter
 
 from openpyxl.utils.units import pixels_to_EMU
 
+import scoring
+
 
 
 try:
@@ -81,6 +83,11 @@ _BAND_FONT = {"authentic": "1E8A4C", "likely_authentic": "3C9D63",
 
 _NA = "n/a"
 
+# Printed where the product does not HAVE the dimension at all. Distinct from
+# 'n/a' (we could not see it) on purpose: one is missing evidence, the other is
+# a dimension that does not exist and is excluded from the arithmetic entirely.
+_NOT_APPLICABLE = "n/app"
+
 
 
 
@@ -99,13 +106,23 @@ def _dim_cell(dims, d):
 
     """Dimension score for the sheet: the number when it was assessed, 'n/a' when
 
-    the agent abstained, blank when the dimension is absent from the record."""
+    the agent abstained, 'n/app' when the product does not have this dimension,
+
+    blank when the dimension is absent from the record."""
 
     x = dims.get(d)
 
     if not isinstance(x, dict):
 
         return ""
+
+    if x.get("state") == "not_applicable" or x.get("status") == "not_applicable":
+
+        # The product has no zip / no hardware. NOT a zero — a zero reads as
+
+        # "assessed and clean" and that is how a T-shirt got cleared.
+
+        return _NOT_APPLICABLE
 
     if x.get("score") is None:
 
@@ -118,6 +135,55 @@ def _dim_cell(dims, d):
         return _NA if st == "abstain" else ""
 
     return _fnum(x.get("score"))
+
+
+def _as_composite(rec):
+
+    """A stored run record, shaped the way scoring.combine_engines expects.
+
+    Records saved before the ladder existed have no lane or coverage; the
+
+    combiner tolerates that, and the missing fields simply carry no weight."""
+
+    return {"verdict_label": rec.get("verdict", ""), "band": rec.get("band", ""),
+
+            "score": rec.get("score"), "coverage_pct": rec.get("coverage"),
+
+            "lane": rec.get("lane", ""), "reason": rec.get("reason", "")}
+
+
+def _pct(v):
+
+    """0-1 -> a percentage for the sheet. Blank when the run predates coverage."""
+
+    try:
+
+        return f"{round(float(v) * 100)}%"
+
+    except (TypeError, ValueError):
+
+        return ""
+
+
+def _assessed_cell(rec):
+
+    """n/m — measured of APPLICABLE dimensions. Out of applicable, not out of
+
+    five: a T-shirt has four, and scoring it out of five guarantees it looks
+
+    under-assessed when it is fully assessed."""
+
+    a, m = rec.get("assessed"), rec.get("applicable")
+
+    if not isinstance(a, (int, float)):
+
+        return ""
+
+    if not isinstance(m, (int, float)) or not m:
+
+        m = len(DIMS)
+
+    return f"{int(a)}/{int(m)}"
 
 
 
@@ -421,11 +487,21 @@ def _build_analyses_sheet(ws, runs):
 
 
 
-    metrics = (["Verdict", "Score"] + DIMS
+    # Coverage / Assessed / Lane / Driver sit immediately next to Score, never
 
-               + ["Verifier", "Cost ($)", "Latency (s)"]
+    # somewhere the reader can miss them: a score without its coverage is not a
 
-               + [f"{d} finding" for d in DIMS])            # 16 columns per engine
+    # statement about the product, and 'Driver' names the dimension that set the
+
+    # floor when the floor beat the mean.
+
+    metrics = (["Verdict", "Score", "Coverage", "Assessed", "Lane", "Driver"] + DIMS
+
+               + ["Verifier", "Cost ($)", "Latency (s)", "Recapture"]
+
+               + [f"{d} finding" for d in DIMS])            # 21 columns per engine
+
+    _DIM0 = metrics.index(DIMS[0])                          # first dimension column
 
 
 
@@ -479,13 +555,17 @@ def _build_analyses_sheet(ws, runs):
 
             if m == "Verdict":
 
-                w = 18
+                w = 22
 
             elif m.endswith("finding"):
 
                 w = 46
 
-            elif m in ("Cost ($)", "Latency (s)"):
+            elif m == "Recapture":
+
+                w = 40
+
+            elif m in ("Cost ($)", "Latency (s)", "Coverage", "Assessed", "Driver"):
 
                 w = 11
 
@@ -623,11 +703,19 @@ def _build_analyses_sheet(ws, runs):
                 elif rec.get("capped") and rec.get("reason"):
                     verdict_txt = f"{verdict_txt} — {rec['reason']}"
 
-                vals = [verdict_txt, s,
+                recap = rec.get("recapture") or []
+
+                if isinstance(recap, list):
+
+                    recap = "\n".join(str(x) for x in recap)
+
+                vals = [verdict_txt, s, _pct(rec.get("coverage")), _assessed_cell(rec),
+
+                        rec.get("lane", ""), rec.get("driver", ""),
 
                         *[_dim_cell(dims, d) for d in DIMS],
 
-                        rec.get("verifier", ""), cost, lat,
+                        rec.get("verifier", ""), cost, lat, recap,
 
                         *[(dims.get(d) or {}).get("finding", "") for d in DIMS]]
 
@@ -645,11 +733,14 @@ def _build_analyses_sheet(ws, runs):
 
 
 
-                    # dimension cells sit at 2..6; an ESTIMATED number is real
+                    # an ESTIMATED number is real output, not a measurement.
 
-                    # output, not a measurement — mark it without changing the value
+                    # Mark it without changing the value: it is DISPLAYED in the
 
-                    if 2 <= j <= 6 and _dim_status(dims, DIMS[j - 2]) == "estimated":
+                    # sheet and EXCLUDED from the arithmetic.
+
+                    if _DIM0 <= j < _DIM0 + len(DIMS) and \
+                            _dim_status(dims, DIMS[j - _DIM0]) == "estimated":
 
                         cell.font = Font(color="B07D0A", italic=True)
 
@@ -779,7 +870,9 @@ def _build_comparison_sheet(wb, runs):
 
 
 
-    metrics = ["Verdict", "Score"] + DIMS                 # 7 columns per engine
+    metrics = ["Verdict", "Score", "Coverage", "Lane"] + DIMS   # 9 columns per engine
+
+    _DIM0 = metrics.index(DIMS[0])
 
     # header row 1: grouped engine bands; header row 2: metric names
 
@@ -819,7 +912,17 @@ def _build_comparison_sheet(wb, runs):
 
     spread_col = col
 
-    for cell in (ws.cell(row=1, column=spread_col, value="Score\nspread"),):
+    # Stage 7 lives here: one verdict for the case, combined across engines by
+
+    # rule and never by averaging them.
+
+    case_col, lane_col = spread_col + 1, spread_col + 2
+
+    for cc, title in ((spread_col, "Score\nspread"), (case_col, "Case verdict"),
+
+                      (lane_col, "Lane")):
+
+        cell = ws.cell(row=1, column=cc, value=title)
 
         cell.fill = _HEAD_FILL
 
@@ -827,7 +930,7 @@ def _build_comparison_sheet(wb, runs):
 
         cell.alignment = _CENTER
 
-    ws.merge_cells(start_row=1, start_column=spread_col, end_row=2, end_column=spread_col)
+        ws.merge_cells(start_row=1, start_column=cc, end_row=2, end_column=cc)
 
 
 
@@ -880,6 +983,7 @@ def _build_comparison_sheet(wb, runs):
 
                          else rec.get("verdict", "")), sc,
 
+                        _pct(rec.get("coverage")), rec.get("lane", ""),
 
                         *[_dim_cell(dims, d) for d in DIMS]]
 
@@ -895,11 +999,10 @@ def _build_comparison_sheet(wb, runs):
 
 
 
-                    # dimension cells sit at 2..6; an ESTIMATED number is real
+                    # an ESTIMATED number is displayed and never counted
 
-                    # output, not a measurement — mark it without changing the value
-
-                    if 2 <= j <= 6 and _dim_status(dims, DIMS[j - 2]) == "estimated":
+                    if _DIM0 <= j < _DIM0 + len(DIMS) and \
+                            _dim_status(dims, DIMS[j - _DIM0]) == "estimated":
 
                         cell.font = Font(color="B07D0A", italic=True)
 
@@ -917,6 +1020,22 @@ def _build_comparison_sheet(wb, runs):
 
                 sc.font = Font(color="C0392B", bold=True)
 
+        case = scoring.combine_engines(
+
+            {_engine_display(rec.get("engine")): _as_composite(rec)
+
+             for rec in c["engines"].values()})
+
+        cv = ws.cell(row=r, column=case_col, value=case["verdict_label"])
+
+        cv.alignment = top
+
+        if case["band"] in _BAND_FONT:
+
+            cv.font = Font(color=_BAND_FONT[case["band"]], bold=True)
+
+        ws.cell(row=r, column=lane_col, value=case["lane"]).alignment = _CENTER
+
         r += 1
 
 
@@ -928,6 +1047,10 @@ def _build_comparison_sheet(wb, runs):
         ws.column_dimensions[get_column_letter(3 + i)].width = 11
 
     ws.column_dimensions[get_column_letter(spread_col)].width = 9
+
+    ws.column_dimensions[get_column_letter(case_col)].width = 24
+
+    ws.column_dimensions[get_column_letter(lane_col)].width = 10
 
 
 
@@ -966,7 +1089,11 @@ def _build_scorecard_sheet(wb, runs):
 
                                "confirmed": 0, "verifier_n": 0, "dims": {d: [] for d in DIMS},
 
-                               "assessed": [], "order": len(agg)})
+                               "assessed": [], "cov": [],
+
+                               "lane": {"CLEARED": 0, "REVIEW": 0, "REJECTED": 0},
+
+                               "order": len(agg)})
 
         a["label"] = (rec.get("engine") or a["label"])
 
@@ -1000,6 +1127,14 @@ def _build_scorecard_sheet(wb, runs):
 
         a["assessed"].append(_num(rec.get("assessed")))
 
+        a["cov"].append(_num(rec.get("coverage")))
+
+        lane = rec.get("lane") or scoring.LANE_FOR_BAND.get(band, "")
+
+        if lane in a["lane"]:
+
+            a["lane"][lane] += 1
+
         dims = rec.get("dimensions") or {}
 
         for d in DIMS:
@@ -1010,9 +1145,15 @@ def _build_scorecard_sheet(wb, runs):
 
     engines = sorted(agg.values(), key=lambda a: a["order"])
 
-    cols = ["Engine", "Runs", "Avg score", "% Authentic", "% Inconclusive",
+    cols = ["Engine", "Runs", "Avg score", "Avg coverage",
 
-            "% Counterfeit", "% No answer", "% Failed", "Verifier confirmed %", "Avg confidence",
+            "% Cleared", "% Review", "% Rejected",
+
+            "% Authentic", "% Inconclusive",
+
+            "% Counterfeit", "% No answer", "% Failed", "Reviewer agreement %",
+
+            "Avg confidence",
 
             *[f"Avg {d}" for d in DIMS], "Avg cost ($)", "Avg latency (s)"]
 
@@ -1062,11 +1203,25 @@ def _build_scorecard_sheet(wb, runs):
 
         hard = a["band"]["hard_fail"]
 
+        cov = _avg([c for c in a["cov"] if c is not None], 2)
+
         rows.append([
 
             a["label"], n, _avg(a["score"], 1),
 
-            pct(a["band"]["authentic"], n), pct(a["band"]["caution"], n),
+            None if cov is None else round(cov * 100),
+
+            pct(a["lane"]["CLEARED"], n), pct(a["lane"]["REVIEW"], n),
+
+            pct(a["lane"]["REJECTED"], n),
+
+            # Cleared outright, either band. 'Inconclusive — Suspicious' is a
+
+            # review outcome, not a counterfeit call, so it sits with caution.
+
+            pct(a["band"]["authentic"] + a["band"]["likely_authentic"], n),
+
+            pct(a["band"]["caution"] + a["band"]["likely_counterfeit"], n),
 
             pct(a["band"]["counterfeit"] + hard, n), pct(no_answer, n),
 

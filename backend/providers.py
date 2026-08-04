@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 import label_rules
 import rimage
+import scoring
 import supa
 from references import reference_path
 
@@ -137,6 +138,26 @@ _ESTIMATE_NOTE = (
     "the same 0-100 scale, knowing it will be recorded as a low-confidence "
     "estimate and never as a measurement. Do not let this field change any of "
     "your other answers: keep reporting INSUFFICIENT where that is the truth."
+)
+
+# Stage 2 of the scoring contract, appended to every rubric prompt. Both halves
+# exist to stop the same failure: an absence of observation being recorded as an
+# observation of absence, which is how items with no hardware scored 0 and were
+# read as "assessed and clean".
+_APPLICABILITY_NOTE = (
+    "\n\nAPPLICABILITY — 'applicable' (boolean). Set it false ONLY when the "
+    "product genuinely does not have this feature: a T-shirt has no hardware, a "
+    "beanie has no zip. That is NOT the same as 'I cannot see it'. If the "
+    "feature exists but these photos do not show it, leave applicable true and "
+    "report the primitives as \"INSUFFICIENT\".\n\n"
+    "PRESENCE PRIMITIVES — names that ask whether something is present "
+    "(underlay_present, backing_visible_reverse, flash_trim, spring_ring_visible, "
+    "membrane_visible_at_edge, garage_or_pocket_present, bartack_presence_length) "
+    "are three-state, not magnitudes. Report 0 when present and correct, 100 when "
+    "genuinely absent or wrong, and \"INSUFFICIENT\" when the photo does not show "
+    "it. 'Not visible' is never 'absent'.\n\n"
+    "CONFIDENCE — a primitive marked low confidence is excluded from the score "
+    "entirely, so mark it honestly rather than hedging a guess into the number."
 )
 
 # How many independent adversarial verify calls tally the verdict. Votes are
@@ -510,11 +531,19 @@ def _fill_estimate(result, estimate):
     """
     if not ALWAYS_SCORE or result.get("score") is not None:
         return result
+    # A dimension the product does not have gets no estimate at all — filling it
+    # would put a number where the honest answer is "there is nothing here".
+    if result.get("state") == scoring.DimState.NOT_APPLICABLE:
+        return result
     score = int(max(0, min(100, estimate)))
     reason = result.get("insufficient_reason") or result.get("finding") or "not assessable"
     result["score"] = score
     result["band"] = _band(score)
     result["status"] = "estimated"
+    # The state is what Layer 2 reads, and ESTIMATED never contributes to the
+    # composite. The number is displayed; it is not counted.
+    result["state"] = scoring.DimState.ESTIMATED
+    result["internal_coverage"] = 0.0
     result["estimated"] = True
     result["finding"] = f"ESTIMATE ({score}/100, low confidence) — {reason}"
     result["confidence"] = min(float(result.get("confidence") or 0.0), 0.3)
@@ -547,6 +576,7 @@ def _dim_result(dim, parsed, model_label, tin, tout, t0):
             "finding": f"INSUFFICIENT — {reason or 'dimension not assessable from these photos.'}",
             "reasoning": reason or "The model reported it could not assess this dimension.",
             "box": _BOXES[dim], "confidence": conf, "status": "abstain",
+            "state": scoring.DimState.NOT_ASSESSABLE, "internal_coverage": 0.0,
             "insufficient_reason": reason,
         }
         return _fill_estimate(result, _estimate_from(parsed)), usage
@@ -556,6 +586,9 @@ def _dim_result(dim, parsed, model_label, tin, tout, t0):
         "dimension": dim, "score": score, "band": _band(score),
         "finding": parsed["finding"], "reasoning": parsed["reasoning"],
         "box": _BOXES[dim], "confidence": conf, "status": "scored",
+        # This path has no primitive breakdown to derive a partial coverage
+        # from, so a whole-dimension judgement counts as fully covered.
+        "state": scoring.DimState.MEASURED, "internal_coverage": 1.0,
     }
     return result, usage
 
@@ -573,9 +606,12 @@ _LABEL_CHECKS = [
     ("L4", "supporting", "Fabric-content alignment: text begins at the TOP of the tag (tell: text starts near the bottom)."),
     ("L5", "strong", "Care tag present & legible: exists, correct spelling/spacing, legible care symbols (tell: MISSING entirely, misspellings, no spaces)."),
     ("L6", "supporting", "Country of origin present and correctly formatted."),
-    ("L7", "critical", "Gore-Tex label (ONLY if a Gore-Tex item): has the registered-trademark mark and underline, consistent with any lining print (tell: missing mark/underline, inconsistent). If the item is NOT Gore-Tex, return status not_visible."),
+    ("L7", "critical", "Gore-Tex label (ONLY if a Gore-Tex item): has the registered-trademark mark and underline, consistent with any lining print (tell: missing mark/underline, inconsistent). If the item is NOT a Gore-Tex product at all, return status not_applicable — the check does not apply and must not count against coverage. Use not_visible only when the item IS Gore-Tex but the label is not shown."),
     ("L8", "strong", "Style-number format: a TNF style number is old 'A'/'C'+3 chars (e.g. A71V) or new 'NF0A...' (e.g. NF0A3JQC). If NO style number is visible in the photos, mark not_visible — its absence is NOT a tell. RN / CA / RW registration codes (e.g. RW1818273, CA85730) are LEGITIMATE identifiers, not style numbers, and are never a defect. Mark counterfeit_tell only when a style number is actually present but malformed."),
-    ("L9", "strong", "Style-number match: only if a style number is visible, it should correspond to a real The North Face model consistent with this product's name/season/year. If no style number is visible, mark not_visible (NOT a tell). Mark counterfeit_tell only when a visible number clearly belongs to a different product or is invalid."),
+    # L9 (style-number RESOLVES to a real TNF model) has moved out of this
+    # rubric and into label_rules.check_style_resolution. It is a database
+    # lookup, not a vision judgement, and here it was being averaged in at
+    # strong weight alongside typeface guesses.
     ("L10", "strong", "Cross-tag consistency: style number, size and colorway agree across neck/care/hang tags (tell: mismatch)."),
     ("L11", "supporting", "Size tag present and consistent with care/style tags."),
 ]
@@ -593,9 +629,12 @@ _LABEL_PROMPT = (
     "Scoring is counterfeit-probability: 0 = matches genuine (high similarity), "
     "100 = counterfeit (wrong / low similarity).\n"
     "For EACH check below return: its id, a status one of "
-    "{genuine, suspicious, counterfeit_tell, not_visible}, a one-line 'evidence' "
-    "string, and a 'confidence' 0-1. Use not_visible when the relevant tag is "
-    "not clearly shown — NEVER assume genuine for something you cannot see.\n\n"
+    "{genuine, suspicious, counterfeit_tell, not_visible, not_applicable}, a "
+    "one-line 'evidence' string, and a 'confidence' 0-1. Use not_visible when "
+    "the relevant tag is not clearly shown — NEVER assume genuine for something "
+    "you cannot see. Use not_applicable only when the check cannot apply to this "
+    "product at all (e.g. a Gore-Tex check on a cotton tee); it is then excluded "
+    "from the label's coverage rather than counted as unseen.\n\n"
     + "\n".join(f"{cid}. {desc}" for cid, _sev, desc in _LABEL_CHECKS)
     + "\n\nReturn JSON only, matching the schema."
     + _ESTIMATE_NOTE
@@ -611,7 +650,8 @@ _LABEL_SCHEMA = {
                 "properties": {
                     "id": {"type": "string", "enum": _LABEL_IDS},
                     "status": {"type": "string",
-                               "enum": ["genuine", "suspicious", "counterfeit_tell", "not_visible"]},
+                               "enum": ["genuine", "suspicious", "counterfeit_tell",
+                                        "not_visible", "not_applicable"]},
                     "evidence": {"type": "string"},
                     "confidence": {"type": "number"},
                 },
@@ -627,11 +667,32 @@ _LABEL_SCHEMA = {
 }
 
 
+def _label_internal_coverage(by):
+    """Share of the label's APPLICABLE severity weight that actually scored.
+
+    A Label score of 0 built from L11 (a size tag is present) alone is not the
+    same evidence as one built from L3/L8/L10, and reporting both as fully
+    covered is how a single supporting check cleared an item. L7 on a
+    non-Gore-Tex product is not_applicable and leaves the denominator entirely —
+    it is not an unmet check.
+    """
+    applicable = scored = 0.0
+    for cid, sev, _d in _LABEL_CHECKS:
+        c = by.get(cid) or {}
+        if c.get("status") == "not_applicable":
+            continue
+        w = _LABEL_WEIGHT[sev]
+        applicable += w
+        if c.get("status") in _STATUS_POINTS and float(c.get("confidence") or 0) >= 0.5:
+            scored += w
+    return round(scored / applicable, 2) if applicable else 0.0
+
+
 def _aggregate_label(checks):
     """Per-check statuses -> Label score (0-100 counterfeit-probability), band,
-    one-line finding, confidence. Critical-tell-dominant: one high-confidence
-    critical tell floors the score into the counterfeit band. Returns a dict;
-    score is None (abstain) when no tag was clearly visible."""
+    one-line finding, confidence, internal coverage. Critical-tell-dominant: one
+    high-confidence critical tell floors the score into the counterfeit band.
+    Returns a dict; score is None (abstain) when no tag was clearly visible."""
     by = {}
     for c in (checks or []):
         cid = c.get("id")
@@ -640,9 +701,11 @@ def _aggregate_label(checks):
 
     visible = [c for c in by.values()
                if c.get("status") in _STATUS_POINTS and float(c.get("confidence") or 0) >= 0.5]
+    internal = _label_internal_coverage(by)
 
     if not visible:
         return {"score": None, "band": "neutral", "status": "abstain",
+                "state": scoring.DimState.NOT_ASSESSABLE, "internal_coverage": 0.0,
                 "finding": "Insufficient label evidence — tags not clearly visible.",
                 "confidence": 0.3, "checks": list(by.values())}
 
@@ -680,6 +743,7 @@ def _aggregate_label(checks):
     if len(visible) < 2:                                 # low-confidence gate: too few tags seen
         conf = round(min(conf, 0.5), 2)
     return {"score": score, "band": _band(score), "status": "scored",
+            "state": scoring.DimState.MEASURED, "internal_coverage": internal,
             "finding": finding, "confidence": conf, "checks": list(by.values())}
 
 
@@ -726,9 +790,13 @@ _LOGO_PLACEMENT = ["offset_from_placket", "offset_from_shoulder_seam",
 _LOGO_APPLICATION_ALL = {n for names in _LOGO_APPLICATION.values() for n in names}
 _LOGO_PRIMITIVE_NAMES = sorted(set(_LOGO_GEOMETRY) | _LOGO_APPLICATION_ALL | set(_LOGO_PLACEMENT))
 
-_LOGO_WEIGHT_GEOMETRY = 1
-_LOGO_WEIGHT_APPLICATION = 3
-_LOGO_WEIGHT_PLACEMENT = 1
+# The rubric prompt still describes application evidence as "weight 3x", which
+# is the right instruction to a model about what to look at hardest. The
+# arithmetic no longer uses per-primitive weights at all: the roll-up gives the
+# method group a FIXED 0.50 share (scoring.GROUP_SHARES), because under
+# per-primitive weighting the method group's real share drifted with how many
+# primitives that method happened to have — embroidery 55%, rubberised 50%,
+# screen 44% — so two items were scored on different instruments.
 
 # Cutoffs for the rubric's assessment vocabulary. Aligned with the pipeline's
 # existing bands (<=30 / <=60 / above) so the Logo card reads consistently with
@@ -815,6 +883,7 @@ and request specific recapture.
 OUTPUT — valid JSON only, no preamble, no markdown fences
 {
   "reference_used": true,
+  "applicable": true,
   "application_method": "embroidery|rubberised|screen|transfer|UNKNOWN",
   "primitives": [
     {"name": "...", "deviation": 0-100 | "INSUFFICIENT",
@@ -831,7 +900,7 @@ OUTPUT — valid JSON only, no preamble, no markdown fences
 TRANSPORT NOTE: the response schema is enforced, so every key above must be
 present. To signal HARD RULE 1 under that constraint, set "error" to
 "NO_REFERENCE" and "reference_used" to false; leave "primitives" empty. In
-every other case set "error" to "".""" + _ESTIMATE_NOTE  # noqa: E501
+every other case set "error" to "".""" + _APPLICABILITY_NOTE + _ESTIMATE_NOTE  # noqa: E501
 
 # ---------------------------------------------------------------------------
 # Stitching dimension — forensic primitive rubric.
@@ -1065,8 +1134,10 @@ _MAT_STRUCTURE = {
 }
 _MAT_SURFACE = ["sheen_at_angle", "coating_presence", "dwr_beading_cues",
                 "drape_fold_radius", "dye_penetration", "nap_direction"]
+# hand_feel_proxy was here and is gone: hand feel is not resolvable from a
+# photograph, and asking for it produced a number that looked like evidence.
 _MAT_CONSISTENCY = ["panel_to_panel_consistency", "shell_lining_consistency",
-                    "content_matches_care_label", "hand_feel_proxy"]
+                    "content_matches_care_label"]
 
 _MATERIAL_PROMPT = """ROLE
 You are a forensic textile analyst. You compare SUBMITTED fabric against
@@ -1133,7 +1204,6 @@ PRIMITIVES — CONSISTENCY (weight 1x)
   shell_lining_consistency
   content_matches_care_label   only if the care label is legible in the
                                SUBMITTED images; otherwise INSUFFICIENT
-  hand_feel_proxy              inferred from drape and fold behaviour only
 
 SCORING
 Each primitive: deviation 0-100 (0 = indistinguishable from reference)
@@ -1154,6 +1224,7 @@ _RUBRIC_OUTPUT_TMPL = """
 OUTPUT — valid JSON only, no preamble, no markdown fences
 {{
   "reference_used": true,
+  "applicable": true,
   "{method_key}": "{method_enum}|UNKNOWN",
   "primitives": [
     {{"name": "...", "deviation": 0-100 | "INSUFFICIENT",
@@ -1170,22 +1241,28 @@ OUTPUT — valid JSON only, no preamble, no markdown fences
 TRANSPORT NOTE: the response schema is enforced, so every key above must be
 present. To signal HARD RULE 1 under that constraint, set "error" to
 "NO_REFERENCE" and "reference_used" to false; leave "primitives" empty. In
-every other case set "error" to ""."""
+every other case set "error" to "".""" + _APPLICABILITY_NOTE
 
 
-# dim -> rubric spec. `heavy` primitives are the 3x group, selected by the
-# dimension's discriminator; `light` groups are always 1x.
+# dim -> rubric spec. `heavy` primitives are the METHOD group — the class-gated
+# evidence a counterfeiter has to reproduce a process to fake. `light` groups
+# are the dimension's own names for its geometry and placement evidence;
+# `group_map` translates them into the three groups the roll-up shares are
+# defined over (scoring.GROUP_SHARES), so every dimension is scored on the same
+# instrument regardless of how many primitives its method happens to have.
 _RUBRICS = {
     "Logo": {
         "method_key": "application_method", "method_word": "application",
         "heavy": _LOGO_APPLICATION,
         "light": {"geometry": _LOGO_GEOMETRY, "placement": _LOGO_PLACEMENT},
+        "group_map": {"geometry": "geometry", "placement": "placement"},
         "dev_key": "logo_deviation", "prompt": _LOGO_PROMPT,
     },
     "Stitching": {
         "method_key": "construction_class", "method_word": "construction",
         "heavy": _STITCH_CONSTRUCTION,
         "light": {"metrics": _STITCH_METRICS, "alignment": _STITCH_ALIGNMENT},
+        "group_map": {"metrics": "geometry", "alignment": "placement"},
         "dev_key": "stitching_deviation",
         "prompt": _ESTIMATE_NOTE.join([_STITCHING_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
             method_key="construction_class", dev_key="stitching_deviation",
@@ -1195,6 +1272,7 @@ _RUBRICS = {
         "method_key": "component_type", "method_word": "marking-and-finish",
         "heavy": _HW_MARKING,
         "light": {"geometry": _HW_GEOMETRY, "assembly": _HW_ASSEMBLY},
+        "group_map": {"geometry": "geometry", "assembly": "placement"},
         "dev_key": "hardware_deviation",
         "prompt": _ESTIMATE_NOTE.join([_HARDWARE_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
             method_key="component_type", dev_key="hardware_deviation",
@@ -1204,6 +1282,7 @@ _RUBRICS = {
         "method_key": "structure_type", "method_word": "structure",
         "heavy": _MAT_STRUCTURE,
         "light": {"surface": _MAT_SURFACE, "consistency": _MAT_CONSISTENCY},
+        "group_map": {"surface": "geometry", "consistency": "placement"},
         "dev_key": "material_deviation",
         "prompt": _ESTIMATE_NOTE.join([_MATERIAL_PROMPT + _RUBRIC_OUTPUT_TMPL.format(
             method_key="structure_type", dev_key="material_deviation",
@@ -1214,8 +1293,50 @@ _RUBRICS = {
 RUBRIC_DIMENSIONS = tuple(_RUBRICS)
 
 
+# --- Stage 2: the primitive contract ---------------------------------------
+# Lighting and exposure move these more than authenticity does. They may say
+# "suspicious" and no more, the same way L1/L2 are damped on the Label rubric.
+DAMPED_PRIMITIVES = {
+    "thread_sheen", "surface_finish_gloss", "sheen_at_angle",
+    "dwr_beading_cues", "surface_gloss", "operation_smoothness_cues",
+}
+
+# Not resolvable from a photograph at all. Asking for it produced a number that
+# looked like evidence and was not.
+REMOVED_PRIMITIVES = {"hand_feel_proxy"}
+
+# Presence checks, not magnitudes. Tri-state: genuine / tell / not visible.
+# "Not visible" must never be recorded as "absent" — that is exactly how a
+# missing photograph became a clean pass.
+BOOLEAN_PRIMITIVES = {
+    "underlay_present", "backing_visible_reverse", "flash_trim",
+    "spring_ring_visible", "membrane_visible_at_edge",
+    "garage_or_pocket_present", "bartack_presence_length",
+}
+
+_CONF_POINTS = _LOGO_CONF_POINTS       # high/medium/low -> 0.9/0.6/0.3
+
+
 def _heavy_names(dim):
     return {n for names in _RUBRICS[dim]["heavy"].values() for n in names}
+
+
+def _primitive_group(dim, name, method):
+    """method / geometry / placement for one primitive name.
+
+    An unlisted name reported under a detected method still counts as method
+    evidence — the rubric defines no primitive list for Logo's 'transfer', for
+    instance, and whatever the model reports there is the application evidence.
+    """
+    spec = _RUBRICS[dim]
+    for light_name, names in spec["light"].items():
+        if name in names:
+            return spec["group_map"][light_name]
+    if name in _heavy_names(dim):
+        return "method"
+    if method in spec["heavy"] and method != "UNKNOWN":
+        return "method"
+    return "geometry"
 
 
 def _rubric_schema(dim):
@@ -1227,6 +1348,9 @@ def _rubric_schema(dim):
             # under a schema that requires every key to be present.
             "error": {"type": "string", "enum": ["", "NO_REFERENCE"]},
             "reference_used": {"type": "boolean"},
+            # Does the product HAVE this dimension at all? A T-shirt has no
+            # hardware; saying so is not the same as scoring it 0.
+            "applicable": {"type": "boolean"},
             spec["method_key"]: {"type": "string",
                                  "enum": list(spec["heavy"]) + ["UNKNOWN"]},
             "primitives": {
@@ -1256,7 +1380,7 @@ def _rubric_schema(dim):
             "recapture_instructions": {"type": "array", "items": {"type": "string"}},
             "best_estimate_deviation": {"type": "integer"},
         },
-        "required": ["best_estimate_deviation",
+        "required": ["best_estimate_deviation", "applicable",
                      "error", "reference_used", spec["method_key"], "primitives",
                      spec["dev_key"], "assessment", "top_deviations", "capture_issues",
                      "recapture_instructions"],
@@ -1267,39 +1391,57 @@ def _rubric_schema(dim):
 _LOGO_SCHEMA = _rubric_schema("Logo")
 
 
-def _rubric_weight(dim, name, method):
-    """Rubric weight for a primitive. The dimension's heavy group counts 3x."""
-    spec = _RUBRICS[dim]
-    for names in spec["light"].values():
-        if name in names:
-            return _LOGO_WEIGHT_GEOMETRY               # every light group is 1x
-    if name in _heavy_names(dim):
-        return _LOGO_WEIGHT_APPLICATION
-    # An unlisted name reported under a detected method (e.g. Logo's 'transfer',
-    # for which the rubric defines no list) still counts as heavy evidence.
-    if method in spec["heavy"] and method != "UNKNOWN":
-        return _LOGO_WEIGHT_APPLICATION
-    return _LOGO_WEIGHT_GEOMETRY
+def _normalise_primitive(dim, p, method):
+    """One rubric row -> the Stage-2 contract, or None if it carries no evidence.
+
+    {name, deviation 0-100|None, confidence 0-1, group}. Everything that makes a
+    primitive unusable — removed, unresolvable, below the confidence floor —
+    resolves to None here rather than to a number that looks measured.
+    """
+    name = str(p.get("name") or "").strip()
+    if name in REMOVED_PRIMITIVES:
+        return None
+    conf = _CONF_POINTS.get(str(p.get("confidence") or "low").lower(), 0.3)
+    group = _primitive_group(dim, name, method)
+    dev = p.get("deviation")
+    if isinstance(dev, bool) or dev is None or isinstance(dev, str):
+        return {"name": name, "deviation": None, "confidence": conf, "group": group}
+    try:
+        val = max(0.0, min(100.0, float(dev)))
+    except (TypeError, ValueError):
+        return {"name": name, "deviation": None, "confidence": conf, "group": group}
+    if name in BOOLEAN_PRIMITIVES:
+        val = 0.0 if val < 50 else 100.0        # tri-state: genuine / tell
+    elif name in DAMPED_PRIMITIVES:
+        val = min(val, scoring.DAMP_CEILING)    # exposure, not authenticity
+    # Below the confidence floor the row is an impression, not an observation.
+    if conf < scoring.PRIMITIVE_MIN_CONFIDENCE:
+        return {"name": name, "deviation": None, "confidence": conf, "group": group}
+    return {"name": name, "deviation": val, "confidence": conf, "group": group}
 
 
 def _aggregate_rubric(dim, parsed):
-    """Primitive rows -> deviation, assessment, finding, confidence.
+    """Primitive rows -> deviation, state, internal coverage, finding, confidence.
 
-    Server-authoritative and shared by every rubric dimension: applies the
-    roll-up `max(weighted_mean, 0.85 * max_single_deviation)` over RESOLVABLE
-    primitives only, then the INSUFFICIENT_CAPTURE gates. Returns score None
-    for any insufficient outcome — the caller turns that into an abstention.
+    Server-authoritative and shared by every rubric dimension. The roll-up is
+    scoring.roll_up_primitives: a mean normalised across FIXED GROUP SHARES
+    (method .50 / geometry .30 / placement .20), floored by the worst primitive
+    at a factor that depends on its group.
+
+    A dimension whose method group never ran is PARTIAL, not MEASURED and not
+    an abstention: it produced a real number, from the primitives a competent
+    counterfeiter gets right, and Layer 2 discounts it accordingly.
     """
     spec = _RUBRICS[dim]
-    heavy_all = _heavy_names(dim)
     method = (parsed.get(spec["method_key"]) or "UNKNOWN").strip()
     prims = [p for p in (parsed.get("primitives") or []) if isinstance(p, dict)]
     capture_issues = [str(x) for x in (parsed.get("capture_issues") or [])]
     recapture = [str(x) for x in (parsed.get("recapture_instructions") or [])]
 
-    def _insufficient(finding, extra_issue=None):
+    def _insufficient(finding, extra_issue=None, state=scoring.DimState.NOT_ASSESSABLE):
         issues = capture_issues + ([extra_issue] if extra_issue else [])
         return {"score": None, "band": "neutral", "status": "abstain",
+                "state": state, "internal_coverage": 0.0,
                 "assessment": "INSUFFICIENT_CAPTURE", "finding": finding,
                 "confidence": 0.3, "method": method, "primitives": prims,
                 "capture_issues": issues, "recapture_instructions": recapture,
@@ -1312,55 +1454,25 @@ def _aggregate_rubric(dim, parsed):
                                 f"was available, so no {dim.lower()} comparison was made."),
                 "assessment": "NO_REFERENCE"}
 
-    resolvable, insufficient_names = [], []
-    for p in prims:
-        name = str(p.get("name") or "").strip()
-        dev = p.get("deviation")
-        if isinstance(dev, bool) or dev is None or isinstance(dev, str):
-            insufficient_names.append(name)          # "INSUFFICIENT" (or unusable)
-            continue
-        try:
-            val = float(dev)
-        except (TypeError, ValueError):
-            insufficient_names.append(name)
-            continue
-        resolvable.append((name, max(0.0, min(100.0, val)),
-                           str(p.get("confidence") or "low").lower(),
-                           str(p.get("evidence") or "")))
+    # The agent looked at the photographs and reports this dimension does not
+    # exist on this product. Not a zero, not an abstention — a third thing,
+    # excluded from the composite's numerator AND denominator.
+    if parsed.get("applicable") is False:
+        return {**_insufficient(
+            f"NOT_APPLICABLE — this product has no {dim.lower()} to assess.",
+            state=scoring.DimState.NOT_APPLICABLE),
+            "assessment": "NOT_APPLICABLE", "status": "not_applicable"}
 
-    if not resolvable:
+    rows = [r for r in (_normalise_primitive(dim, p, method) for p in prims) if r]
+    usable = [r for r in rows if r["deviation"] is not None]
+    if not usable:
         return _insufficient(f"INSUFFICIENT_CAPTURE — no {dim.lower()} primitive was "
                              f"resolvable in the supplied photos.")
 
-    # SCORING gate: any unresolved HEAVY primitive, or 3+ unresolved overall.
-    word = spec["method_word"]
-    heavy_insufficient = [n for n in insufficient_names if n in heavy_all]
-    if method == "UNKNOWN":
-        return _insufficient(
-            f"INSUFFICIENT_CAPTURE — {spec['method_key'].replace('_', ' ')} "
-            f"({' / '.join(spec['heavy'])}) could not be determined, so the "
-            f"3x-weighted {word} evidence is unavailable.",
-            f"{spec['method_key']} not resolvable")
-    if heavy_insufficient:
-        return _insufficient(
-            f"INSUFFICIENT_CAPTURE — {word} primitive(s) not resolvable: "
-            f"{', '.join(sorted(set(heavy_insufficient)))}.",
-            f"{word} primitives not resolvable")
-    if len(insufficient_names) >= 3:
-        return _insufficient(
-            f"INSUFFICIENT_CAPTURE — {len(insufficient_names)} primitives were not "
-            f"resolvable: {', '.join(sorted(set(n for n in insufficient_names if n)))}.")
-
-    num = den = 0.0
-    for name, val, _conf, _ev in resolvable:
-        w = _rubric_weight(dim, name, method)
-        num += val * w
-        den += w
-    weighted_mean = num / den if den else 0.0
-    worst_name, worst_val = max(((n, v) for n, v, _c, _e in resolvable), key=lambda t: t[1])
-    # Rubric roll-up: one severe primitive must not be averaged away by many
-    # unremarkable ones.
-    score = int(round(max(0.0, min(100.0, max(weighted_mean, 0.85 * worst_val)))))
+    score, state, internal, worst_name, weighted_mean = scoring.roll_up_primitives(usable)
+    if score is None:
+        return _insufficient(f"INSUFFICIENT_CAPTURE — no {dim.lower()} primitive was "
+                             f"resolvable in the supplied photos.")
 
     if score <= _LOGO_MINOR_AT:
         assessment = "consistent_with_reference"
@@ -1369,21 +1481,26 @@ def _aggregate_rubric(dim, parsed):
     else:
         assessment = "deviation_significant"      # HARD RULE 6 — the adverse ceiling
 
-    ranked = sorted(resolvable, key=lambda t: -t[1])
-    top = [n for n, v, _c, _e in ranked if v > 0][:3]
-    lead = next((e for _n, _v, _c, e in ranked if e), "")
+    by_name = {str(p.get("name") or "").strip(): p for p in prims}
+    ranked = sorted(usable, key=lambda r: -r["deviation"])
+    top = [r["name"] for r in ranked if r["deviation"] > 0][:3]
+    lead = next((str(by_name.get(r["name"], {}).get("evidence") or "") for r in ranked
+                 if by_name.get(r["name"], {}).get("evidence")), "")
     finding = f"{assessment.replace('_', ' ')} ({score}/100)"
+    if state == scoring.DimState.PARTIAL:
+        finding += (f" — PARTIAL: {spec['method_key'].replace('_', ' ')} was not "
+                    f"resolvable, so the {spec['method_word']} evidence never ran")
     if top:
         finding += f" — worst: {top[0]}"
     if lead:
         finding += f". {lead}"
-    conf = round(sum(_LOGO_CONF_POINTS.get(c, 0.3) for _n, _v, c, _e in resolvable)
-                 / len(resolvable), 2)
+    conf = round(sum(r["confidence"] for r in usable) / len(usable), 2)
     return {"score": score, "band": _band(score), "status": "scored",
+            "state": state, "internal_coverage": internal,
             "assessment": assessment, "finding": finding, "confidence": conf,
             "method": method, "primitives": prims, "capture_issues": capture_issues,
             "recapture_instructions": recapture, "top_deviations": top,
-            "worst_primitive": worst_name, "weighted_mean": round(weighted_mean, 1)}
+            "worst_primitive": worst_name, "weighted_mean": weighted_mean}
 
 
 def _rubric_dimension(cfg, dim, suspect_b64s, ref_b64s, t0):
@@ -1430,6 +1547,10 @@ def _rubric_result(dim, agg):
                          else f"Weighted mean {agg.get('weighted_mean')}, worst primitive "
                               f"{agg.get('worst_primitive')}.")),
         "box": _BOXES[dim], "confidence": agg["confidence"], "status": agg["status"],
+        # score / state / internal_coverage always travel together — reading a
+        # score without its state is what cleared four guesses as authentic.
+        "state": agg.get("state", scoring.DimState.NOT_ASSESSABLE),
+        "internal_coverage": agg.get("internal_coverage", 0.0),
         "assessment": agg["assessment"], "method": agg["method"],
         spec["method_key"]: agg["method"],
         "primitives": agg.get("primitives") or [],
@@ -1515,6 +1636,9 @@ def _mock_dimension(dim, case_id, t0, label):
         "finding": finding, "reasoning": reasoning,
         "box": _BOXES[dim], "confidence": confidence,
         "status": "abstain" if band == "neutral" else "scored",
+        "state": (scoring.DimState.NOT_ASSESSABLE if band == "neutral"
+                  else scoring.DimState.MEASURED),
+        "internal_coverage": 0.0 if band == "neutral" else 1.0,
     }
     return result, usage
 
@@ -1566,6 +1690,8 @@ def _label_dimension(cfg, suspect_b64s, ref_b64s, t0):
         "finding": agg["finding"], "reasoning": summary or agg["finding"],
         "box": _BOXES["Label"], "confidence": agg["confidence"],
         "status": agg["status"], "checks": agg["checks"],
+        "state": agg.get("state", scoring.DimState.NOT_ASSESSABLE),
+        "internal_coverage": agg.get("internal_coverage", 0.0),
     }
     return _fill_estimate(result, label_estimate), usage
 
@@ -1779,24 +1905,53 @@ def run_pairing_check(brand, suspect_images, ref_b64s, provider="openai"):
 # ---------------------------------------------------------------------------
 # UPC / security-tag tool node — OCR + master-record lookup (mocked DB).
 # ---------------------------------------------------------------------------
-_MASTER_UPC = {"TNF": "193393578024", "Vans": "191167589436", "Timberland": "887168539921"}
-
-# Reverse catalog so a UPC that reads as a *different* product surfaces a mismatch.
+# The UPC master record. This is a PER-PRODUCT lookup, keyed by product, not a
+# per-brand default — a per-brand default is what put 193393578024 (a Nuptse
+# jacket) on the 'UPC expected' line of a beanie, a kids' swimsuit and two
+# shirts, in an export where the check had therefore never actually run.
+#
+# Deliberately small and honest: with no PIM connection, a product that is not
+# in here has NO master record, and the absence of a record is never treated as
+# evidence against the item.
 _UPC_CATALOG = {
     "193393578024": ("TNF", "1996 Retro Nuptse Jacket"),
     "191167589436": ("Vans", "Old Skool"),
     "887168539921": ("Timberland", "6-Inch Premium Waterproof Boot"),
 }
 
+# product name (lowercased) -> the UPC its master record carries.
+_PRODUCT_UPC = {name.lower(): upc for upc, (_b, name) in _UPC_CATALOG.items()}
 
-def run_upc_tool(brand, case_id, upc_image, provider="openai"):
+
+def _expected_upc(brand, product):
+    """The master-record UPC for THIS product, or "" when we hold no record.
+
+    Matching is on the product name because that is the only product identity
+    the run carries. A blank answer is the correct answer for an item we have no
+    master record for — it is not an invitation to fall back to the brand's
+    first barcode.
+    """
+    name = (product or "").strip().lower()
+    if not name:
+        return ""
+    if name in _PRODUCT_UPC:
+        return _PRODUCT_UPC[name]
+    # Tolerate the operator typing 'Nuptse Jacket 1996 Retro' or adding a colour.
+    for known, upc in _PRODUCT_UPC.items():
+        if known in name or name in known:
+            if _UPC_CATALOG[upc][0].lower() == (brand or "").strip().lower():
+                return upc
+    return ""
+
+
+def run_upc_tool(brand, case_id, upc_image, provider="openai", product=""):
     """OCR the UPC from the uploaded barcode image and look it up.
     Falls back to a stub when no UPC image is provided / no key."""
     t0 = time.time()
     cfg = _cfg(provider)
     if upc_image and cfg:
         try:
-            return _chat_upc(cfg, brand, upc_image, t0)
+            return _chat_upc(cfg, brand, upc_image, t0, product)
         except Exception as e:
             if not ALLOW_MOCK:
                 raise RuntimeError(f"{provider} UPC OCR failed: {e}") from e
@@ -1807,7 +1962,7 @@ def run_upc_tool(brand, case_id, upc_image, provider="openai"):
     # No UPC image supplied. This is the ABSENCE of a check, not a failed one —
     # it must never nudge the composite. 'nomatch' used to be returned here and
     # graph.py added +6 to every score in the corpus as a result.
-    expected = _MASTER_UPC.get(brand, "")
+    expected = _expected_upc(brand, product)
     usage = {"agent": "UPC / Tag", "model": f"{_label_for(provider)} (mock)",
              "tokens_in": 0, "tokens_out": 0, "latency_ms": int((time.time() - t0) * 1000)}
     return {"status": "not_provided",
@@ -1816,7 +1971,7 @@ def run_upc_tool(brand, case_id, upc_image, provider="openai"):
             "expected": expected, "extracted": "", "belongs": None}, usage
 
 
-def _chat_upc(cfg, brand, upc_b64, t0):
+def _chat_upc(cfg, brand, upc_b64, t0, product=""):
     schema = {"type": "object",
               "properties": {"upc": {"type": "string"}, "readable": {"type": "boolean"}},
               "required": ["upc", "readable"], "additionalProperties": False}
@@ -1827,17 +1982,25 @@ def _chat_upc(cfg, brand, upc_b64, t0):
                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{upc_b64}", "detail": "high"}}]
     parsed, tin, tout = _chat(cfg, content, schema, "upc", CHAT_TIMEOUT)
     digits = "".join(ch for ch in str(parsed.get("upc", "")) if ch.isdigit())
-    expected = _MASTER_UPC.get(brand, "")
+    expected = _expected_upc(brand, product)
     belongs = None
     if not parsed.get("readable") or not digits:
         # Unreadable is a capture failure, not a counterfeit signal — keep it
         # distinct from 'nomatch' (a code that really is absent from the PIM).
         status, note = "unreadable", "No readable UPC could be extracted from the uploaded image."
-    elif digits == expected:
+    elif expected and digits == expected:
         status, note = "match", f"UPC {digits} resolves to the matching {brand} master record in SAP MDG."
     elif digits in _UPC_CATALOG:
         b, name = _UPC_CATALOG[digits]
         status, note, belongs = "mismatch", f"UPC {digits} belongs to {name} ({b}) but this case is a {brand} product.", name
+    elif not expected:
+        # We hold no master record for this product, so the code cannot be
+        # checked. That is the absence of a check, not a failed one — calling it
+        # 'nomatch' would push a 60-point floor onto every unlisted product.
+        status = "no_master_record"
+        note = (f"UPC {digits} was read, but no master record is held for "
+                f"{product or 'this product'} — nothing to check it against. Not "
+                f"counted as evidence either way.")
     else:
         status, note = "nomatch", f"UPC {digits} does not exist in the PIM master record — counterfeit indicator."
     usage = {"agent": "UPC / Tag", "model": cfg["label"], "tokens_in": tin, "tokens_out": tout,
@@ -1848,30 +2011,57 @@ def _chat_upc(cfg, brand, upc_b64, t0):
 # ---------------------------------------------------------------------------
 # Verdict tier — OpenAI synthesis + adversarial verify (two calls), or mock.
 # ---------------------------------------------------------------------------
+# What an independent reviewer is allowed to answer. Deliberately the ladder's
+# own vocabulary, so its answer can be compared to the pipeline's IN CODE.
+_REVIEW_LABELS = ["Authentic", "Likely Authentic", "Inconclusive",
+                  "Insufficient Evidence", "Suspected Counterfeit"]
+
+# Which reviewer labels count as agreeing with which pipeline verdict. Agreement
+# is about the DECISION, not the wording: 'Inconclusive — Suspicious' and
+# 'Inconclusive' route to the same place, so a reviewer saying either agrees.
+_AGREEMENT_CLASS = {
+    "Authentic": "clear", "Likely Authentic": "clear",
+    "Inconclusive": "review", "Inconclusive — Suspicious": "review",
+    "Insufficient Evidence": "insufficient",
+    "Suspected Counterfeit": "adverse",
+    "Counterfeit — Label Validation Failed": "adverse",
+    "Reference Mismatch — Cannot Compare": "review",
+    "Run Failed": "review",
+}
+
+
 def run_verdict(provider, brand, composite, dimensions, upc):
-    # Synthesis plus VERIFY_VOTES independent adversarial reviews, all concurrent.
-    # The tally is computed here: a single call asked to report its own "votes"
-    # string simply invents one, which is not a second opinion.
+    # Synthesis plus VERIFY_VOTES INDEPENDENT classifications, all concurrent.
+    #
+    # The reviewers used to be told to refute the verdict, and duly refuted 5
+    # cases out of 5 — a model told to refute will refute, so the column carried
+    # no information. Each reviewer now sees the same evidence and classifies it
+    # from scratch, without being shown the pipeline's answer; the comparison
+    # happens here, in code, where the model cannot influence it.
     n = VERIFY_VOTES
     with ThreadPoolExecutor(max_workers=1 + n) as ex:
         fs = ex.submit(_verdict_call, provider, "synthesize", brand, composite, dimensions, upc)
         fvs = [ex.submit(_verdict_call, provider, "verify", brand, composite, dimensions, upc)
                for _ in range(n)]
         synth, u1 = fs.result()
-        votes = []
-        usages = [u1]
+        reviews, usages = [], [u1]
         for f in fvs:
             v, u = f.result()
-            votes.append(bool(v["confirmed"]))
+            reviews.append(v)
             usages.append(u)
-    yes = sum(votes)
+
+    ours = _AGREEMENT_CLASS.get(composite.get("verdict_label", ""), "review")
+    labels = [str(r.get("classification") or "").strip() for r in reviews]
+    agree = sum(1 for lab in labels if _AGREEMENT_CLASS.get(lab, "?") == ours)
     verdict = {
         "label": composite["verdict_label"],
         "summary": synth["summary"],
-        # composite bands are AUTHENTICITY now; the adverse ones are the low bands
         "escalated": composite["band"] in ("counterfeit", "likely_counterfeit", "hard_fail"),
-        "verifier_confirmed": yes * 2 > len(votes),      # strict majority
-        "verifier_votes": f"{yes}/{len(votes)}",
+        # A majority of independent reviewers landing in the same class as the
+        # pipeline. Not "did the model agree when asked to agree".
+        "verifier_confirmed": agree * 2 > len(labels) if labels else False,
+        "verifier_votes": f"{agree}/{len(labels)}",
+        "reviewer_labels": labels,
         "key_evidence": synth["key_evidence"],
     }
     return verdict, usages
@@ -1913,10 +2103,17 @@ def _mock_verdict(kind, brand, composite, dimensions, upc, t0, label):
         }
         toks_out = 640 + int(rnd() * 160)
     else:
-        # No score means nothing to confirm — an unverifiable verdict is refuted.
-        confirmed = score is not None and score >= 55
-        out = {"confirmed": confirmed,
-               "reason": "mock reviewer" if confirmed else "mock reviewer — unsupported or no score"}
+        # The mock reviewer classifies independently too, off the same evidence
+        # the real one gets: no score at all means nothing was measured.
+        if score is None:
+            classification = "Insufficient Evidence"
+        elif score >= 76:
+            classification = "Likely Authentic"
+        elif score >= 51:
+            classification = "Inconclusive"
+        else:
+            classification = "Suspected Counterfeit"
+        out = {"classification": classification, "reason": "mock independent reviewer"}
         toks_out = 480 + int(rnd() * 140)
     usage = {
         "agent": "Verdict synth." if kind == "synthesize" else "Verify",
@@ -1958,17 +2155,28 @@ def _chat_verdict(cfg, kind, brand, composite, dimensions, upc, t0):
                   f"that it could not be evaluated. If little was assessed, the honest summary "
                   f"is that the evidence is insufficient and a recapture is required.")
     else:
+        # INDEPENDENT classification. The reviewer is deliberately NOT shown the
+        # pipeline's verdict — being shown a conclusion and asked about it is
+        # how the old refute-prompt produced 5 refutations out of 5. The
+        # comparison is done in run_verdict, in code.
         schema = {"type": "object", "properties": {
-            "confirmed": {"type": "boolean"}, "reason": {"type": "string"}},
-            "required": ["confirmed", "reason"], "additionalProperties": False}
-        prompt = (f"You are an adversarial reviewer. Your job is to REFUTE the following "
-                  f"counterfeit conclusion if it is not fully supported.\n\n"
-                  f"Brand {brand}. Composite {score_txt} ({composite['verdict_label']}). "
-                  f"UPC status: {upc['status']}. {coverage} Findings: {findings}.\n\n"
-                  f"Set confirmed=false if the conclusion rests on too few assessed dimensions, "
-                  f"on an unassessable dimension being read as clean, on evidence cited under "
-                  f"the wrong dimension, or on any claim the findings do not actually support. "
-                  f"Default to confirmed=false when uncertain. Give a one-line reason.")
+            "classification": {"type": "string", "enum": _REVIEW_LABELS},
+            "reason": {"type": "string"}},
+            "required": ["classification", "reason"], "additionalProperties": False}
+        prompt = (f"You are an independent authentication reviewer. Classify this item "
+                  f"yourself, from the evidence below and nothing else.\n\n"
+                  f"Brand {brand}. UPC status: {upc['status']}. {coverage} "
+                  f"Findings from the dimensions that were actually assessed: {findings}.\n\n"
+                  f"Choose exactly one classification:\n"
+                  f"  Authentic — measured evidence across the item, no meaningful deviation\n"
+                  f"  Likely Authentic — measured evidence, only minor deviation\n"
+                  f"  Inconclusive — genuinely ambiguous evidence\n"
+                  f"  Insufficient Evidence — too little was actually measured to say\n"
+                  f"  Suspected Counterfeit — a real defect was observed\n\n"
+                  f"Rules: a dimension that could not be assessed is UNKNOWN, never clean. "
+                  f"Never clear an item because no defect was found in evidence that was "
+                  f"never gathered — that is Insufficient Evidence, not Likely Authentic. "
+                  f"Give a one-line reason. Do not mention scores you were not given.")
     out, tin, tout = _chat(cfg, prompt, schema, "verdict", CHAT_TIMEOUT)
     usage = {
         "agent": "Verdict synth." if kind == "synthesize" else "Verify",

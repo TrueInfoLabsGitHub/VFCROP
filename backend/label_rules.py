@@ -212,6 +212,49 @@ def check_style_number(style, product_family=""):
                     f"format.")]
 
 
+# Known-good TNF style numbers, uppercase and stripped. This is a SEED, not a
+# catalogue: the authoritative source is the product master, which this service
+# does not have. Seed it from the environment (TNF_STYLE_CATALOG, comma
+# separated) to make the check bite; with an empty catalogue it always reports
+# UNKNOWN, and an UNKNOWN can never contribute to a hard fail.
+STYLE_CATALOG = {s.strip().upper() for s in
+                 os.environ.get("TNF_STYLE_CATALOG", "").split(",") if s.strip()}
+
+
+def check_style_resolution(style, catalog=None):
+    """Does a well-formed style number resolve to a real model?
+
+    This is a database lookup, not a vision judgement — which is why it lives
+    here and no longer sits inside the Label vision rubric being averaged in at
+    strong weight alongside typeface guesses.
+
+    A well-formed number that resolves to nothing is a strong tell. But with no
+    catalogue loaded there is nothing to resolve against, and the honest answer
+    is UNKNOWN — never a fail, because 'we have no data' must not read as
+    'the product does not exist'.
+    """
+    cat = STYLE_CATALOG if catalog is None else {str(s).strip().upper() for s in catalog}
+    s = (style or "").strip()
+    if not s or _REGISTRATION_CODE.match(s):
+        return [_result("S2", "Style number resolves to a model", UNKNOWN, STRONG,
+                        "No style number was read, so there was nothing to resolve.")]
+    compact = re.sub(r"[\s\-]", "", s).upper()
+    if not (_STYLE_NEW.match(compact) or _STYLE_OLD.match(compact)):
+        return [_result("S2", "Style number resolves to a model", UNKNOWN, STRONG,
+                        f"'{s}' is malformed, so resolution was not attempted "
+                        f"(the format check already covers it).")]
+    if not cat:
+        return [_result("S2", "Style number resolves to a model", UNKNOWN, STRONG,
+                        f"'{s}' is well-formed, but no model catalogue is configured "
+                        f"— set TNF_STYLE_CATALOG to enable resolution.")]
+    if compact in cat:
+        return [_result("S2", "Style number resolves to a model", PASS, STRONG,
+                        f"'{s}' resolves to a known model.")]
+    return [_result("S2", "Style number resolves to a model", FAIL, STRONG,
+                    f"'{s}' is well-formed but resolves to no model in the "
+                    f"catalogue ({len(cat)} entries).")]
+
+
 def check_registration_syntax(rn, ca):
     """RN / CA numeric plausibility. Syntax only — resolution is check_rn_registry."""
     out = []
@@ -456,6 +499,7 @@ def validate(fields, brand="TNF", prior=None, lookup=None):
     checks += check_fiber_content(fields.get("fiber_content"))
     checks += check_style_number(fields.get("style_number"),
                                  fields.get("product_family", ""))
+    checks += check_style_resolution(fields.get("style_number"))
     checks += check_registration_syntax(fields.get("rn"), fields.get("ca"))
     checks += check_rn_registry(fields.get("rn"), brand, lookup=lookup)
     checks += check_statutory_phrasing(fields.get("care_text"))

@@ -1,10 +1,14 @@
-"""Regression tests for the insufficient-evidence handling.
+"""Regression tests for the scoring path.
 
-The bug these lock down: a dimension agent that could not see its region was
-forced to return an integer, and the aggregator averaged that fabricated number
-into a composite. The canonical failure is the `test1` case — a folded macro
-shot of a down-jacket care label paired against a cotton t-shirt reference —
-which produced three different confident scores (53 / 33 / 42) across engines.
+The bug this file originally locked down: a dimension agent that could not see
+its region was forced to return an integer, and the aggregator averaged that
+fabricated number into a composite. The canonical failure is the `test1` case —
+a folded macro shot of a down-jacket care label paired against a cotton t-shirt
+reference — which produced three different confident scores (53 / 33 / 42).
+
+It now also covers the decision ladder that replaced the plain weighted mean.
+The acceptance tests for that ladder live in test_acceptance.py; this file
+covers the plumbing around it.
 
 Run:  pytest backend/test_scoring.py -q      (from the repo root)
 """
@@ -17,26 +21,48 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import graph                                                  # noqa: E402
 import providers                                              # noqa: E402
+import scoring                                                # noqa: E402
 from references import DIMENSIONS                              # noqa: E402
 
 
 # ---- helpers ---------------------------------------------------------------
-def dim(name, score, status="scored", confidence=0.8):
-    return {"dimension": name, "score": score, "band": graph._band(score),
+_STATE_FOR = {"scored": scoring.DimState.MEASURED,
+              "estimated": scoring.DimState.ESTIMATED,
+              "abstain": scoring.DimState.NOT_ASSESSABLE,
+              "error": scoring.DimState.FAILED,
+              "not_applicable": scoring.DimState.NOT_APPLICABLE}
+
+
+def dim(name, score, status="scored", confidence=0.8, state=None, coverage=None):
+    """One dimension result as the agents emit it.
+
+    score / state / internal_coverage travel together on purpose — reading a
+    score without its state is the failure this whole module exists to stop."""
+    st = state or _STATE_FOR[status]
+    if coverage is None:
+        coverage = 1.0 if st in (scoring.DimState.MEASURED, scoring.DimState.PARTIAL) else 0.0
+    return {"dimension": name, "score": score, "band": providers._band(score),
             "finding": "f", "reasoning": "r", "box": None,
-            "confidence": confidence, "status": status}
+            "confidence": confidence, "status": status,
+            "state": st, "internal_coverage": coverage}
 
 
-def state(dims, upc_status="not_provided", pairing_status="ok", hard_fail=False):
+def state(dims, upc_status="not_provided", pairing_status="ok", hard_fail=False,
+          product=""):
     return {"dimension_results": dims,
             "upc_result": {"status": upc_status},
-            "pairing": {"status": pairing_status, "note": "n"},
+            "product_name": product,
+            "pairing": {"status": pairing_status, "note": "n", "suspect_item": ""},
             "label_id": {"validation": {"hard_fail": hard_fail, "failed": ["R3"],
                                         "summary": "RN resolves to another company."}}}
 
 
 def agg(dims, **kw):
     return graph.aggregate_node(state(dims, **kw))["composite"]
+
+
+def all_measured(deviation, **kw):
+    return agg([dim(d, deviation) for d in DIMENSIONS], **kw)
 
 
 # ---- the abstain gate ------------------------------------------------------
@@ -57,6 +83,7 @@ def test_unassessable_dimension_yields_no_score(honest):
     result, _usage = providers._dim_result("Logo", parsed, "test-model", 0, 0, 0.0)
     assert result["score"] is None
     assert result["status"] == "abstain"
+    assert result["state"] == scoring.DimState.NOT_ASSESSABLE
     assert "INSUFFICIENT" in result["finding"]
 
 
@@ -75,32 +102,45 @@ def test_assessable_dimension_still_scores_normally():
     result, _ = providers._dim_result("Material", parsed, "test-model", 0, 0, 0.0)
     assert result["score"] == 82
     assert result["status"] == "scored"
+    assert result["state"] == scoring.DimState.MEASURED
     assert result["band"] == "counterfeit"
 
 
 # ---- the coverage floor ----------------------------------------------------
-def test_too_few_assessed_dimensions_returns_recapture():
-    """The test1 shape: most dimensions unassessable -> no composite at all."""
+def test_one_measured_dimension_cannot_produce_a_verdict():
+    """The test1 shape: most dimensions unassessable -> no clearance, ever."""
     dims = [dim("Logo", None, "abstain", 0.0), dim("Stitching", None, "abstain", 0.0),
             dim("Hardware", None, "abstain", 0.0), dim("Label", 0),
             dim("Material", None, "abstain", 0.0)]
     c = agg(dims)
-    assert c["score"] is None
     assert c["band"] == "insufficient"
-    assert c["verdict_label"] == "Insufficient Evidence — Recapture"
+    assert c["verdict_label"] == "Insufficient Evidence"
     assert c["coverage"]["assessed"] == 1
+    assert c["lane"] == "REVIEW"
 
 
-def test_enough_coverage_scores_over_assessed_only():
-    """Abstentions are dropped, not counted as zeros."""
+def test_abstentions_are_dropped_not_counted_as_zeros():
     dims = [dim("Logo", 80), dim("Stitching", 80), dim("Hardware", None, "abstain", 0.0),
             dim("Label", 80), dim("Material", None, "abstain", 0.0)]
     c = agg(dims)
-    # 80 across every assessed dimension must average to 80 — if the two
-    # abstentions were coerced to 0 this would come out near 48.
-    assert c["score"] == 20          # 100 - 80; dimensions stay on the deviation scale
+    # 80 across every measured dimension. If the two abstentions were coerced to
+    # 0 the deviation would come out near 48 and the item would not escalate.
+    assert c["deviation"] == 80
     assert c["coverage"]["assessed"] == 3
     assert set(c["coverage"]["abstained"]) == {"Hardware", "Material"}
+
+
+def test_recapture_names_the_shots_that_would_resolve_it():
+    """An Insufficient Evidence verdict is only useful if it says what to do."""
+    dims = [dim("Logo", 10), dim("Stitching", None, "abstain", 0.0),
+            dim("Hardware", None, "abstain", 0.0), dim("Label", None, "abstain", 0.0),
+            dim("Material", None, "abstain", 0.0)]
+    c = agg(dims)
+    assert c["band"] == "insufficient"
+    shots = " ".join(c["recapture"])
+    assert "Label: Interior care tag" in shots
+    assert "Stitching:" in shots and "Hardware:" in shots
+    assert "Logo:" not in shots               # Logo was measured — nothing to recapture
 
 
 # ---- the pairing gate must not fire on ordinary evidence shots -------------
@@ -114,12 +154,16 @@ def test_pairing_prompt_allows_detail_shots_against_a_full_garment():
     assert "ONLY when the two sets positively show DIFFERENT product categories" in p
 
 
-def test_always_score_keeps_the_mismatch_warning_but_still_fills_numbers():
+def test_a_mismatch_produces_no_composite_but_keeps_the_dimension_cells():
+    """Comparing against the wrong product makes every deviation meaningless, so
+    the composite is withheld. The per-dimension cells still carry their numbers,
+    so the row is populated in the export and the warning is not lost."""
     dims = [dim(d, 40, "estimated") for d in DIMENSIONS]
     c = agg(dims, pairing_status="mismatch")
-    assert c["score"] == 60                                   # 100 - 40, cells populated
+    assert c["score"] is None
     assert c["verdict_label"] == "Reference Mismatch — Cannot Compare"
-    assert c["band"] == "mismatch"                            # warning preserved
+    assert c["band"] == "mismatch"
+    assert c["lane"] == "REVIEW"
 
 
 def test_missing_reference_file_does_not_crash():
@@ -130,58 +174,130 @@ def test_missing_reference_file_does_not_crash():
     assert load_ref_b64("") is None
 
 
-# ---- weights and verdict bands ---------------------------------------------
-def test_every_dimension_carries_equal_weight():
-    assert len(set(graph.WEIGHTS.values())) == 1
+# ---- weights ---------------------------------------------------------------
+def test_weights_and_diagnostics_cover_every_dimension():
     assert set(graph.WEIGHTS) == set(DIMENSIONS)
     assert round(sum(graph.WEIGHTS.values()), 6) == 1.0
+    assert set(scoring.DIM_DIAGNOSTIC) == set(DIMENSIONS)
+    # Label carries the identity evidence, so it is both the heaviest weight and
+    # the most diagnostic dimension.
+    assert max(graph.WEIGHTS, key=graph.WEIGHTS.get) == "Label"
+    assert max(scoring.DIM_DIAGNOSTIC, key=scoring.DIM_DIAGNOSTIC.get) == "Label"
 
 
-def test_equal_weights_make_the_composite_a_plain_average():
-    dims = [dim("Logo", 10), dim("Stitching", 20), dim("Hardware", 30),
-            dim("Label", 40), dim("Material", 50)]
-    assert agg(dims)["score"] == 70          # 100 - (10+20+30+40+50)/5
+def test_every_constant_lives_in_one_config_block():
+    """They were scattered across three modules and drifted apart. One block, so
+    they can be fitted against labelled data later without a treasure hunt."""
+    for key in ("DIM_WEIGHTS", "DIM_DIAGNOSTIC", "GROUP_SHARES", "GROUP_FLOOR_FACTOR",
+                "PARTIAL_WEIGHT_FACTOR", "MIN_DIM_CONFIDENCE", "DISPOSITIVE_THRESHOLD",
+                "BAND_COUNTERFEIT", "COVERAGE_FOR_CONCLUSION", "UPC_MISMATCH_FLOOR"):
+        assert key in scoring.SCORING_CONSTANTS
+    assert graph.SCORING_CONSTANTS is scoring.SCORING_CONSTANTS
 
 
+# ---- the ladder ------------------------------------------------------------
 @pytest.mark.parametrize("deviation,score,label", [
     (0,   100, "Authentic"),            # every dimension identical to the reference
-    (1,    99, "Likely Authentic"),
-    (24,   76, "Likely Authentic"),
-    (25,   75, "Inconclusive"),
-    (49,   51, "Inconclusive"),
-    (50,   50, "Likely Counterfeit"),
-    (74,   26, "Likely Counterfeit"),
-    (75,   25, "Counterfeit"),
-    (100,   0, "Counterfeit"),
+    (5,    95, "Authentic"),
+    (6,    94, "Likely Authentic"),
+    (30,   70, "Likely Authentic"),
+    (31,   69, "Inconclusive"),
+    (60,   40, "Inconclusive"),
+    (61,   39, "Suspected Counterfeit"),
+    (84,   16, "Suspected Counterfeit"),
 ])
-def test_verdict_band_boundaries(deviation, score, label):
-    """Dimensions are fed DEVIATION; the verdict reads AUTHENTICITY."""
-    c = agg([dim(d, deviation) for d in DIMENSIONS])
+def test_ladder_boundaries_at_full_coverage(deviation, score, label):
+    """Dimensions are fed DEVIATION; the verdict reads AUTHENTICITY. Every
+    dimension is MEASURED here, so the coverage gates are all satisfied and only
+    the bands decide."""
+    c = all_measured(deviation)
+    assert c["deviation"] == deviation
     assert c["score"] == score
     assert c["verdict_label"] == label
 
 
-def test_a_perfect_match_is_a_stronger_statement_than_likely():
-    """A composite of exactly 100 — no deviation anywhere — is its own verdict."""
-    perfect = agg([dim(d, 0) for d in DIMENSIONS])
-    near = agg([dim(d, 1) for d in DIMENSIONS])
-    assert perfect["score"] == 100 and perfect["verdict_label"] == "Authentic"
-    assert near["score"] == 99 and near["verdict_label"] == "Likely Authentic"
+def test_a_dispositive_defect_escalates_before_any_coverage_gate():
+    """Rule 4. A confirmed dispositive defect needs no corroboration — it must
+    fire even though the rest of the item was never measured."""
+    dims = [dim("Logo", 10, "estimated", 0.3), dim("Stitching", 10, "estimated", 0.3),
+            dim("Hardware", 10, "estimated", 0.3), dim("Label", 90, confidence=0.8),
+            dim("Material", 10, "estimated", 0.3)]
+    c = agg(dims)
+    assert c["verdict_label"] == "Suspected Counterfeit"
+    assert c["driver"] == "Label"
+    assert c["lane"] == "REJECTED"
 
 
-# ---- the UPC bias ----------------------------------------------------------
-def test_missing_upc_image_does_not_inflate_the_score():
+def test_a_partial_dimension_may_not_trigger_the_dispositive_rule():
+    """A PARTIAL dimension ran on geometry, which photography moves as much as
+    authenticity does. It may raise the composite; it may not escalate alone."""
+    dims = [dim("Logo", 90, state=scoring.DimState.PARTIAL, coverage=0.5, confidence=0.8)]
+    dims += [dim(d, 5, "estimated", 0.3) for d in DIMENSIONS if d != "Logo"]
+    c = agg(dims)
+    assert c["verdict_label"] != "Suspected Counterfeit"
+
+
+def test_thin_coverage_downgrades_suspicion_but_never_suppresses_it():
+    """Rules 5/6. Deviation is significant but almost nothing was measured: the
+    item becomes a review item that says which way it leans, not a clearance.
+
+    70 rather than 90 on purpose — at 85+ the dispositive rule fires first, by
+    design, and this is testing what happens when it does not."""
+    dims = [dim("Material", 70, confidence=0.8)]
+    dims += [dim(d, 70, "estimated", 0.3) for d in DIMENSIONS if d != "Material"]
+    c = agg(dims)
+    assert c["verdict_label"] == "Inconclusive — Suspicious"
+    assert c["lane"] == "REVIEW"
+    assert c["coverage_pct"] < scoring.COVERAGE_FOR_COUNTERFEIT
+
+
+def test_an_unread_label_annotates_rather_than_suppresses():
+    """REQUIRE_LABEL_FOR_VERDICT used to demote a counterfeit-band score to
+    Inconclusive. That contradicted the rule that the coverage guard never
+    suppresses suspicion; the verdict now stands and says the label is
+    unverified."""
+    dims = [dim("Logo", 70), dim("Stitching", 70), dim("Hardware", 70),
+            dim("Label", None, "abstain", 0.0), dim("Material", 70)]
+    c = agg(dims)
+    assert c["verdict_label"] == "Suspected Counterfeit"
+    assert "label unverified" in c["reason"]
+
+
+# ---- the UPC ---------------------------------------------------------------
+def test_missing_upc_image_does_not_move_the_score():
     """'No barcode photo supplied' is the absence of a check, not a finding.
     This previously added +6 to every run in the corpus."""
-    dims = [dim(d, 50) for d in DIMENSIONS]
-    assert agg(dims, upc_status="not_provided")["score"] == 50
-    assert agg(dims, upc_status="unreadable")["score"] == 50
+    assert all_measured(50, upc_status="not_provided")["deviation"] == 50
+    assert all_measured(50, upc_status="unreadable")["deviation"] == 50
+    assert all_measured(50, upc_status="no_master_record")["deviation"] == 50
 
 
-def test_real_upc_mismatch_still_counts():
-    dims = [dim(d, 50) for d in DIMENSIONS]
-    assert agg(dims, upc_status="mismatch")["score"] == 44    # 50 - 6
-    assert agg(dims, upc_status="nomatch")["score"] == 44
+def test_a_bad_barcode_applies_a_floor_not_a_nudge():
+    """A code that resolves to a different product is strong evidence, and a
+    floor cannot be averaged away the way a +/-6 nudge could."""
+    assert all_measured(10, upc_status="mismatch")["deviation"] == 70
+    assert all_measured(10, upc_status="nomatch")["deviation"] == 60
+    # ...and it never LOWERS a deviation that is already higher.
+    assert all_measured(90, upc_status="mismatch")["deviation"] == 90
+
+
+def test_the_upc_master_record_is_per_product_not_per_brand():
+    """One hardcoded barcode per brand put a Nuptse jacket's UPC on the
+    'expected' line of a beanie, a swimsuit and two shirts — so the check had
+    never actually run."""
+    assert providers._expected_upc("TNF", "1996 Retro Nuptse Jacket") == "193393578024"
+    assert providers._expected_upc("TNF", "Logo Box Beanie") == ""
+    assert providers._expected_upc("TNF", "") == ""
+
+
+def test_a_product_with_no_master_record_is_not_evidence(monkeypatch):
+    monkeypatch.setattr(providers, "_chat",
+                        lambda *a, **k: ({"upc": "999999999999", "readable": True}, 1, 1))
+    res, _ = providers._chat_upc({"label": "t"}, "TNF", "b64", 0.0, product="Logo Box Beanie")
+    assert res["status"] == "no_master_record"
+    assert res["expected"] == ""
+    # and the ladder must leave the composite alone for that status
+    assert scoring.apply_upc(20, "no_master_record") == 20
 
 
 # ---- the pairing gate ------------------------------------------------------
@@ -207,23 +323,6 @@ def test_mismatch_short_circuits_dimension_agents(monkeypatch, honest):
     assert out["dimension_results"][0]["status"] == "abstain"
 
 
-# ---- the label cap ---------------------------------------------------------
-def test_counterfeit_verdict_capped_without_a_readable_label():
-    dims = [dim("Logo", 90), dim("Stitching", 90), dim("Hardware", 90),
-            dim("Label", None, "abstain", 0.0), dim("Material", 90)]
-    c = agg(dims)
-    assert c["score"] == 10             # 100 - 90
-    assert c["band"] == "caution"       # held back from 'counterfeit'
-    assert c["capped"] is True
-
-
-def test_counterfeit_verdict_stands_with_a_label():
-    dims = [dim(d, 90) for d in DIMENSIONS]
-    c = agg(dims)
-    assert c["band"] == "counterfeit"
-    assert c["capped"] is False
-
-
 # ---- the whole test1 shape, end to end ------------------------------------
 def test_test1_case_produces_no_number():
     """The regression this whole change exists for.
@@ -231,30 +330,29 @@ def test_test1_case_produces_no_number():
     Suspect: folded macro of a down-jacket care label. Reference: cotton tee.
     Correct behaviour is a recapture request from every engine — not 53/33/42.
     """
-    dims = [dim("Logo", None, "abstain", 0.0), dim("Stitching", None, "abstain", 0.0),
-            dim("Hardware", None, "abstain", 0.0), dim("Label", None, "abstain", 0.0),
-            dim("Material", None, "abstain", 0.0)]
+    dims = [dim(d, None, "abstain", 0.0) for d in DIMENSIONS]
     c = agg(dims, pairing_status="mismatch")
     assert c["score"] is None, "a fabricated composite came back for an unscorable case"
     assert c["band"] in ("mismatch", "insufficient")
 
-    # …and with the pairing gate unavailable, the coverage floor must still catch it.
+    # …and with the pairing gate unavailable, the evidence gate must still catch it.
     c2 = agg(dims, pairing_status="skipped")
     assert c2["score"] is None
     assert c2["band"] == "insufficient"
 
 
-# ---- the Logo forensic rubric ---------------------------------------------
+# ---- the forensic rubrics --------------------------------------------------
 def prim(name, deviation, confidence="high", evidence="e"):
     return {"name": name, "deviation": deviation, "evidence": evidence,
             "confidence": confidence}
 
 
-def logo(primitives, method="embroidery", reference_used=True):
+def logo(primitives, method="embroidery", reference_used=True, **extra):
     return providers._aggregate_logo({
         "reference_used": reference_used, "application_method": method,
         "primitives": primitives, "logo_deviation": None, "assessment": "",
-        "top_deviations": [], "capture_issues": [], "recapture_instructions": ["r"]})
+        "top_deviations": [], "capture_issues": [], "recapture_instructions": ["r"],
+        **extra})
 
 
 def test_logo_without_a_reference_never_assesses():
@@ -266,7 +364,7 @@ def test_logo_without_a_reference_never_assesses():
     assert a["status"] == "abstain"
 
 
-def test_logo_rollup_uses_max_of_mean_and_85pct_of_worst():
+def test_logo_rollup_is_floored_by_the_worst_method_primitive():
     """One severe primitive must not be averaged away by many clean ones."""
     prims = [prim("arc_radius_ratios", 0), prim("inter_arc_gap", 0),
              prim("stroke_uniformity", 0), prim("bounding_box_ratio", 0),
@@ -274,43 +372,92 @@ def test_logo_rollup_uses_max_of_mean_and_85pct_of_worst():
              prim("underlay_present", 0), prim("edge_thread_creep", 0),
              prim("thread_sheen", 0), prim("backing_visible_reverse", 0)]
     a = logo(prims)
-    # weighted mean is well under 0.85*90 = 76.5, so the worst-primitive floor wins
+    # group-normalised mean is well under 0.85*90 = 76.5, so the floor wins
     assert a["score"] == round(0.85 * 90)        # 76 (banker's rounding on .5)
     assert a["assessment"] == "deviation_significant"
     assert a["top_deviations"][0] == "satin_angle_consistency"
 
 
-def test_logo_application_primitives_weigh_triple():
-    """Application evidence is 3x geometry — a clean outline cannot outvote a
-    bad application."""
-    heavy = logo([prim("arc_radius_ratios", 0), prim("satin_angle_consistency", 40),
-                  prim("stitch_density_cv", 40), prim("underlay_present", 40),
-                  prim("edge_thread_creep", 40), prim("thread_sheen", 40),
-                  prim("backing_visible_reverse", 40)])
-    assert heavy["weighted_mean"] > 35           # 1x zero barely moves it
+def test_geometry_gets_a_gentler_floor_than_method():
+    """A flat 0.85 overfired on geometry, where a rumpled garment alone produces
+    baseline_deviation ~90."""
+    geo = logo([prim("baseline_deviation", 90), prim("satin_angle_consistency", 0),
+                prim("stitch_density_cv", 0)])
+    meth = logo([prim("baseline_deviation", 0), prim("satin_angle_consistency", 90),
+                 prim("stitch_density_cv", 0)])
+    assert geo["score"] < meth["score"]
+    assert scoring.GROUP_FLOOR_FACTOR["geometry"] < scoring.GROUP_FLOOR_FACTOR["method"]
 
 
-def test_logo_insufficient_application_primitive_blocks_scoring():
-    """Any unresolved application primitive -> INSUFFICIENT_CAPTURE."""
-    a = logo([prim("arc_radius_ratios", 5), prim("inter_arc_gap", 5),
-              prim("satin_angle_consistency", "INSUFFICIENT")])
+def test_an_undetermined_method_is_partial_not_an_abstention():
+    """The class could not be detected, so the method group never ran. That is a
+    real but discounted result, not 'no result' — and Layer 2 halves its weight
+    and its ceiling rather than throwing the geometry away."""
+    a = logo([prim("arc_radius_ratios", 40), prim("wordmark_kerning", 40)],
+             method="UNKNOWN")
+    assert a["score"] is not None
+    assert a["state"] == scoring.DimState.PARTIAL
+    assert a["internal_coverage"] == 0.3          # geometry's share only
+    assert "PARTIAL" in a["finding"]
+
+
+def test_a_partial_dimension_is_weighted_and_ceilinged_down():
+    d = scoring.Dim("Logo", 60, scoring.DimState.PARTIAL, 0.8, internal_coverage=0.3)
+    full = scoring.Dim("Logo", 60, scoring.DimState.MEASURED, 0.8, internal_coverage=0.3)
+    assert d.effective_weight == pytest.approx(full.effective_weight * 0.40)
+    assert d.diagnostic == pytest.approx(full.diagnostic * 0.50)
+
+
+def test_low_confidence_primitives_are_excluded_entirely():
+    """A row the model itself marked low confidence is an impression, not an
+    observation, and must not enter the arithmetic."""
+    a = logo([prim("arc_radius_ratios", 100, confidence="low"),
+              prim("satin_angle_consistency", 0)])
+    assert a["score"] == 0
+    assert a["internal_coverage"] == 0.5          # method only; geometry dropped out
+
+
+def test_damped_primitives_cannot_assert_more_than_suspicious():
+    """Exposure moves thread_sheen more than authenticity does."""
+    damped = logo([prim("thread_sheen", 100), prim("stitch_density_cv", 0)])
+    real = logo([prim("edge_thread_creep", 100), prim("stitch_density_cv", 0)])
+    assert damped["score"] <= scoring.DAMP_CEILING < real["score"]
+
+
+def test_presence_primitives_are_tri_state():
+    """genuine / tell / not-visible -> 0 / 100 / excluded. A mid value from the
+    model is snapped; 'not visible' is never recorded as 'absent'."""
+    seen = logo([prim("underlay_present", 30), prim("stitch_density_cv", 0)])
+    tell = logo([prim("underlay_present", 70), prim("stitch_density_cv", 0)])
+    unseen = logo([prim("underlay_present", "INSUFFICIENT"), prim("stitch_density_cv", 0)])
+    assert seen["score"] == 0                          # 30 -> genuine
+    assert tell["score"] == round(0.85 * 100)          # 70 -> tell, floors the score
+    assert unseen["score"] == 0                        # excluded, not counted as absent
+
+
+def test_hand_feel_proxy_is_gone():
+    """Not resolvable from a photograph. Asking for it produced a number that
+    looked like evidence and was not."""
+    assert "hand_feel_proxy" in providers.REMOVED_PRIMITIVES
+    assert "hand_feel_proxy" not in providers._MAT_CONSISTENCY
+    assert "hand_feel_proxy" not in providers._RUBRICS["Material"]["prompt"]
+
+
+def test_a_runtime_not_applicable_short_circuits_the_dimension():
+    a = logo([prim("arc_radius_ratios", 40)], applicable=False)
     assert a["score"] is None
-    assert a["assessment"] == "INSUFFICIENT_CAPTURE"
-    assert "satin_angle_consistency" in a["finding"]
+    assert a["state"] == scoring.DimState.NOT_APPLICABLE
+    assert a["assessment"] == "NOT_APPLICABLE"
 
 
-def test_logo_three_insufficient_primitives_blocks_scoring():
-    a = logo([prim("arc_radius_ratios", 5), prim("inter_arc_gap", "INSUFFICIENT"),
-              prim("stroke_uniformity", "INSUFFICIENT"),
-              prim("terminal_geometry", "INSUFFICIENT")])
-    assert a["score"] is None
-    assert a["assessment"] == "INSUFFICIENT_CAPTURE"
-
-
-def test_logo_unknown_application_method_blocks_scoring():
-    a = logo([prim("arc_radius_ratios", 5), prim("inter_arc_gap", 5)], method="UNKNOWN")
-    assert a["score"] is None
-    assert a["assessment"] == "INSUFFICIENT_CAPTURE"
+def test_not_applicable_is_never_filled_with_an_estimate():
+    """ALWAYS_SCORE fills empty cells. It must not fill a cell whose honest
+    answer is 'there is nothing here to score'."""
+    a = logo([prim("arc_radius_ratios", 40)], applicable=False)
+    a["estimate"] = 55
+    r = providers._rubric_result("Logo", a)
+    assert r["score"] is None
+    assert r["state"] == scoring.DimState.NOT_APPLICABLE
 
 
 def test_logo_clean_comparison_scores_consistent():
@@ -320,6 +467,7 @@ def test_logo_clean_comparison_scores_consistent():
              prim("thread_sheen", 3), prim("backing_visible_reverse", 1)]
     a = logo(prims)
     assert a["status"] == "scored"
+    assert a["state"] == scoring.DimState.MEASURED
     assert a["assessment"] == "consistent_with_reference"
     assert a["score"] <= 30
 
@@ -330,14 +478,14 @@ def test_logo_never_emits_a_counterfeit_verdict():
               prim("stitch_density_cv", 100), prim("underlay_present", 100),
               prim("edge_thread_creep", 100), prim("thread_sheen", 100),
               prim("backing_visible_reverse", 100)])
-    assert a["score"] == 100
+    assert a["score"] >= 85
     assert a["assessment"] == "deviation_significant"
     assert "counterfeit" not in a["finding"].lower()
 
 
 def test_logo_prompt_carries_every_rubric_primitive():
     """The prompt the model actually receives must name every primitive."""
-    for name in (_LOGO_ALL := providers._LOGO_PRIMITIVE_NAMES):
+    for name in providers._LOGO_PRIMITIVE_NAMES:
         assert name in providers._LOGO_PROMPT, f"{name} missing from the Logo prompt"
     for rule in ("NO_REFERENCE", "INSUFFICIENT", "deviation_significant",
                  "scale-invariant", "weight 3x"):
@@ -346,7 +494,8 @@ def test_logo_prompt_carries_every_rubric_primitive():
 
 def test_logo_abstention_flows_through_to_the_composite(honest):
     """An INSUFFICIENT_CAPTURE logo must reach the aggregator as score=None."""
-    a = logo([prim("satin_angle_consistency", "INSUFFICIENT")])
+    a = logo([prim("satin_angle_consistency", "INSUFFICIENT"),
+              prim("stitch_density_cv", "INSUFFICIENT")])
     result = providers._logo_result(a)
     assert result["score"] is None and result["status"] == "abstain"
     c = agg([result, dim("Stitching", 40), dim("Hardware", 40),
@@ -356,12 +505,12 @@ def test_logo_abstention_flows_through_to_the_composite(honest):
 
 
 # ---- the same rubric treatment across all four dimensions -----------------
-# (dimension, a valid method, a heavy 3x primitive, a light 1x primitive)
+# (dimension, a valid method, a method-group primitive, a geometry primitive)
 RUBRIC_CASES = [
     ("Logo", "embroidery", "satin_angle_consistency", "arc_radius_ratios"),
     ("Stitching", "overlock", "thread_count_in_overlock", "stitch_pitch_ratio"),
     ("Hardware", "zip", "foundry_code", "pull_dimension_ratios"),
-    ("Material", "woven", "weave_type", "sheen_at_angle"),
+    ("Material", "woven", "weave_type", "drape_fold_radius"),
 ]
 RUBRIC_IDS = [c[0] for c in RUBRIC_CASES]
 
@@ -389,7 +538,7 @@ def test_rubric_prompt_is_complete(dim, method, heavy, light):
     spec = providers._RUBRICS[dim]
     p = spec["prompt"]
     for name in providers._heavy_names(dim):
-        assert name in p, f"{dim}: heavy primitive {name} missing from prompt"
+        assert name in p, f"{dim}: method primitive {name} missing from prompt"
     for names in spec["light"].values():
         for name in names:
             assert name in p, f"{dim}: light primitive {name} missing from prompt"
@@ -403,13 +552,24 @@ def test_rubric_prompt_is_complete(dim, method, heavy, light):
 
 
 @pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
+def test_rubric_prompt_carries_the_stage_two_contract(dim, method, heavy, light):
+    """Applicability and the tri-state presence rule are the two instructions
+    that stop an absence of observation being logged as an observation of
+    absence."""
+    p = providers._RUBRICS[dim]["prompt"]
+    assert "applicable" in p
+    assert "'Not visible' is never 'absent'." in p
+
+
+@pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
 def test_rubric_schema_is_wellformed(dim, method, heavy, light):
     spec = providers._RUBRICS[dim]
     s = providers._rubric_schema(dim)
     assert set(s["required"]) == set(s["properties"])       # strict-mode requirement
-    assert s["additionalProperties"] is False
     assert method in s["properties"][spec["method_key"]]["enum"]
     assert "UNKNOWN" in s["properties"][spec["method_key"]]["enum"]
+    assert s["properties"]["applicable"]["type"] == "boolean"
+    assert s["additionalProperties"] is False
 
 
 @pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
@@ -419,28 +579,23 @@ def test_rubric_no_reference_never_assesses(dim, method, heavy, light):
 
 
 @pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
-def test_rubric_unknown_method_blocks_scoring(dim, method, heavy, light):
+def test_rubric_unknown_method_is_partial(dim, method, heavy, light):
     a = rubric(dim, [prim(light, 5)], "UNKNOWN")
-    assert a["score"] is None and a["assessment"] == "INSUFFICIENT_CAPTURE"
+    assert a["state"] == scoring.DimState.PARTIAL
+    assert a["internal_coverage"] < 1.0
 
 
 @pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
-def test_rubric_insufficient_heavy_primitive_blocks_scoring(dim, method, heavy, light):
-    a = rubric(dim, [prim(light, 5), prim(heavy, "INSUFFICIENT")], method)
-    assert a["score"] is None and a["assessment"] == "INSUFFICIENT_CAPTURE"
-    assert heavy in a["finding"]
-
-
-@pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
-def test_rubric_heavy_group_weighs_triple(dim, method, heavy, light):
-    assert providers._rubric_weight(dim, heavy, method) == 3
-    assert providers._rubric_weight(dim, light, method) == 1
+def test_rubric_method_group_carries_half_the_dimension(dim, method, heavy, light):
+    assert providers._primitive_group(dim, heavy, method) == "method"
+    assert providers._primitive_group(dim, light, method) == "geometry"
+    assert scoring.GROUP_SHARES["method"] == 0.50
 
 
 @pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
 def test_rubric_worst_primitive_floor_applies(dim, method, heavy, light):
     a = rubric(dim, [prim(light, 0), prim(heavy, 80)], method)
-    # weighted mean = (0*1 + 80*3)/4 = 60; floor = 0.85*80 = 68 -> floor wins
+    # group mean = .5/.8*80 + .3/.8*0 = 50; method floor = 0.85*80 = 68 -> floor wins
     assert a["score"] == 68
 
 
@@ -479,7 +634,8 @@ def test_chat_dimension_routes_to_the_rubric(dim, method, heavy, light, monkeypa
         seen["schema_name"] = name
         seen["prompt"] = content[0]["text"]
         spec = providers._RUBRICS[dim]
-        return ({"error": "", "reference_used": True, spec["method_key"]: method,
+        return ({"error": "", "reference_used": True, "applicable": True,
+                 spec["method_key"]: method,
                  "primitives": [prim(light, 10), prim(heavy, 10)],
                  spec["dev_key"]: None, "assessment": "", "top_deviations": [],
                  "capture_issues": [], "recapture_instructions": []}, 10, 5)
@@ -489,6 +645,62 @@ def test_chat_dimension_routes_to_the_rubric(dim, method, heavy, light, monkeypa
     assert seen["schema_name"] == dim.lower()
     assert seen["prompt"] == providers._RUBRICS[dim]["prompt"]
     assert res["score"] == 10 and res["method"] == method
+    assert res["state"] == scoring.DimState.MEASURED
+
+
+# ---- the Label rubric ------------------------------------------------------
+def lcheck(cid, status, confidence=0.9):
+    return {"id": cid, "status": status, "evidence": "e", "confidence": confidence}
+
+
+def test_label_internal_coverage_is_severity_weighted():
+    """A Label score of 0 built from L11 alone is not the same evidence as one
+    built from L3/L8/L10, and reporting both as fully covered is how a single
+    supporting check cleared an item."""
+    thin = providers._aggregate_label([lcheck("L11", "genuine")])
+    assert thin["score"] == 0
+    assert thin["internal_coverage"] < 0.15
+
+    thick = providers._aggregate_label(
+        [lcheck(cid, "genuine") for cid, _s, _d in providers._LABEL_CHECKS])
+    assert thick["internal_coverage"] == 1.0
+
+
+def test_a_not_applicable_check_leaves_the_denominator():
+    """L7 on a non-Gore-Tex item is not an unmet check — it is not a check."""
+    with_na = providers._aggregate_label(
+        [lcheck("L3", "genuine"), lcheck("L7", "not_applicable")])
+    without = providers._aggregate_label(
+        [lcheck("L3", "genuine"), lcheck("L7", "not_visible")])
+    assert with_na["internal_coverage"] > without["internal_coverage"]
+
+
+def test_a_critical_tell_still_floors_the_label_at_85():
+    a = providers._aggregate_label([lcheck("L3", "counterfeit_tell"),
+                                    lcheck("L5", "genuine"), lcheck("L6", "genuine")])
+    assert a["score"] >= 85
+
+
+def test_l9_moved_out_of_the_vision_rubric():
+    """'Does this style number resolve to a real model' is a database lookup, not
+    a vision judgement, and it was being averaged in at strong weight beside
+    typeface guesses."""
+    assert "L9" not in providers._LABEL_IDS
+    import label_rules
+    ids = [c["id"] for c in label_rules.validate({"style_number": "NF0A3JQC"})["checks"]]
+    assert "S2" in ids
+
+
+def test_style_resolution_is_unknown_without_a_catalogue():
+    """An unknown must never contribute to a hard fail: 'we have no data' is not
+    'the product does not exist'."""
+    import label_rules
+    r = label_rules.check_style_resolution("NF0A3JQC", catalog=set())[0]
+    assert r["status"] == label_rules.UNKNOWN
+    hit = label_rules.check_style_resolution("NF0A3JQC", catalog={"NF0A3JQC"})[0]
+    assert hit["status"] == label_rules.PASS
+    miss = label_rules.check_style_resolution("NF0A9ZZZ", catalog={"NF0A3JQC"})[0]
+    assert miss["status"] == label_rules.FAIL
 
 
 # ---- ALWAYS_SCORE: every cell filled, audit trail preserved ----------------
@@ -502,6 +714,8 @@ def test_always_score_fills_an_unassessable_dimension():
     result, _ = providers._dim_result("Logo", parsed, "test-model", 0, 0, 0.0)
     assert result["score"] == 64
     assert result["status"] == "estimated"
+    assert result["state"] == scoring.DimState.ESTIMATED
+    assert result["internal_coverage"] == 0.0
     assert result["confidence"] <= 0.3
     assert "ESTIMATE" in result["finding"]
 
@@ -515,23 +729,16 @@ def test_always_score_leaves_a_real_measurement_alone():
 
 
 def test_coverage_still_reports_only_evidence_backed_dimensions():
-    """The whole point of keeping the switch honest: a fully populated grid must
-    not report 5/5 assessed when only one number was measured."""
+    """A fully populated grid must not report 5/5 assessed when only one number
+    was measured."""
     dims = [dim("Logo", 55, "estimated"), dim("Stitching", 60, "estimated"),
             dim("Hardware", 50, "estimated"), dim("Label", 36, "scored"),
             dim("Material", 58, "estimated")]
     c = agg(dims)
-    assert c["score"] is not None                 # every cell filled -> a composite
-    assert c["coverage"]["assessed"] == 1         # ...but only one was measured
+    assert c["coverage"]["assessed"] == 1
     assert len(c["coverage"]["estimated"]) == 4
-
-
-def test_estimated_label_still_caps_the_counterfeit_verdict():
-    """An estimated Label is not a read Label."""
-    dims = [dim("Logo", 90), dim("Stitching", 90), dim("Hardware", 90),
-            dim("Label", 90, "estimated"), dim("Material", 90)]
-    c = agg(dims)
-    assert c["band"] == "caution" and c["capped"] is True
+    # only the one MEASURED dimension carries weight
+    assert c["deviation"] == 36
 
 
 # ---- graph wiring ----------------------------------------------------------
@@ -562,82 +769,61 @@ def test_label_hard_fail_overrides_a_clean_vision_result():
     assert c["verdict_label"] == "Counterfeit — Label Validation Failed"
     assert c["deterministic"] is True
     assert c["failed_checks"] == ["R3"]
+    assert c["lane"] == "REJECTED"
 
 
 def test_label_hard_fail_stands_even_with_no_assessable_dimensions():
     """These checks need no reference and no legible garment — only the tag."""
     dims = [dim(d, None, "abstain", 0.0) for d in DIMENSIONS]
-    c = agg(dims, hard_fail=True, pairing_status="mismatch")
+    c = agg(dims, hard_fail=True)
     assert c["band"] == "hard_fail"
 
 
 def test_no_hard_fail_leaves_the_normal_path_untouched():
     dims = [dim(d, 5) for d in DIMENSIONS]
-    assert agg(dims, hard_fail=False)["band"] == "likely_authentic"   # 100 - 5 = 95
+    assert agg(dims, hard_fail=False)["band"] == "authentic"   # 100 - 5 = 95
 
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-q"]))
+# ---- the verifier ----------------------------------------------------------
+def test_the_verifier_classifies_independently():
+    """It used to be told to REFUTE the verdict, and refuted 5 cases out of 5 —
+    a model told to refute will refute, so the column carried no information."""
+    p = providers._chat_verdict.__doc__ or ""
+    assert "refute" not in p.lower()
+    for label in providers._REVIEW_LABELS:
+        assert label in ("Authentic", "Likely Authentic", "Inconclusive",
+                         "Insufficient Evidence", "Suspected Counterfeit")
 
 
-# ---- the guard against clearing an unexamined item -------------------------
-def test_zero_evidence_cannot_be_cleared_as_authentic():
-    """The failure this exists for: a counterfeit photographed badly produces low
-    estimates — the model saw no defects, which is not the same as there being
-    none — and used to be waved through as Likely Authentic."""
-    dims = [dim(d, v, "estimated", 0.3) for d, v in
-            zip(DIMENSIONS, (15, 12, 10, 14, 8))]
-    c = agg(dims)
-    assert c["score"] == 88                       # the number is unchanged
-    assert c["verdict_label"] == "Inconclusive"   # but it is not cleared
-    assert c["capped"] is True
-    assert "not enough evidence" in c["reason"]
+@pytest.mark.parametrize("reviewer,verdict,votes,confirmed", [
+    # agreement is about the DECISION, not the wording: 'Authentic' and 'Likely
+    # Authentic' both mean cleared, so either agrees with either.
+    ("Likely Authentic", "Likely Authentic", "3/3", True),
+    ("Authentic", "Likely Authentic", "3/3", True),
+    ("Suspected Counterfeit", "Likely Authentic", "0/3", False),
+    ("Insufficient Evidence", "Inconclusive", "0/3", False),
+])
+def test_agreement_is_computed_in_code_not_reported_by_the_model(
+        monkeypatch, reviewer, verdict, votes, confirmed):
+    def fake(provider, kind, brand, composite, dimensions, upc):
+        if kind == "synthesize":
+            return {"summary": "s", "key_evidence": []}, {"agent": "Verdict synth."}
+        return {"classification": reviewer, "reason": "r"}, {"agent": "Verify"}
 
-
-def test_measured_evidence_still_clears_normally():
-    dims = [dim(d, v) for d, v in zip(DIMENSIONS, (8, 6, 9, 4, 7))]
-    c = agg(dims)
-    assert c["verdict_label"] == "Likely Authentic"
-    assert c["capped"] is False
-
-
-def test_the_guard_threshold_is_the_measured_count():
-    at = [dim("Logo", 8), dim("Stitching", 6), dim("Hardware", 9),
-          dim("Label", 4, "estimated", 0.3), dim("Material", 7, "estimated", 0.3)]
-    assert agg(at)["verdict_label"] == "Likely Authentic"      # 3 measured — allowed
-    below = [dim("Logo", 8), dim("Stitching", 6),
-             dim("Hardware", 9, "estimated", 0.3),
-             dim("Label", 4, "estimated", 0.3),
-             dim("Material", 7, "estimated", 0.3)]
-    assert agg(below)["verdict_label"] == "Inconclusive"       # 2 measured — held
-
-
-def test_the_guard_does_not_touch_a_counterfeit_verdict():
-    """It caps only the authentic direction; suspicion is never suppressed.
-
-    Label must be measured here, otherwise the separate REQUIRE_LABEL_FOR_VERDICT
-    cap holds the verdict for its own (correct) reason and this would pass or
-    fail for the wrong one."""
-    dims = [dim("Logo", 85, "estimated", 0.3), dim("Stitching", 85, "estimated", 0.3),
-            dim("Hardware", 85, "estimated", 0.3), dim("Label", 85),
-            dim("Material", 85, "estimated", 0.3)]
-    c = agg(dims)
-    assert c["verdict_label"] == "Counterfeit"
-    assert c["capped"] is False
-
-
-def test_an_unread_label_still_holds_a_counterfeit_verdict():
-    """The pre-existing cap in the other direction, unchanged by the new guard."""
-    dims = [dim(d, 85, "estimated", 0.3) for d in DIMENSIONS]
-    c = agg(dims)
-    assert c["verdict_label"] == "Inconclusive"
-    assert c["capped"] is True
+    monkeypatch.setattr(providers, "_verdict_call", fake)
+    monkeypatch.setattr(providers, "VERIFY_VOTES", 3)
+    v, _ = providers.run_verdict("openai", "TNF",
+                                 {"verdict_label": verdict, "band": "caution",
+                                  "score": 80}, [], {"status": "not_provided"})
+    assert v["verifier_votes"] == votes
+    assert v["verifier_confirmed"] is confirmed
+    assert v["reviewer_labels"] == [reviewer] * 3
 
 
 # ---- the scale itself ------------------------------------------------------
 def test_dimensions_keep_the_deviation_scale():
-    """Only the VERDICT flipped. A dimension still reports deviation, so a
-    near-perfect logo is a LOW dimension number."""
+    """Only the VERDICT is reported as authenticity. A dimension still reports
+    deviation, so a near-perfect logo is a LOW dimension number."""
     parsed = {"assessable": True, "insufficient_reason": "", "score": 8,
               "finding": "x", "reasoning": "y", "confidence": 0.9}
     r, _ = providers._dim_result("Logo", parsed, "m", 0, 0, 0.0)
@@ -645,21 +831,19 @@ def test_dimensions_keep_the_deviation_scale():
     assert r["band"] == "authentic"             # low deviation reads as a match
 
 
-def test_composite_is_the_inverse_of_the_dimension_average():
+def test_the_reported_score_is_the_inverse_of_the_deviation():
     for deviation in (0, 12, 37, 64, 91, 100):
-        c = agg([dim(d, deviation) for d in DIMENSIONS])
+        c = all_measured(deviation)
+        assert c["deviation"] == deviation
         assert c["score"] == 100 - deviation
 
 
-def test_a_failed_barcode_lowers_authenticity():
-    """+6 used to make a run MORE suspicious on the deviation scale; on the
-    authenticity scale the same evidence has to subtract."""
-    dims = [dim(d, 50) for d in DIMENSIONS]
-    assert agg(dims)["score"] == 50
-    assert agg(dims, upc_status="mismatch")["score"] == 44
-
-
 def test_every_band_has_a_verdict_label():
-    for b in ("authentic", "likely_authentic", "caution",
-              "likely_counterfeit", "counterfeit"):
+    for b in ("authentic", "likely_authentic", "caution", "likely_counterfeit",
+              "counterfeit", "insufficient", "mismatch", "hard_fail"):
         assert graph._VERDICT_LABEL[b]
+        assert scoring.LANE_FOR_BAND[b] in ("CLEARED", "REVIEW", "REJECTED")
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))

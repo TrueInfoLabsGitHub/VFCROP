@@ -243,20 +243,29 @@ def test_one_failed_dimension_does_not_kill_the_run():
 def test_the_other_dimensions_still_produce_a_verdict():
     import graph
 
+    import scoring
+
     def ok(name, score):
         return {"dimension": name, "score": score, "band": graph._band(score),
-                "status": "scored", "confidence": 0.9, "finding": "f"}
+                "status": "scored", "state": scoring.DimState.MEASURED,
+                "internal_coverage": 1.0, "confidence": 0.9, "finding": "f"}
 
     failed = {"dimension": "Material", "score": None, "band": "neutral",
-              "status": "error", "confidence": 0.0, "finding": "AGENT FAILED — 429"}
+              "status": "error", "state": scoring.DimState.FAILED,
+              "internal_coverage": 0.0, "confidence": 0.0,
+              "finding": "AGENT FAILED — 429"}
     c = graph.aggregate_node({
         "dimension_results": [ok("Logo", 20), ok("Stitching", 20), ok("Hardware", 20),
                               ok("Label", 20), failed],
         "upc_result": {"status": "not_provided"}, "pairing": {"status": "ok"},
         "label_id": {"validation": {"hard_fail": False}}})["composite"]
-    assert c["score"] == 80          # 100 - 20; dimensions report deviation
+    assert c["deviation"] == 20      # dimensions report deviation…
+    assert c["score"] == 80          # …the verdict reports authenticity
     assert c["coverage"]["assessed"] == 4
     assert c["coverage"]["errored"] == ["Material"]
+    # Material failed, so it is applicable-but-unmeasured: the four that did
+    # run carry 0.90 of the item's weight between them.
+    assert c["coverage_pct"] == 0.9
 
 
 def test_export_marks_a_failed_dimension_distinctly():
@@ -398,26 +407,49 @@ def test_export_filename_describes_the_selection():
     assert a._export_name(None, None, ["a", "b"]) == "VERITAS_analyses_2_cases.xlsx"
 
 
-# ---- the coverage column is gone -------------------------------------------
-def test_no_coverage_column_in_any_sheet():
-    """Removed on request: Score is the average of all five numbers, so a column
-    counting only the measured ones read as contradicting the divisor."""
+# ---- coverage travels with the score ---------------------------------------
+def test_coverage_sits_immediately_next_to_the_score():
+    """A score without its coverage is not a statement about the product: 72 over
+    30% of the item and 72 over 90% of it are different claims. The column is
+    adjacent so the reader cannot separate them by accident.
+
+    The 'Assessed' column is back, and now means something different from the
+    one that was removed: measured of APPLICABLE dimensions, not of five. A
+    T-shirt has four."""
     wb = _wb([base()])
     an = wb["VERITAS analyses"]
-    heads = {an.cell(2, c).value for c in range(1, an.max_column + 1)}
-    assert "Assessed" not in heads and "Measured" not in heads
+    assert col_of(an, "Coverage") == col_of(an, "Score") + 1
+    assert col_of(an, "Assessed") == col_of(an, "Score") + 2
+    for head in ("Lane", "Driver", "Recapture"):
+        assert col_of(an, head), f"{head} missing from the analyses sheet"
+
     mc_runs = [base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")]
     mc = _wb(mc_runs)["Model comparison"]
-    mheads = {mc.cell(2, c).value for c in range(1, mc.max_column + 1)}
-    assert "Assessed" not in mheads and "Measured" not in mheads
+    assert col_of(mc, "Coverage") == col_of(mc, "Score") + 1
+    # Stage 7: one verdict for the case, combined by rule across the engines.
+    # It spans both header rows, so it is found on row 1, not row 2.
+    assert any(mc.cell(1, c).value == "Case verdict"
+               for c in range(1, mc.max_column + 1))
+
     sc = wb["Engine scorecard"]
     sheads = {sc.cell(1, c).value for c in range(1, sc.max_column + 1)}
-    assert "Avg assessed" not in sheads and "Avg measured" not in sheads
+    assert "Avg coverage" in sheads
+    assert {"% Cleared", "% Review", "% Rejected"} <= sheads
 
 
-def test_engine_block_is_fifteen_columns():
+def test_the_assessed_column_is_out_of_applicable_not_out_of_five():
+    ws = _wb([base(assessed=4, applicable=4)])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Assessed")).value == "4/4"
+
+
+def test_coverage_is_blank_for_a_run_saved_before_it_existed():
+    ws = _wb([base()])["VERITAS analyses"]          # base() carries no coverage
+    assert ws.cell(3, col_of(ws, "Coverage")).value in (None, "")
+
+
+def test_engine_block_is_twenty_columns():
     ws = _wb([base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")])["VERITAS analyses"]
-    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 15
+    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 20
 
 
 def test_verdict_keeps_its_band_colour():
