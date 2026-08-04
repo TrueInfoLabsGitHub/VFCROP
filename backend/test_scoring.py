@@ -575,3 +575,57 @@ def test_no_hard_fail_leaves_the_normal_path_untouched():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---- the guard against clearing an unexamined item -------------------------
+def test_zero_evidence_cannot_be_cleared_as_authentic():
+    """The failure this exists for: a counterfeit photographed badly produces low
+    estimates — the model saw no defects, which is not the same as there being
+    none — and used to be waved through as Likely Authentic."""
+    dims = [dim(d, v, "estimated", 0.3) for d, v in
+            zip(DIMENSIONS, (15, 12, 10, 14, 8))]
+    c = agg(dims)
+    assert c["score"] == 12                       # the number is unchanged
+    assert c["verdict_label"] == "Inconclusive"   # but it is not cleared
+    assert c["capped"] is True
+    assert "not enough evidence" in c["reason"]
+
+
+def test_measured_evidence_still_clears_normally():
+    dims = [dim(d, v) for d, v in zip(DIMENSIONS, (8, 6, 9, 4, 7))]
+    c = agg(dims)
+    assert c["verdict_label"] == "Likely Authentic"
+    assert c["capped"] is False
+
+
+def test_the_guard_threshold_is_the_measured_count():
+    at = [dim("Logo", 8), dim("Stitching", 6), dim("Hardware", 9),
+          dim("Label", 4, "estimated", 0.3), dim("Material", 7, "estimated", 0.3)]
+    assert agg(at)["verdict_label"] == "Likely Authentic"      # 3 measured — allowed
+    below = [dim("Logo", 8), dim("Stitching", 6),
+             dim("Hardware", 9, "estimated", 0.3),
+             dim("Label", 4, "estimated", 0.3),
+             dim("Material", 7, "estimated", 0.3)]
+    assert agg(below)["verdict_label"] == "Inconclusive"       # 2 measured — held
+
+
+def test_the_guard_does_not_touch_a_counterfeit_verdict():
+    """It caps only the authentic direction; suspicion is never suppressed.
+
+    Label must be measured here, otherwise the separate REQUIRE_LABEL_FOR_VERDICT
+    cap holds the verdict for its own (correct) reason and this would pass or
+    fail for the wrong one."""
+    dims = [dim("Logo", 85, "estimated", 0.3), dim("Stitching", 85, "estimated", 0.3),
+            dim("Hardware", 85, "estimated", 0.3), dim("Label", 85),
+            dim("Material", 85, "estimated", 0.3)]
+    c = agg(dims)
+    assert c["verdict_label"] == "Suspected Counterfeit"
+    assert c["capped"] is False
+
+
+def test_an_unread_label_still_holds_a_counterfeit_verdict():
+    """The pre-existing cap in the other direction, unchanged by the new guard."""
+    dims = [dim(d, 85, "estimated", 0.3) for d in DIMENSIONS]
+    c = agg(dims)
+    assert c["verdict_label"] == "Inconclusive"
+    assert c["capped"] is True

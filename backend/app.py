@@ -346,6 +346,9 @@ def _build_record(req: ExportSaveReq) -> dict:
         "band": ("error" if failed else comp.get("band", "")),
         "error": (str(d.get("error") or req.error or "run failed") if failed else ""),
         "assessed": (comp.get("coverage") or {}).get("assessed"),
+        # why a verdict was held back — the coverage column no longer shows it
+        "capped": bool(comp.get("capped")),
+        "reason": comp.get("reason", "") or "",
         "label_validation": {
             "hard_fail": bool((((d.get("label_id") or {}).get("validation")) or {}).get("hard_fail")),
             "failed": (((d.get("label_id") or {}).get("validation")) or {}).get("failed", []),

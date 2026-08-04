@@ -617,6 +617,8 @@ def _build_analyses_sheet(ws, runs):
                 if rec.get("band") == "error" and rec.get("error"):
 
                     verdict_txt = f"Run Failed — {rec['error']}"
+                elif rec.get("capped") and rec.get("reason"):
+                    verdict_txt = f"{verdict_txt} — {rec['reason']}"
 
                 vals = [verdict_txt, s,
 

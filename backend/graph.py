@@ -43,6 +43,13 @@ MIN_ASSESSED_DIMS = max(1, int(os.environ.get("MIN_ASSESSED_DIMS", "3")))
 REQUIRE_LABEL_FOR_VERDICT = os.environ.get(
     "REQUIRE_LABEL_FOR_VERDICT", "1").strip().lower() in ("1", "true", "yes", "on")
 
+# The mirror of the rule above, in the other direction. Clearing an item as
+# authentic on no measured evidence is the more dangerous error: a counterfeit
+# photographed badly produces low estimates — the model saw no defects, which is
+# not the same as there being none — and would otherwise be waved through. Below
+# this many MEASURED dimensions a run can be Inconclusive, never Authentic.
+MIN_MEASURED_FOR_AUTHENTIC = max(0, int(os.environ.get("MIN_MEASURED_FOR_AUTHENTIC", "3")))
+
 # Tiny labeled set so the Run Report can show accuracy vs ground truth on
 # known eval cases (live cases simply omit the "vs ground truth" tile).
 GROUND_TRUTH = {"VF-2026-0412": "counterfeit", "VF-2026-0402": "authentic"}
@@ -296,6 +303,12 @@ def aggregate_node(state: RunState) -> dict:
         band, capped = "caution", True
         reason = ("Composite reached the counterfeit band but the Label dimension could not be "
                   "assessed; held at Inconclusive pending a legible tag photo.")
+    # 6. The same restraint in the other direction: no clearing an item that was
+    #    never really examined.
+    elif band == "authentic" and len(evidence) < MIN_MEASURED_FOR_AUTHENTIC:
+        band, capped = "caution", True
+        reason = (f"only {len(evidence)} of {len(DIMENSIONS)} dimensions measured — "
+                  f"not enough evidence to clear as authentic")
     if pairing_mismatch:
         reason = ((state.get("pairing") or {}).get("note")
                   or "Suspect and reference are different products.")
