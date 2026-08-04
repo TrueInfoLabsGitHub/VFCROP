@@ -381,6 +381,9 @@
           <div class="row">
             <button class="btn ghost sm hidden" id="expclear">Clear</button>
             <button class="btn ghost sm" id="expsave" disabled><i class="ti ti-plus"></i>Save last run</button>
+            <span class="muted" style="font-size:12.5px">rows</span>
+            <input id="expfrom" type="number" min="1" placeholder="from" title="First case # to include (blank = start)" style="width:64px;padding:5px 7px;border:1px solid var(--bd);border-radius:7px;background:var(--panel);color:var(--fg);font-size:12.5px">
+            <input id="expto" type="number" min="1" placeholder="to" title="Last case # to include (blank = end)" style="width:64px;padding:5px 7px;border:1px solid var(--bd);border-radius:7px;background:var(--panel);color:var(--fg);font-size:12.5px">
             <button class="btn sm" id="expdl" disabled><i class="ti ti-download"></i>Download Excel</button>
           </div>
         </div>
@@ -1002,8 +1005,16 @@ async function exportInit(){
 // Manual button: force a save (re-saving the same run duplicates rows, by design).
 $('#expsave').onclick=()=>saveRuns(true);
 $('#expdl').onclick=async()=>{ const b=$('#expdl'); const old=b.innerHTML; b.disabled=true; b.innerHTML='<span class="spin"></span> Preparing…'; $('#exptoast').textContent='';
-  try{ const r=await fetch(API+'/api/export.xlsx'); if(!r.ok) throw new Error('server '+r.status); const blob=await r.blob();
-    if(!blob.size) throw new Error('empty file'); downloadBlob(blob,'VERITAS_analyses.xlsx'); }
+  // blank boxes = whole history, exactly as before
+  const f=parseInt(($('#expfrom')||{}).value,10), t=parseInt(($('#expto')||{}).value,10);
+  const q=new URLSearchParams(); if(Number.isFinite(f)) q.set('first',f); if(Number.isFinite(t)) q.set('last',t);
+  const qs=q.toString()?('?'+q.toString()):'';
+  const name='VERITAS_analyses'+(Number.isFinite(f)||Number.isFinite(t)
+    ? '_'+(Number.isFinite(f)?f:'start')+'-'+(Number.isFinite(t)?t:'end') : '')+'.xlsx';
+  try{ const r=await fetch(API+'/api/export.xlsx'+qs);
+    if(r.status===404) throw new Error('no saved runs in that range');
+    if(!r.ok) throw new Error('server '+r.status); const blob=await r.blob();
+    if(!blob.size) throw new Error('empty file'); downloadBlob(blob,name); }
   catch(e){ $('#exptoast').style.color='var(--red)'; $('#exptoast').textContent='download failed — '+e.message; setTimeout(()=>{$('#exptoast').textContent='';},4500); }
   b.disabled=false; b.innerHTML=old; };
 $('#expclear').onclick=async()=>{ if(!confirm('Clear all saved analyses from the Excel log?')) return; try{ await fetch(API+'/api/export',{method:'DELETE'}); setExpCount(0); $('#exptoast').textContent='log cleared'; }catch(e){} };

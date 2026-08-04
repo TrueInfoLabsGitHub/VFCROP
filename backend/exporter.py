@@ -1,571 +1,613 @@
-"""Excel export of analysis runs.
+"""Excel export of analysis runs.
+
+Builds a real .xlsx workbook (openpyxl) from the saved run history, one row per
+analysis, with every detail as a column AND the suspect / UPC photos embedded as
+thumbnails in the row. Thumbnails are produced with Pillow at save time so the
+stored history stays small.
+"""
+import base64
+import io
+import math
+
+from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+from openpyxl.drawing.xdr import XDRPositiveSize2D
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from openpyxl.utils.units import pixels_to_EMU
+
+try:
+    from PIL import Image as PILImage
+    _PIL = True
+except Exception:                       # pragma: no cover
+    _PIL = False
+
+DIMS = ["Logo", "Stitching", "Hardware", "Label", "Material"]
+_THUMB_PX = 150
+_CELL = 46                               # px, box each tiled thumbnail fits into
+_GAP = 3                                 # px, gap between tiled thumbnails
+_PERROW = 3                              # thumbnails per grid row inside a cell
+
+_BAND_FONT = {"authentic": "1E8A4C", "caution": "B07D0A", "counterfeit": "C0392B",
+              # no-answer outcomes — grey, so they never read as a result
+              "insufficient": "6B7280", "mismatch": "6B7280", "hard_fail": "C0392B",
+              # a failed run is not a verdict — grey, and it says why
+              "error": "6B7280"}
+
+# Printed in a dimension cell that abstained. A blank cell is ambiguous (it could
+# mean the engine never ran); an explicit marker is not, and it must never be
+# mistaken for a 0.
+_NA = "n/a"
+
+
+def _dim_status(dims, d):
+    x = dims.get(d)
+    return (x or {}).get("status", "") if isinstance(x, dict) else ""
+
+
+def _dim_cell(dims, d):
+    """Dimension score for the sheet: the number when it was assessed, 'n/a' when
+    the agent abstained, blank when the dimension is absent from the record."""
+    x = dims.get(d)
+    if not isinstance(x, dict):
+        return ""
+    if x.get("score") is None:
+        st = x.get("status")
+        if st == "error":
+            return "failed"          # the agent errored — distinct from abstaining
+        return _NA if st == "abstain" else ""
+    return _fnum(x.get("score"))
+
+
+def thumb(b64, px=_THUMB_PX):
+    """Downscale a base64 JPEG to a small thumbnail (returns base64 JPEG)."""
+    if not b64:
+        return ""
+    try:
+        raw = base64.b64decode(b64)
+        if not _PIL:
+            return b64
+        im = PILImage.open(io.BytesIO(raw)).convert("RGB")
+        im.thumbnail((px, px))
+        out = io.BytesIO()
+        im.save(out, format="JPEG", quality=80)
+        return base64.b64encode(out.getvalue()).decode()
+    except Exception:
+        return ""
+
+
+# Suspect + References hold multiple tiled thumbnails, so their column is wide
+# enough for _PERROW thumbnails across.
+_IMG_COL_W = round(_PERROW * (_CELL + _GAP) / 7) + 1
+
+
+def _fnum(v, nd=0):
+    try:
+        return round(float(v), nd) if nd else int(round(float(v)))
+    except (TypeError, ValueError):
+        return ""
+
+
+def group_cases(runs):
+    """Group runs into the case rows the export shows, numbered from 1.
 
-Builds a real .xlsx workbook (openpyxl) from the saved run history, one row per
-analysis, with every detail as a column AND the suspect / UPC photos embedded as
-thumbnails in the row. Thumbnails are produced with Pillow at save time so the
-stored history stays small.
-"""
-import base64
-import io
-import math
-
-from openpyxl import Workbook
-from openpyxl.drawing.image import Image as XLImage
-from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
-from openpyxl.drawing.xdr import XDRPositiveSize2D
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
-from openpyxl.utils.units import pixels_to_EMU
-
-try:
-    from PIL import Image as PILImage
-    _PIL = True
-except Exception:                       # pragma: no cover
-    _PIL = False
-
-DIMS = ["Logo", "Stitching", "Hardware", "Label", "Material"]
-_THUMB_PX = 150
-_CELL = 46                               # px, box each tiled thumbnail fits into
-_GAP = 3                                 # px, gap between tiled thumbnails
-_PERROW = 3                              # thumbnails per grid row inside a cell
-
-_BAND_FONT = {"authentic": "1E8A4C", "caution": "B07D0A", "counterfeit": "C0392B",
-              # no-answer outcomes — grey, so they never read as a result
-              "insufficient": "6B7280", "mismatch": "6B7280", "hard_fail": "C0392B",
-              # a failed run is not a verdict — grey, and it says why
-              "error": "6B7280"}
-
-# Printed in a dimension cell that abstained. A blank cell is ambiguous (it could
-# mean the engine never ran); an explicit marker is not, and it must never be
-# mistaken for a 0.
-_NA = "n/a"
-
-
-def _dim_status(dims, d):
-    x = dims.get(d)
-    return (x or {}).get("status", "") if isinstance(x, dict) else ""
-
-
-def _dim_cell(dims, d):
-    """Dimension score for the sheet: the number when it was assessed, 'n/a' when
-    the agent abstained, blank when the dimension is absent from the record."""
-    x = dims.get(d)
-    if not isinstance(x, dict):
-        return ""
-    if x.get("score") is None:
-        st = x.get("status")
-        if st == "error":
-            return "failed"          # the agent errored — distinct from abstaining
-        return _NA if st == "abstain" else ""
-    return _fnum(x.get("score"))
-
-
-def thumb(b64, px=_THUMB_PX):
-    """Downscale a base64 JPEG to a small thumbnail (returns base64 JPEG)."""
-    if not b64:
-        return ""
-    try:
-        raw = base64.b64decode(b64)
-        if not _PIL:
-            return b64
-        im = PILImage.open(io.BytesIO(raw)).convert("RGB")
-        im.thumbnail((px, px))
-        out = io.BytesIO()
-        im.save(out, format="JPEG", quality=80)
-        return base64.b64encode(out.getvalue()).decode()
-    except Exception:
-        return ""
-
-
-# Suspect + References hold multiple tiled thumbnails, so their column is wide
-# enough for _PERROW thumbnails across.
-_IMG_COL_W = round(_PERROW * (_CELL + _GAP) / 7) + 1
-
-
-def _fnum(v, nd=0):
-    try:
-        return round(float(v), nd) if nd else int(round(float(v)))
-    except (TypeError, ValueError):
-        return ""
-
-
-def build_workbook(runs):
-    """runs: list of record dicts (oldest first). Returns .xlsx bytes."""
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "VERITAS analyses"
-
-    _build_analyses_sheet(ws, runs)
-
-    _build_comparison_sheet(wb, runs)
-    _build_scorecard_sheet(wb, runs)
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    return buf.getvalue()
-
-
-# ---------------------------------------------------------------------------
-# Model-comparison + scorecard sheets. These read the same run records but
-# present them for cross-engine comparison instead of a flat per-run log.
-# ---------------------------------------------------------------------------
-_BAND_LABEL = {"authentic": "Authentic", "caution": "Inconclusive", "counterfeit": "Counterfeit"}
-_HEAD_FILL = PatternFill("solid", fgColor="1A2B3C")
-_GROUP_FILL = PatternFill("solid", fgColor="2E4A63")
-_BEST_FILL = PatternFill("solid", fgColor="E4F3E8")       # soft green for best-in-column
-_HEAD_FONT = Font(color="FFFFFF", bold=True, size=10)
-_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-
-def _num(v):
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
-
-
-def _avg(xs, nd=1):
-    xs = [x for x in xs if isinstance(x, (int, float))]
-    if not xs:
-        return None
-    return round(sum(xs) / len(xs), nd)
-
-
-# Engine families, matched loosely so historical label drift still collapses.
-# Records already saved under 'gpt-5.5' / 'GPT-5.5' / 'GPT 5.5' must land in ONE
-# column block — a split block leaves half the rows looking unsaved even though
-# their scores are sitting a screen to the right.
-_ENGINE_FAMILY = (("gpt", "GPT-5.5"), ("openai", "GPT-5.5"),
-                  ("gemini", "Gemini 3.1 Pro"),
-                  ("kimi", "Kimi K2.6"), ("moonshot", "Kimi K2.6"))
-
-
-def _engine_key(name):
-    """Canonical grouping key for an engine label."""
-    n = (name or "").strip().lower()
-    for token, canon in _ENGINE_FAMILY:
-        if token in n:
-            return canon.lower()
-    return n
-
-
-def _engine_display(name):
-    """Canonical display label, so the block header is stable too."""
-    n = (name or "").strip()
-    for token, canon in _ENGINE_FAMILY:
-        if token in n.lower():
-            return canon
-    return n or "(engine not recorded)"
-
-
-def _build_analyses_sheet(ws, runs):
-    """Main sheet — ONE row per case, engines laid out side by side.
-
-    Shared fields (case, brand, product, photos, UPC) appear once on the left;
-    each engine then gets a colour-banded block of Verdict / Score / the five
-    forensic-dimension scores / Verifier. A trailing Score-spread column flags
-    where the engines disagree. Cases run on a single engine still get one row
-    (the other engine blocks are simply left blank).
-    """
-    # group by case, preserving first-seen order; keep the latest record per
-    # engine. Records with no case_id each get their own row (unique key).
-    cases = {}
+    The number here IS the '#' column in the workbook, so a range picked in the
+    UI means the same thing as a range read off the sheet. Runs with no case id
+    each stay their own row rather than collapsing together."""
+    cases, ordered = {}, []
     for idx, rec in enumerate(runs):
-        cid = rec.get("case_id") or ""
-        key = cid or f"\x00nocase-{idx}"
-        g = cases.setdefault(key, {"order": idx, "cid": cid, "engines": {}, "records": []})
-        g["engines"][_engine_key(rec.get("engine"))] = rec
+        cid = (rec.get("case_id") or "").strip()
+        key = cid.lower() if cid else ("__nocase__", idx)
+        g = cases.get(key)
+        if g is None:
+            g = {"order": idx, "cid": cid, "records": []}
+            cases[key] = g
+            ordered.append(g)
         g["records"].append(rec)
-    ordered = sorted(cases.values(), key=lambda c: c["order"])
-
-    # engine columns, ordered by first appearance across all cases
-    engines = []
-    seen = set()
-    for c in ordered:
-        for k, rec in c["engines"].items():
-            if k not in seen:
-                seen.add(k)
-                engines.append((k, _engine_display(rec.get("engine"))))
-
-    metrics = (["Verdict", "Score", "Assessed"] + DIMS
-               + ["Verifier", "Cost ($)", "Latency (s)"]
-               + [f"{d} finding" for d in DIMS])            # 16 columns per engine
-
-    # ---- header (two rows) -------------------------------------------------
-    shared = [("#", 5), ("Case", 15), ("Brand", 8), ("Product", 22),
-              ("Suspect", _IMG_COL_W), ("References", _IMG_COL_W), ("UPC image", 16),
-              ("UPC status", 12), ("UPC read", 16), ("UPC expected", 14)]
-    for ci, (label, width) in enumerate(shared, start=1):
-        c = ws.cell(row=1, column=ci, value=label)
-        c.fill = _HEAD_FILL
-        c.font = _HEAD_FONT
-        c.alignment = _CENTER
-        ws.merge_cells(start_row=1, start_column=ci, end_row=2, end_column=ci)
-        ws.column_dimensions[get_column_letter(ci)].width = width
-
-    col = len(shared) + 1
-    for _k, label in engines:
-        ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + len(metrics) - 1)
-        gc = ws.cell(row=1, column=col, value=label)
-        gc.fill = _GROUP_FILL
-        gc.font = _HEAD_FONT
-        gc.alignment = _CENTER
-        for j, m in enumerate(metrics):
-            mc = ws.cell(row=2, column=col + j, value=m)
-            mc.fill = _HEAD_FILL
-            mc.font = _HEAD_FONT
-            mc.alignment = _CENTER
-            if m == "Verdict":
-                w = 18
-            elif m.endswith("finding"):
-                w = 46
-            elif m in ("Cost ($)", "Latency (s)"):
-                w = 11
-            else:
-                w = 10
-            ws.column_dimensions[get_column_letter(col + j)].width = w
-        col += len(metrics)
-
-    spread_col = col
-    sc = ws.cell(row=1, column=spread_col, value="Score\nspread")
-    sc.fill = _HEAD_FILL
-    sc.font = _HEAD_FONT
-    sc.alignment = _CENTER
-    ws.merge_cells(start_row=1, start_column=spread_col, end_row=2, end_column=spread_col)
-    ws.column_dimensions[get_column_letter(spread_col)].width = 9
-
-    ws.row_dimensions[1].height = 22
-    ws.row_dimensions[2].height = 18
-    ws.freeze_panes = "E3"                # keep # / Case / Brand / Product on screen
-
-    if not ordered:
-        ws.cell(row=3, column=1, value="No analyses saved yet.")
-        return
-
-    # ---- data rows ---------------------------------------------------------
-    top = Alignment(vertical="top", wrap_text=True)
-    r = 3
-    for i, c in enumerate(ordered, start=1):
-        recs = c["records"]
-
-        def _first(getter):
-            for rec in recs:
-                v = getter(rec)
-                if v:
-                    return v
-            return ""
-
-        upc = {}
-        for rec in recs:
-            u = rec.get("upc") or {}
-            if u:
-                upc = u
-                break
-
-        ws.cell(row=r, column=1, value=i).alignment = top
-        ws.cell(row=r, column=2, value=c["cid"]).alignment = top
-        ws.cell(row=r, column=3, value=_first(lambda x: x.get("brand"))).alignment = top
-        ws.cell(row=r, column=4, value=_first(lambda x: x.get("product"))).alignment = top
-        # columns 5-7 hold the shared photos (embedded below)
-        ws.cell(row=r, column=8, value=upc.get("status", "")).alignment = top
-        ws.cell(row=r, column=9, value=upc.get("extracted", "")).alignment = top
-        ws.cell(row=r, column=10, value=upc.get("expected", "")).alignment = top
-
-        col = len(shared) + 1
-        scores = []
-        for k, _label in engines:
-            rec = c["engines"].get(k)
-            if rec:
-                band = rec.get("band") or ""
-                s = _fnum(rec.get("score"))
-                if isinstance(s, (int, float)):
-                    scores.append(s)
-                dims = rec.get("dimensions") or {}
-                cost = round(float(rec.get("cost") or 0), 4)
-                lat = round(float(rec.get("latency_ms") or 0) / 1000, 1)
-                nass = rec.get("assessed")
-                assessed = f"{nass}/{len(DIMS)}" if isinstance(nass, int) else ""
-                verdict_txt = rec.get("verdict", "")
-                if rec.get("band") == "error" and rec.get("error"):
-                    verdict_txt = f"Run Failed — {rec['error']}"
-                vals = [verdict_txt, s, assessed,
-                        *[_dim_cell(dims, d) for d in DIMS],
-                        rec.get("verifier", ""), cost, lat,
-                        *[(dims.get(d) or {}).get("finding", "") for d in DIMS]]
-                for j, v in enumerate(vals):
-                    cell = ws.cell(row=r, column=col + j, value=v)
-                    cell.alignment = top
-                    if j <= 1 and band in _BAND_FONT:        # colour verdict + score
-                        cell.font = Font(color=_BAND_FONT[band], bold=True)
-                    # flag partial coverage — a score over <5 dimensions is weaker
-                    # than the same number over all five
-                    if j == 2 and isinstance(nass, int) and nass < len(DIMS):
-                        cell.font = Font(color="B07D0A", bold=True)
-                    # dimension cells sit at 3..7; an ESTIMATED number is real
-                    # output, not a measurement — mark it without changing the value
-                    if 3 <= j <= 7 and _dim_status(dims, DIMS[j - 3]) == "estimated":
-                        cell.font = Font(color="B07D0A", italic=True)
-            else:
-                # This case was never run on this engine. Saying so beats a blank,
-                # which is indistinguishable from "the run vanished".
-                nr = ws.cell(row=r, column=col, value="not run")
-                nr.alignment = top
-                nr.font = Font(color="9AA0A6", italic=True)
-            col += len(metrics)
-
-        if len(scores) >= 2:
-            spread = max(scores) - min(scores)
-            scc = ws.cell(row=r, column=spread_col, value=int(round(spread)))
-            scc.alignment = _CENTER
-            if spread >= 25:                                  # engines disagree a lot
-                scc.font = Font(color="C0392B", bold=True)
-
-        # shared photos — reuse the first record that carries each image set
-        sus = _first(lambda x: x.get("suspect_thumbs"))
-        if not sus:
-            st = _first(lambda x: x.get("suspect_thumb"))
-            sus = [st] if st else []
-        refs = _first(lambda x: x.get("reference_thumbs")) or []
-        upcimg = _first(lambda x: x.get("upc_thumb"))
-        upcimg = [upcimg] if upcimg else []
-        gr = max(_embed_grid(ws, sus, 5, r),
-                 _embed_grid(ws, refs, 6, r),
-                 _embed_grid(ws, upcimg, 7, r), 1)
-        ws.row_dimensions[r].height = max(76, gr * (_CELL + _GAP) * 0.75)
-        r += 1
+    for n, g in enumerate(ordered, start=1):
+        g["number"] = n
+    return ordered
 
 
-def _build_comparison_sheet(wb, runs):
-    """One row per case, engines side by side: verdict, composite score and the
-    five forensic-dimension scores per engine, plus a score-spread column that
-    flags where the engines disagree. Only cases actually run on 2+ engines
-    appear here (single-engine runs stay on the raw log)."""
-    ws = wb.create_sheet("Model comparison")
+def select_runs(runs, first=None, last=None, cases=None):
+    """Subset of `runs` for a partial export.
 
-    # group by case; keep the latest record per engine (dedupes double-saves)
-    cases = {}
-    for idx, rec in enumerate(runs):
-        cid = rec.get("case_id") or ""
-        if not cid:
-            continue
-        g = cases.setdefault(cid, {"order": idx, "cid": cid, "product": "", "engines": {}})
-        g["engines"][_engine_key(rec.get("engine"))] = rec
-        g["product"] = rec.get("product", "") or g["product"]
-    compared = sorted((c for c in cases.values() if len(c["engines"]) >= 2),
-                      key=lambda c: c["order"])
-
-    if not compared:
-        ws.cell(row=1, column=1,
-                value="No multi-engine comparisons yet - run Compare (2+ engines) and save.")
-        return
-
-    # fixed engine columns: order by first appearance across compared cases
-    engines = []                                    # list of (key, display label)
-    seen = set()
-    for c in compared:
-        for k, rec in c["engines"].items():
-            if k not in seen:
-                seen.add(k)
-                engines.append((k, _engine_display(rec.get("engine"))))
-
-    metrics = ["Verdict", "Score", "Assessed"] + DIMS     # 8 columns per engine
-    # header row 1: grouped engine bands; header row 2: metric names
-    ws.cell(row=1, column=1, value="Case").fill = _HEAD_FILL
-    ws.cell(row=1, column=2, value="Product").fill = _HEAD_FILL
-    ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=1)
-    ws.merge_cells(start_row=1, start_column=2, end_row=2, end_column=2)
-    col = 3
-    for _k, label in engines:
-        ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + len(metrics) - 1)
-        gc = ws.cell(row=1, column=col, value=label)
-        gc.fill = _GROUP_FILL
-        gc.font = _HEAD_FONT
-        gc.alignment = _CENTER
-        for j, m in enumerate(metrics):
-            mc = ws.cell(row=2, column=col + j, value=m)
-            mc.fill = _HEAD_FILL
-            mc.font = _HEAD_FONT
-            mc.alignment = _CENTER
-        col += len(metrics)
-    spread_col = col
-    for cell in (ws.cell(row=1, column=spread_col, value="Score\nspread"),):
-        cell.fill = _HEAD_FILL
-        cell.font = _HEAD_FONT
-        cell.alignment = _CENTER
-    ws.merge_cells(start_row=1, start_column=spread_col, end_row=2, end_column=spread_col)
-
-    for cc in (1, 2):
-        ws.cell(row=1, column=cc).font = _HEAD_FONT
-        ws.cell(row=1, column=cc).alignment = _CENTER
-    ws.column_dimensions["A"].width = 16
-    ws.column_dimensions["B"].width = 24
-    ws.freeze_panes = "C3"
-
-    top = Alignment(vertical="top", wrap_text=True)
-    r = 3
-    for c in compared:
-        ws.cell(row=r, column=1, value=c["cid"]).alignment = top
-        ws.cell(row=r, column=2, value=c["product"]).alignment = top
-        col = 3
-        scores = []
-        for k, _label in engines:
-            rec = c["engines"].get(k)
-            if rec:
-                band = rec.get("band") or ""
-                sc = _fnum(rec.get("score"))
-                if isinstance(sc, (int, float)):
-                    scores.append(sc)
-                dims = rec.get("dimensions") or {}
-                nass = rec.get("assessed")
-                vals = [("Run Failed" if rec.get("band") == "error"
-                         else rec.get("verdict", "")), sc,
-                        f"{nass}/{len(DIMS)}" if isinstance(nass, int) else "",
-                        *[_dim_cell(dims, d) for d in DIMS]]
-                for j, v in enumerate(vals):
-                    cell = ws.cell(row=r, column=col + j, value=v)
-                    cell.alignment = top
-                    if j <= 1 and band in _BAND_FONT:      # colour verdict + score
-                        cell.font = Font(color=_BAND_FONT[band], bold=True)
-                    if j == 2 and isinstance(nass, int) and nass < len(DIMS):
-                        cell.font = Font(color="B07D0A", bold=True)
-                    # dimension cells sit at 3..7; an ESTIMATED number is real
-                    # output, not a measurement — mark it without changing the value
-                    if 3 <= j <= 7 and _dim_status(dims, DIMS[j - 3]) == "estimated":
-                        cell.font = Font(color="B07D0A", italic=True)
-            col += len(metrics)
-        if len(scores) >= 2:
-            spread = max(scores) - min(scores)
-            sc = ws.cell(row=r, column=spread_col, value=int(round(spread)))
-            sc.alignment = _CENTER
-            if spread >= 25:                                # engines disagree a lot
-                sc.font = Font(color="C0392B", bold=True)
-        r += 1
-
-    # width for each metric column
-    for i in range(len(engines) * len(metrics)):
-        ws.column_dimensions[get_column_letter(3 + i)].width = 11
-    ws.column_dimensions[get_column_letter(spread_col)].width = 9
+    `cases` (explicit ids) takes precedence when given; otherwise `first`/`last`
+    select an inclusive case-number range. Records come back in their original
+    order, so the workbook builds exactly as it would for the full set — just
+    with fewer rows."""
+    wanted = {str(c).strip().lower() for c in (cases or []) if str(c).strip()}
+    if wanted:
+        return [r for g in group_cases(runs)
+                if (g["cid"] or "").lower() in wanted for r in g["records"]]
+    if first is None and last is None:
+        return list(runs)
+    keep = []
+    for g in group_cases(runs):
+        n = g["number"]
+        if (first is None or n >= first) and (last is None or n <= last):
+            keep.extend(g["records"])
+    return keep
 
 
-def _build_scorecard_sheet(wb, runs):
-    """One row per engine, aggregated across every saved run. Each metric is its
-    own column (no blended ranking); lowest avg cost and latency are highlighted
-    since 'cheaper/faster' is unambiguous."""
-    ws = wb.create_sheet("Engine scorecard")
-
-    agg = {}
-    for rec in runs:
-        k = _engine_key(rec.get("engine"))
-        if not k:
-            continue
-        a = agg.setdefault(k, {"label": "", "n": 0, "score": [], "conf": [], "cost": [],
-                               "lat": [], "band": {"authentic": 0, "caution": 0, "counterfeit": 0,
-                                                   "insufficient": 0, "mismatch": 0, "hard_fail": 0,
-                                                   "error": 0},
-                               "confirmed": 0, "verifier_n": 0, "dims": {d: [] for d in DIMS},
-                               "assessed": [], "order": len(agg)})
-        a["label"] = (rec.get("engine") or a["label"])
-        a["n"] += 1
-        a["score"].append(_num(rec.get("score")))
-        a["conf"].append(_num(rec.get("confidence")))
-        a["cost"].append(_num(rec.get("cost")))
-        lat = _num(rec.get("latency_ms"))
-        a["lat"].append(lat / 1000 if lat is not None else None)
-        band = rec.get("band")
-        if band in a["band"]:
-            a["band"][band] += 1
-        verifier = rec.get("verifier")
-        if verifier in ("confirmed", "refuted"):
-            a["verifier_n"] += 1
-            if verifier == "confirmed":
-                a["confirmed"] += 1
-        a["assessed"].append(_num(rec.get("assessed")))
-        dims = rec.get("dimensions") or {}
-        for d in DIMS:
-            a["dims"][d].append(_num((dims.get(d) or {}).get("score")))
-
-    engines = sorted(agg.values(), key=lambda a: a["order"])
-    cols = ["Engine", "Runs", "Avg score", "Avg assessed", "% Authentic", "% Inconclusive",
-            "% Counterfeit", "% No answer", "% Failed", "Verifier confirmed %", "Avg confidence",
-            *[f"Avg {d}" for d in DIMS], "Avg cost ($)", "Avg latency (s)"]
-    for ci, label in enumerate(cols, start=1):
-        c = ws.cell(row=1, column=ci, value=label)
-        c.fill = _HEAD_FILL
-        c.font = _HEAD_FONT
-        c.alignment = _CENTER
-    ws.row_dimensions[1].height = 30
-    ws.freeze_panes = "B2"
-
-    if not engines:
-        ws.cell(row=2, column=1, value="No analyses saved yet.")
-        return
-
-    def pct(part, whole):
-        return round(100 * part / whole) if whole else None
-
-    rows = []
-    for a in engines:
-        n = a["n"]
-        # Runs that produced no answer (insufficient evidence / reference mismatch)
-        # are their own outcome. Folding them into % Inconclusive would hide an
-        # input problem inside what looks like a model judgement.
-        no_answer = a["band"]["insufficient"] + a["band"]["mismatch"]
-        hard = a["band"]["hard_fail"]
-        rows.append([
-            a["label"], n, _avg(a["score"], 1), _avg(a["assessed"], 1),
-            pct(a["band"]["authentic"], n), pct(a["band"]["caution"], n),
-            pct(a["band"]["counterfeit"] + hard, n), pct(no_answer, n),
-            pct(a["band"]["error"], n),
-            pct(a["confirmed"], a["verifier_n"]), _avg(a["conf"], 2),
-            *[_avg(a["dims"][d], 1) for d in DIMS],
-            _avg(a["cost"], 4), _avg(a["lat"], 1),
-        ])
-    for ri, row in enumerate(rows, start=2):
-        for ci, v in enumerate(row, start=1):
-            cell = ws.cell(row=ri, column=ci, value=v)
-            cell.alignment = _CENTER if ci > 1 else Alignment(vertical="center")
-
-    # highlight the lowest avg cost and lowest avg latency (unambiguously better)
-    for col_idx in (len(cols) - 1, len(cols)):     # Avg cost, Avg latency
-        vals = [(ri, ws.cell(row=ri, column=col_idx).value)
-                for ri in range(2, 2 + len(rows))]
-        vals = [(ri, v) for ri, v in vals if isinstance(v, (int, float))]
-        if vals:
-            best_ri = min(vals, key=lambda t: t[1])[0]
-            ws.cell(row=best_ri, column=col_idx).fill = _BEST_FILL
-            ws.cell(row=best_ri, column=col_idx).font = Font(bold=True, color="1E8A4C")
-
-    ws.column_dimensions["A"].width = 16
-    for ci in range(2, len(cols) + 1):
-        ws.column_dimensions[get_column_letter(ci)].width = 13
-
-
-def _embed_grid(ws, thumbs, col, row):
-    """Tile every thumbnail in a grid anchored inside a single cell.
-
-    openpyxl anchors one image per cell by default, so multiple images would
-    stack on top of each other. We instead give each image an explicit
-    OneCellAnchor with a pixel offset, laying them out _PERROW across and
-    wrapping down. Returns the number of grid rows used (for row-height sizing).
-    """
-    n = 0
-    for idx, b64 in enumerate([t for t in thumbs if t]):
-        try:
-            img = XLImage(io.BytesIO(base64.b64decode(b64)))
-            w, h = img.width, img.height
-            scale = min(_CELL / w, _CELL / h, 1) if w and h else 1
-            iw, ih = max(1, int(w * scale)), max(1, int(h * scale))
-            gx, gy = idx % _PERROW, idx // _PERROW
-            # centre each thumbnail within its box
-            xoff = gx * (_CELL + _GAP) + (_CELL - iw) // 2
-            yoff = gy * (_CELL + _GAP) + (_CELL - ih) // 2
-            marker = AnchorMarker(col=col - 1, colOff=pixels_to_EMU(xoff),
-                                  row=row - 1, rowOff=pixels_to_EMU(yoff))
-            img.anchor = OneCellAnchor(
-                _from=marker,
-                ext=XDRPositiveSize2D(pixels_to_EMU(iw), pixels_to_EMU(ih)))
-            ws.add_image(img)
-            n = idx + 1
-        except Exception:
-            pass
-    return math.ceil(n / _PERROW) if n else 0
+def build_workbook(runs):
+    """runs: list of record dicts (oldest first). Returns .xlsx bytes."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "VERITAS analyses"
+
+    _build_analyses_sheet(ws, runs)
+
+    _build_comparison_sheet(wb, runs)
+    _build_scorecard_sheet(wb, runs)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Model-comparison + scorecard sheets. These read the same run records but
+# present them for cross-engine comparison instead of a flat per-run log.
+# ---------------------------------------------------------------------------
+_BAND_LABEL = {"authentic": "Authentic", "caution": "Inconclusive", "counterfeit": "Counterfeit"}
+_HEAD_FILL = PatternFill("solid", fgColor="1A2B3C")
+_GROUP_FILL = PatternFill("solid", fgColor="2E4A63")
+_BEST_FILL = PatternFill("solid", fgColor="E4F3E8")       # soft green for best-in-column
+_HEAD_FONT = Font(color="FFFFFF", bold=True, size=10)
+_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _avg(xs, nd=1):
+    xs = [x for x in xs if isinstance(x, (int, float))]
+    if not xs:
+        return None
+    return round(sum(xs) / len(xs), nd)
+
+
+# Engine families, matched loosely so historical label drift still collapses.
+# Records already saved under 'gpt-5.5' / 'GPT-5.5' / 'GPT 5.5' must land in ONE
+# column block — a split block leaves half the rows looking unsaved even though
+# their scores are sitting a screen to the right.
+_ENGINE_FAMILY = (("gpt", "GPT-5.5"), ("openai", "GPT-5.5"),
+                  ("gemini", "Gemini 3.1 Pro"),
+                  ("kimi", "Kimi K2.6"), ("moonshot", "Kimi K2.6"))
+
+
+def _engine_key(name):
+    """Canonical grouping key for an engine label."""
+    n = (name or "").strip().lower()
+    for token, canon in _ENGINE_FAMILY:
+        if token in n:
+            return canon.lower()
+    return n
+
+
+def _engine_display(name):
+    """Canonical display label, so the block header is stable too."""
+    n = (name or "").strip()
+    for token, canon in _ENGINE_FAMILY:
+        if token in n.lower():
+            return canon
+    return n or "(engine not recorded)"
+
+
+def _build_analyses_sheet(ws, runs):
+    """Main sheet — ONE row per case, engines laid out side by side.
+
+    Shared fields (case, brand, product, photos, UPC) appear once on the left;
+    each engine then gets a colour-banded block of Verdict / Score / the five
+    forensic-dimension scores / Verifier. A trailing Score-spread column flags
+    where the engines disagree. Cases run on a single engine still get one row
+    (the other engine blocks are simply left blank).
+    """
+    # group by case, preserving first-seen order; keep the latest record per
+    # engine. Records with no case_id each get their own row (unique key).
+    cases = {}
+    for idx, rec in enumerate(runs):
+        cid = rec.get("case_id") or ""
+        key = cid or f"\x00nocase-{idx}"
+        g = cases.setdefault(key, {"order": idx, "cid": cid, "engines": {}, "records": []})
+        g["engines"][_engine_key(rec.get("engine"))] = rec
+        g["records"].append(rec)
+    ordered = sorted(cases.values(), key=lambda c: c["order"])
+
+    # engine columns, ordered by first appearance across all cases
+    engines = []
+    seen = set()
+    for c in ordered:
+        for k, rec in c["engines"].items():
+            if k not in seen:
+                seen.add(k)
+                engines.append((k, _engine_display(rec.get("engine"))))
+
+    metrics = (["Verdict", "Score", "Assessed"] + DIMS
+               + ["Verifier", "Cost ($)", "Latency (s)"]
+               + [f"{d} finding" for d in DIMS])            # 16 columns per engine
+
+    # ---- header (two rows) -------------------------------------------------
+    shared = [("#", 5), ("Case", 15), ("Brand", 8), ("Product", 22),
+              ("Suspect", _IMG_COL_W), ("References", _IMG_COL_W), ("UPC image", 16),
+              ("UPC status", 12), ("UPC read", 16), ("UPC expected", 14)]
+    for ci, (label, width) in enumerate(shared, start=1):
+        c = ws.cell(row=1, column=ci, value=label)
+        c.fill = _HEAD_FILL
+        c.font = _HEAD_FONT
+        c.alignment = _CENTER
+        ws.merge_cells(start_row=1, start_column=ci, end_row=2, end_column=ci)
+        ws.column_dimensions[get_column_letter(ci)].width = width
+
+    col = len(shared) + 1
+    for _k, label in engines:
+        ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + len(metrics) - 1)
+        gc = ws.cell(row=1, column=col, value=label)
+        gc.fill = _GROUP_FILL
+        gc.font = _HEAD_FONT
+        gc.alignment = _CENTER
+        for j, m in enumerate(metrics):
+            mc = ws.cell(row=2, column=col + j, value=m)
+            mc.fill = _HEAD_FILL
+            mc.font = _HEAD_FONT
+            mc.alignment = _CENTER
+            if m == "Verdict":
+                w = 18
+            elif m.endswith("finding"):
+                w = 46
+            elif m in ("Cost ($)", "Latency (s)"):
+                w = 11
+            else:
+                w = 10
+            ws.column_dimensions[get_column_letter(col + j)].width = w
+        col += len(metrics)
+
+    spread_col = col
+    sc = ws.cell(row=1, column=spread_col, value="Score\nspread")
+    sc.fill = _HEAD_FILL
+    sc.font = _HEAD_FONT
+    sc.alignment = _CENTER
+    ws.merge_cells(start_row=1, start_column=spread_col, end_row=2, end_column=spread_col)
+    ws.column_dimensions[get_column_letter(spread_col)].width = 9
+
+    ws.row_dimensions[1].height = 22
+    ws.row_dimensions[2].height = 18
+    ws.freeze_panes = "E3"                # keep # / Case / Brand / Product on screen
+
+    if not ordered:
+        ws.cell(row=3, column=1, value="No analyses saved yet.")
+        return
+
+    # ---- data rows ---------------------------------------------------------
+    top = Alignment(vertical="top", wrap_text=True)
+    r = 3
+    for i, c in enumerate(ordered, start=1):
+        recs = c["records"]
+
+        def _first(getter):
+            for rec in recs:
+                v = getter(rec)
+                if v:
+                    return v
+            return ""
+
+        upc = {}
+        for rec in recs:
+            u = rec.get("upc") or {}
+            if u:
+                upc = u
+                break
+
+        ws.cell(row=r, column=1, value=i).alignment = top
+        ws.cell(row=r, column=2, value=c["cid"]).alignment = top
+        ws.cell(row=r, column=3, value=_first(lambda x: x.get("brand"))).alignment = top
+        ws.cell(row=r, column=4, value=_first(lambda x: x.get("product"))).alignment = top
+        # columns 5-7 hold the shared photos (embedded below)
+        ws.cell(row=r, column=8, value=upc.get("status", "")).alignment = top
+        ws.cell(row=r, column=9, value=upc.get("extracted", "")).alignment = top
+        ws.cell(row=r, column=10, value=upc.get("expected", "")).alignment = top
+
+        col = len(shared) + 1
+        scores = []
+        for k, _label in engines:
+            rec = c["engines"].get(k)
+            if rec:
+                band = rec.get("band") or ""
+                s = _fnum(rec.get("score"))
+                if isinstance(s, (int, float)):
+                    scores.append(s)
+                dims = rec.get("dimensions") or {}
+                cost = round(float(rec.get("cost") or 0), 4)
+                lat = round(float(rec.get("latency_ms") or 0) / 1000, 1)
+                nass = rec.get("assessed")
+                assessed = f"{nass}/{len(DIMS)}" if isinstance(nass, int) else ""
+                verdict_txt = rec.get("verdict", "")
+                if rec.get("band") == "error" and rec.get("error"):
+                    verdict_txt = f"Run Failed — {rec['error']}"
+                vals = [verdict_txt, s, assessed,
+                        *[_dim_cell(dims, d) for d in DIMS],
+                        rec.get("verifier", ""), cost, lat,
+                        *[(dims.get(d) or {}).get("finding", "") for d in DIMS]]
+                for j, v in enumerate(vals):
+                    cell = ws.cell(row=r, column=col + j, value=v)
+                    cell.alignment = top
+                    if j <= 1 and band in _BAND_FONT:        # colour verdict + score
+                        cell.font = Font(color=_BAND_FONT[band], bold=True)
+                    # flag partial coverage — a score over <5 dimensions is weaker
+                    # than the same number over all five
+                    if j == 2 and isinstance(nass, int) and nass < len(DIMS):
+                        cell.font = Font(color="B07D0A", bold=True)
+                    # dimension cells sit at 3..7; an ESTIMATED number is real
+                    # output, not a measurement — mark it without changing the value
+                    if 3 <= j <= 7 and _dim_status(dims, DIMS[j - 3]) == "estimated":
+                        cell.font = Font(color="B07D0A", italic=True)
+            else:
+                # This case was never run on this engine. Saying so beats a blank,
+                # which is indistinguishable from "the run vanished".
+                nr = ws.cell(row=r, column=col, value="not run")
+                nr.alignment = top
+                nr.font = Font(color="9AA0A6", italic=True)
+            col += len(metrics)
+
+        if len(scores) >= 2:
+            spread = max(scores) - min(scores)
+            scc = ws.cell(row=r, column=spread_col, value=int(round(spread)))
+            scc.alignment = _CENTER
+            if spread >= 25:                                  # engines disagree a lot
+                scc.font = Font(color="C0392B", bold=True)
+
+        # shared photos — reuse the first record that carries each image set
+        sus = _first(lambda x: x.get("suspect_thumbs"))
+        if not sus:
+            st = _first(lambda x: x.get("suspect_thumb"))
+            sus = [st] if st else []
+        refs = _first(lambda x: x.get("reference_thumbs")) or []
+        upcimg = _first(lambda x: x.get("upc_thumb"))
+        upcimg = [upcimg] if upcimg else []
+        gr = max(_embed_grid(ws, sus, 5, r),
+                 _embed_grid(ws, refs, 6, r),
+                 _embed_grid(ws, upcimg, 7, r), 1)
+        ws.row_dimensions[r].height = max(76, gr * (_CELL + _GAP) * 0.75)
+        r += 1
+
+
+def _build_comparison_sheet(wb, runs):
+    """One row per case, engines side by side: verdict, composite score and the
+    five forensic-dimension scores per engine, plus a score-spread column that
+    flags where the engines disagree. Only cases actually run on 2+ engines
+    appear here (single-engine runs stay on the raw log)."""
+    ws = wb.create_sheet("Model comparison")
+
+    # group by case; keep the latest record per engine (dedupes double-saves)
+    cases = {}
+    for idx, rec in enumerate(runs):
+        cid = rec.get("case_id") or ""
+        if not cid:
+            continue
+        g = cases.setdefault(cid, {"order": idx, "cid": cid, "product": "", "engines": {}})
+        g["engines"][_engine_key(rec.get("engine"))] = rec
+        g["product"] = rec.get("product", "") or g["product"]
+    compared = sorted((c for c in cases.values() if len(c["engines"]) >= 2),
+                      key=lambda c: c["order"])
+
+    if not compared:
+        ws.cell(row=1, column=1,
+                value="No multi-engine comparisons yet - run Compare (2+ engines) and save.")
+        return
+
+    # fixed engine columns: order by first appearance across compared cases
+    engines = []                                    # list of (key, display label)
+    seen = set()
+    for c in compared:
+        for k, rec in c["engines"].items():
+            if k not in seen:
+                seen.add(k)
+                engines.append((k, _engine_display(rec.get("engine"))))
+
+    metrics = ["Verdict", "Score", "Assessed"] + DIMS     # 8 columns per engine
+    # header row 1: grouped engine bands; header row 2: metric names
+    ws.cell(row=1, column=1, value="Case").fill = _HEAD_FILL
+    ws.cell(row=1, column=2, value="Product").fill = _HEAD_FILL
+    ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=1)
+    ws.merge_cells(start_row=1, start_column=2, end_row=2, end_column=2)
+    col = 3
+    for _k, label in engines:
+        ws.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + len(metrics) - 1)
+        gc = ws.cell(row=1, column=col, value=label)
+        gc.fill = _GROUP_FILL
+        gc.font = _HEAD_FONT
+        gc.alignment = _CENTER
+        for j, m in enumerate(metrics):
+            mc = ws.cell(row=2, column=col + j, value=m)
+            mc.fill = _HEAD_FILL
+            mc.font = _HEAD_FONT
+            mc.alignment = _CENTER
+        col += len(metrics)
+    spread_col = col
+    for cell in (ws.cell(row=1, column=spread_col, value="Score\nspread"),):
+        cell.fill = _HEAD_FILL
+        cell.font = _HEAD_FONT
+        cell.alignment = _CENTER
+    ws.merge_cells(start_row=1, start_column=spread_col, end_row=2, end_column=spread_col)
+
+    for cc in (1, 2):
+        ws.cell(row=1, column=cc).font = _HEAD_FONT
+        ws.cell(row=1, column=cc).alignment = _CENTER
+    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["B"].width = 24
+    ws.freeze_panes = "C3"
+
+    top = Alignment(vertical="top", wrap_text=True)
+    r = 3
+    for c in compared:
+        ws.cell(row=r, column=1, value=c["cid"]).alignment = top
+        ws.cell(row=r, column=2, value=c["product"]).alignment = top
+        col = 3
+        scores = []
+        for k, _label in engines:
+            rec = c["engines"].get(k)
+            if rec:
+                band = rec.get("band") or ""
+                sc = _fnum(rec.get("score"))
+                if isinstance(sc, (int, float)):
+                    scores.append(sc)
+                dims = rec.get("dimensions") or {}
+                nass = rec.get("assessed")
+                vals = [("Run Failed" if rec.get("band") == "error"
+                         else rec.get("verdict", "")), sc,
+                        f"{nass}/{len(DIMS)}" if isinstance(nass, int) else "",
+                        *[_dim_cell(dims, d) for d in DIMS]]
+                for j, v in enumerate(vals):
+                    cell = ws.cell(row=r, column=col + j, value=v)
+                    cell.alignment = top
+                    if j <= 1 and band in _BAND_FONT:      # colour verdict + score
+                        cell.font = Font(color=_BAND_FONT[band], bold=True)
+                    if j == 2 and isinstance(nass, int) and nass < len(DIMS):
+                        cell.font = Font(color="B07D0A", bold=True)
+                    # dimension cells sit at 3..7; an ESTIMATED number is real
+                    # output, not a measurement — mark it without changing the value
+                    if 3 <= j <= 7 and _dim_status(dims, DIMS[j - 3]) == "estimated":
+                        cell.font = Font(color="B07D0A", italic=True)
+            col += len(metrics)
+        if len(scores) >= 2:
+            spread = max(scores) - min(scores)
+            sc = ws.cell(row=r, column=spread_col, value=int(round(spread)))
+            sc.alignment = _CENTER
+            if spread >= 25:                                # engines disagree a lot
+                sc.font = Font(color="C0392B", bold=True)
+        r += 1
+
+    # width for each metric column
+    for i in range(len(engines) * len(metrics)):
+        ws.column_dimensions[get_column_letter(3 + i)].width = 11
+    ws.column_dimensions[get_column_letter(spread_col)].width = 9
+
+
+def _build_scorecard_sheet(wb, runs):
+    """One row per engine, aggregated across every saved run. Each metric is its
+    own column (no blended ranking); lowest avg cost and latency are highlighted
+    since 'cheaper/faster' is unambiguous."""
+    ws = wb.create_sheet("Engine scorecard")
+
+    agg = {}
+    for rec in runs:
+        k = _engine_key(rec.get("engine"))
+        if not k:
+            continue
+        a = agg.setdefault(k, {"label": "", "n": 0, "score": [], "conf": [], "cost": [],
+                               "lat": [], "band": {"authentic": 0, "caution": 0, "counterfeit": 0,
+                                                   "insufficient": 0, "mismatch": 0, "hard_fail": 0,
+                                                   "error": 0},
+                               "confirmed": 0, "verifier_n": 0, "dims": {d: [] for d in DIMS},
+                               "assessed": [], "order": len(agg)})
+        a["label"] = (rec.get("engine") or a["label"])
+        a["n"] += 1
+        a["score"].append(_num(rec.get("score")))
+        a["conf"].append(_num(rec.get("confidence")))
+        a["cost"].append(_num(rec.get("cost")))
+        lat = _num(rec.get("latency_ms"))
+        a["lat"].append(lat / 1000 if lat is not None else None)
+        band = rec.get("band")
+        if band in a["band"]:
+            a["band"][band] += 1
+        verifier = rec.get("verifier")
+        if verifier in ("confirmed", "refuted"):
+            a["verifier_n"] += 1
+            if verifier == "confirmed":
+                a["confirmed"] += 1
+        a["assessed"].append(_num(rec.get("assessed")))
+        dims = rec.get("dimensions") or {}
+        for d in DIMS:
+            a["dims"][d].append(_num((dims.get(d) or {}).get("score")))
+
+    engines = sorted(agg.values(), key=lambda a: a["order"])
+    cols = ["Engine", "Runs", "Avg score", "Avg assessed", "% Authentic", "% Inconclusive",
+            "% Counterfeit", "% No answer", "% Failed", "Verifier confirmed %", "Avg confidence",
+            *[f"Avg {d}" for d in DIMS], "Avg cost ($)", "Avg latency (s)"]
+    for ci, label in enumerate(cols, start=1):
+        c = ws.cell(row=1, column=ci, value=label)
+        c.fill = _HEAD_FILL
+        c.font = _HEAD_FONT
+        c.alignment = _CENTER
+    ws.row_dimensions[1].height = 30
+    ws.freeze_panes = "B2"
+
+    if not engines:
+        ws.cell(row=2, column=1, value="No analyses saved yet.")
+        return
+
+    def pct(part, whole):
+        return round(100 * part / whole) if whole else None
+
+    rows = []
+    for a in engines:
+        n = a["n"]
+        # Runs that produced no answer (insufficient evidence / reference mismatch)
+        # are their own outcome. Folding them into % Inconclusive would hide an
+        # input problem inside what looks like a model judgement.
+        no_answer = a["band"]["insufficient"] + a["band"]["mismatch"]
+        hard = a["band"]["hard_fail"]
+        rows.append([
+            a["label"], n, _avg(a["score"], 1), _avg(a["assessed"], 1),
+            pct(a["band"]["authentic"], n), pct(a["band"]["caution"], n),
+            pct(a["band"]["counterfeit"] + hard, n), pct(no_answer, n),
+            pct(a["band"]["error"], n),
+            pct(a["confirmed"], a["verifier_n"]), _avg(a["conf"], 2),
+            *[_avg(a["dims"][d], 1) for d in DIMS],
+            _avg(a["cost"], 4), _avg(a["lat"], 1),
+        ])
+    for ri, row in enumerate(rows, start=2):
+        for ci, v in enumerate(row, start=1):
+            cell = ws.cell(row=ri, column=ci, value=v)
+            cell.alignment = _CENTER if ci > 1 else Alignment(vertical="center")
+
+    # highlight the lowest avg cost and lowest avg latency (unambiguously better)
+    for col_idx in (len(cols) - 1, len(cols)):     # Avg cost, Avg latency
+        vals = [(ri, ws.cell(row=ri, column=col_idx).value)
+                for ri in range(2, 2 + len(rows))]
+        vals = [(ri, v) for ri, v in vals if isinstance(v, (int, float))]
+        if vals:
+            best_ri = min(vals, key=lambda t: t[1])[0]
+            ws.cell(row=best_ri, column=col_idx).fill = _BEST_FILL
+            ws.cell(row=best_ri, column=col_idx).font = Font(bold=True, color="1E8A4C")
+
+    ws.column_dimensions["A"].width = 16
+    for ci in range(2, len(cols) + 1):
+        ws.column_dimensions[get_column_letter(ci)].width = 13
+
+
+def _embed_grid(ws, thumbs, col, row):
+    """Tile every thumbnail in a grid anchored inside a single cell.
+
+    openpyxl anchors one image per cell by default, so multiple images would
+    stack on top of each other. We instead give each image an explicit
+    OneCellAnchor with a pixel offset, laying them out _PERROW across and
+    wrapping down. Returns the number of grid rows used (for row-height sizing).
+    """
+    n = 0
+    for idx, b64 in enumerate([t for t in thumbs if t]):
+        try:
+            img = XLImage(io.BytesIO(base64.b64decode(b64)))
+            w, h = img.width, img.height
+            scale = min(_CELL / w, _CELL / h, 1) if w and h else 1
+            iw, ih = max(1, int(w * scale)), max(1, int(h * scale))
+            gx, gy = idx % _PERROW, idx // _PERROW
+            # centre each thumbnail within its box
+            xoff = gx * (_CELL + _GAP) + (_CELL - iw) // 2
+            yoff = gy * (_CELL + _GAP) + (_CELL - ih) // 2
+            marker = AnchorMarker(col=col - 1, colOff=pixels_to_EMU(xoff),
+                                  row=row - 1, rowOff=pixels_to_EMU(yoff))
+            img.anchor = OneCellAnchor(
+                _from=marker,
+                ext=XDRPositiveSize2D(pixels_to_EMU(iw), pixels_to_EMU(ih)))
+            ws.add_image(img)
+            n = idx + 1
+        except Exception:
+            pass
+    return math.ceil(n / _PERROW) if n else 0

@@ -319,3 +319,60 @@ def test_calls_are_throttled_per_provider():
     [t.join() for t in ts]
     assert peak <= providers.MAX_INFLIGHT
     assert providers._limiter("prov-a") is not providers._limiter("prov-b")
+
+
+# ---- partial export --------------------------------------------------------
+def _runs(n):
+    return [base(case_id=f"C{i}", score=i) for i in range(1, n + 1)]
+
+
+def test_export_defaults_to_everything():
+    import exporter as e
+    assert len(e.select_runs(_runs(6))) == 6
+
+
+def test_export_range_is_inclusive():
+    import exporter as e
+    got = [r["case_id"] for r in e.select_runs(_runs(6), first=3, last=5)]
+    assert got == ["C3", "C4", "C5"]
+
+
+def test_export_open_ended_ranges():
+    import exporter as e
+    assert [r["case_id"] for r in e.select_runs(_runs(6), first=5)] == ["C5", "C6"]
+    assert [r["case_id"] for r in e.select_runs(_runs(6), last=2)] == ["C1", "C2"]
+
+
+def test_export_by_explicit_case_ids():
+    import exporter as e
+    got = [r["case_id"] for r in e.select_runs(_runs(6), cases=["c2", "C5"])]
+    assert got == ["C2", "C5"]
+
+
+def test_a_multi_engine_case_is_one_number_and_travels_together():
+    """Case numbering must match the sheet's '#', where one case is one row
+    however many engines ran it — and selecting it must take all its runs."""
+    import exporter as e
+    runs = [base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6"),
+            base(case_id="C2", engine="gpt-5.5")]
+    groups = e.group_cases(runs)
+    assert [(g["number"], g["cid"], len(g["records"])) for g in groups] == [
+        (1, "C1", 2), (2, "C2", 1)]
+    assert len(e.select_runs(runs, first=1, last=1)) == 2
+
+
+def test_partial_export_builds_a_valid_workbook():
+    import exporter as e
+    sel = e.select_runs(_runs(6), first=3, last=4)
+    ws = openpyxl.load_workbook(_io.BytesIO(e.build_workbook(sel)))["VERITAS analyses"]
+    assert [ws.cell(r, 2).value for r in (3, 4)] == ["C3", "C4"]
+    assert ws.cell(5, 2).value in (None, "")        # nothing beyond the range
+    assert [ws.cell(r, 1).value for r in (3, 4)] == [1, 2]   # renumbered from 1
+
+
+def test_export_filename_describes_the_selection():
+    import app as a
+    assert a._export_name(None, None, []) == "VERITAS_analyses.xlsx"
+    assert a._export_name(15, 30, []) == "VERITAS_analyses_15-30.xlsx"
+    assert a._export_name(15, None, []) == "VERITAS_analyses_from_15.xlsx"
+    assert a._export_name(None, None, ["a", "b"]) == "VERITAS_analyses_2_cases.xlsx"

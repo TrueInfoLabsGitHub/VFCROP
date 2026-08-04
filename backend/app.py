@@ -386,15 +386,39 @@ def export_save(req: ExportSaveReq):
     return {"ok": True, "id": rec["id"], "count": supa.runs_count()}
 
 
+def _export_name(first, last, ids):
+    """Name the file after what is in it, so partial downloads do not all land
+    in the downloads folder as VERITAS_analyses(3).xlsx."""
+    if ids:
+        return f"VERITAS_analyses_{len(ids)}_cases.xlsx"
+    if first is not None and last is not None:
+        return f"VERITAS_analyses_{first}-{last}.xlsx"
+    if first is not None:
+        return f"VERITAS_analyses_from_{first}.xlsx"
+    if last is not None:
+        return f"VERITAS_analyses_to_{last}.xlsx"
+    return "VERITAS_analyses.xlsx"
+
+
 @app.get("/api/export.xlsx")
-def export_xlsx():
+def export_xlsx(first: int | None = None, last: int | None = None,
+               cases: str | None = None):
+    """Download the workbook, optionally limited to a slice of the history.
+
+    first/last are inclusive case numbers matching the '#' column on the sheet;
+    `cases` is a comma-separated list of case ids and takes precedence. With no
+    parameters the whole history is exported, as before."""
     if not supa.available():
         raise HTTPException(503, "Supabase not configured")
-    data = exporter.build_workbook(supa.list_runs())
+    ids = [c for c in (cases or "").split(",") if c.strip()]
+    runs = exporter.select_runs(supa.list_runs(), first=first, last=last, cases=ids)
+    if not runs:
+        raise HTTPException(404, "no saved runs match that selection")
+    data = exporter.build_workbook(runs)
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="VERITAS_analyses.xlsx"'},
+        headers={"Content-Disposition": f'attachment; filename="{_export_name(first, last, ids)}"'},
     )
 
 
