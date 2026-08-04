@@ -76,6 +76,24 @@ def _wb(runs):
     return openpyxl.load_workbook(_io.BytesIO(exporter.build_workbook(runs)))
 
 
+# Column positions shift whenever a metric is added or removed, so locate them by
+# header instead of by index — a test that hardcodes "column 14" breaks for a
+# reason that has nothing to do with what it is testing.
+def col_of(ws, header, block=0):
+    """1-based column of `header` inside engine block `block` (0 = first)."""
+    hits = [c for c in range(1, ws.max_column + 1) if ws.cell(2, c).value == header]
+    return hits[block]
+
+
+def engine_label(ws, block=0):
+    """The engine name in the merged header above a block."""
+    return ws.cell(1, col_of(ws, "Verdict", block)).value
+
+
+def verdict_at(ws, row, block=0):
+    return ws.cell(row, col_of(ws, "Verdict", block)).value
+
+
 def base(**over):
     r = {"case_id": "C1", "brand": "TNF", "engine": "gpt-5.5", "product": "Nuptse",
          "verdict": "Inconclusive", "score": 48, "band": "caution", "assessed": 1,
@@ -95,8 +113,8 @@ FAILED = base(engine="Kimi K2.6", verdict="Run Failed", score=None, band="error"
 
 def test_export_shows_the_failure_and_its_reason():
     ws = _wb([base(), FAILED])["VERITAS analyses"]
-    assert ws.cell(3, 11).value == "Inconclusive"                    # engine 1
-    assert ws.cell(3, 11 + 16).value == "Run Failed — engine exceeded the time budget"
+    assert verdict_at(ws, 3, 0) == "Inconclusive"
+    assert verdict_at(ws, 3, 1) == "Run Failed — engine exceeded the time budget"
 
 
 def test_failed_engine_shares_the_row_with_the_successful_one():
@@ -138,22 +156,22 @@ def test_an_unnamed_engine_block_is_labelled():
     data was there, off to the right, under a blank header — which reads as
     'nothing was saved'."""
     ws = _wb([base(engine="gpt-5.5"), base(case_id="C2", engine="")])["VERITAS analyses"]
-    assert ws.cell(1, 11).value == "GPT-5.5"          # canonicalised for display
-    assert ws.cell(1, 11 + 16).value == "(engine not recorded)"
+    assert engine_label(ws, 0) == "GPT-5.5"          # canonicalised for display
+    assert engine_label(ws, 1) == "(engine not recorded)"
 
 
 def test_a_case_not_run_on_an_engine_says_so():
     """Distinguishes 'never attempted' from 'ran and vanished'."""
     ws = _wb([base(engine="gpt-5.5"), base(case_id="C2", engine="Kimi K2.6")])["VERITAS analyses"]
-    assert ws.cell(3, 11).value == "Inconclusive"          # C1 on engine 1
-    assert ws.cell(3, 11 + 16).value == "not run"          # C1 never ran on engine 2
-    assert ws.cell(4, 11).value == "not run"               # C2 never ran on engine 1
-    assert ws.cell(4, 11 + 16).value == "Inconclusive"
+    assert verdict_at(ws, 3, 0) == "Inconclusive"          # C1 on engine 1
+    assert verdict_at(ws, 3, 1) == "not run"               # C1 never ran on engine 2
+    assert verdict_at(ws, 4, 0) == "not run"               # C2 never ran on engine 1
+    assert verdict_at(ws, 4, 1) == "Inconclusive"
 
 
 def test_failed_runs_are_not_relabelled_as_not_run():
     ws = _wb([base(engine="gpt-5.5"), FAILED])["VERITAS analyses"]
-    assert ws.cell(3, 11 + 16).value.startswith("Run Failed")
+    assert verdict_at(ws, 3, 1).startswith("Run Failed")
 
 
 # ---- one engine, one block -------------------------------------------------
@@ -166,16 +184,18 @@ def test_label_drift_collapses_into_a_single_block():
             base(case_id="C3", engine="GPT 5.5", score=20),
             base(case_id="C4", engine="openai", score=33)]
     ws = _wb(runs)["VERITAS analyses"]
-    assert ws.cell(1, 11).value == "GPT-5.5"
-    assert ws.cell(1, 27).value == "Score\nspread"          # no second engine block
-    assert [ws.cell(r, 12).value for r in range(3, 7)] == [48, 17, 20, 33]
+    assert engine_label(ws, 0) == "GPT-5.5"
+    assert len([c for c in range(1, ws.max_column + 1)
+                if ws.cell(2, c).value == "Verdict"]) == 1   # no second engine block
+    sc = col_of(ws, "Score", 0)
+    assert [ws.cell(r, sc).value for r in range(3, 7)] == [48, 17, 20, 33]
 
 
 def test_distinct_engines_still_get_their_own_block():
     runs = [base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")]
     ws = _wb(runs)["VERITAS analyses"]
-    assert ws.cell(1, 11).value == "GPT-5.5"
-    assert ws.cell(1, 27).value == "Kimi K2.6"
+    assert engine_label(ws, 0) == "GPT-5.5"
+    assert engine_label(ws, 1) == "Kimi K2.6"
 
 
 def test_engine_label_is_canonicalised_at_save_time():
@@ -245,8 +265,8 @@ def test_export_marks_a_failed_dimension_distinctly():
                          "Material": {"score": None, "finding": "AGENT FAILED",
                                       "status": "error"}})
     ws = _wb([r])["VERITAS analyses"]
-    assert ws.cell(3, 14).value == 20          # Logo
-    assert ws.cell(3, 18).value == "failed"    # Material
+    assert ws.cell(3, col_of(ws, "Logo")).value == 20
+    assert ws.cell(3, col_of(ws, "Material")).value == "failed"
 
 
 # ---- a rate limit late in the run must not erase the scores ----------------
@@ -376,3 +396,40 @@ def test_export_filename_describes_the_selection():
     assert a._export_name(15, 30, []) == "VERITAS_analyses_15-30.xlsx"
     assert a._export_name(15, None, []) == "VERITAS_analyses_from_15.xlsx"
     assert a._export_name(None, None, ["a", "b"]) == "VERITAS_analyses_2_cases.xlsx"
+
+
+# ---- the coverage column is gone -------------------------------------------
+def test_no_coverage_column_in_any_sheet():
+    """Removed on request: Score is the average of all five numbers, so a column
+    counting only the measured ones read as contradicting the divisor."""
+    wb = _wb([base()])
+    an = wb["VERITAS analyses"]
+    heads = {an.cell(2, c).value for c in range(1, an.max_column + 1)}
+    assert "Assessed" not in heads and "Measured" not in heads
+    mc_runs = [base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")]
+    mc = _wb(mc_runs)["Model comparison"]
+    mheads = {mc.cell(2, c).value for c in range(1, mc.max_column + 1)}
+    assert "Assessed" not in mheads and "Measured" not in mheads
+    sc = wb["Engine scorecard"]
+    sheads = {sc.cell(1, c).value for c in range(1, sc.max_column + 1)}
+    assert "Avg assessed" not in sheads and "Avg measured" not in sheads
+
+
+def test_engine_block_is_fifteen_columns():
+    ws = _wb([base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")])["VERITAS analyses"]
+    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 15
+
+
+def test_verdict_keeps_its_band_colour():
+    """The removal orphaned an amber-font line into the verdict/score branch,
+    which turned every verdict cell amber regardless of its band."""
+    for band, want in (("counterfeit", "C0392B"), ("authentic", "1E8A4C"), ("caution", "B07D0A")):
+        ws = _wb([base(band=band)])["VERITAS analyses"]
+        assert ws.cell(3, col_of(ws, "Verdict")).font.color.rgb.endswith(want), band
+
+
+def test_estimated_cells_still_italicise_after_the_shift():
+    r = base(dimensions={d: {"score": 40, "finding": "e", "status": "estimated"}
+                         for d in exporter.DIMS})
+    ws = _wb([r])["VERITAS analyses"]
+    assert all(ws.cell(3, col_of(ws, d)).font.i for d in exporter.DIMS)
