@@ -166,6 +166,27 @@ def _language_blocks(text):
     return [text[bounds[i]:bounds[i + 1]].strip() for i in range(len(marks))]
 
 
+# A component header on a fibre declaration: an upper-case word (or a couple of
+# them) followed by a colon. Generic on purpose. It began as a fixed list —
+# SHELL|LINING|FILLING|BODY|HOOD|TRIM|INSERT — and the first jacket the batch met
+# whose tag read "LINING: 100% POLYESTER / INSULATION: 100% POLYESTER" merged the
+# two into one component, summed 200%, and hard-failed as a counterfeit. The list
+# will always be missing the next word; the shape will not.
+#
+# The {3,} minimum keeps two-letter language markers (GB:, FR:) out of it — those
+# are handled by _language_blocks before this runs.
+_COMPONENT_HEADER = re.compile(r"(?=\b[A-Z][A-Z0-9 /&+-]{2,}\s*:)")
+
+
+def _split_components(block):
+    """Split one language's declaration into its declared components.
+
+    Falls back to the whole block when no header is present, which is the common
+    single-component case ("100% NYLON")."""
+    parts = [p for p in _COMPONENT_HEADER.split(block) if p.strip()]
+    return parts or [block]
+
+
 def check_fiber_content(raw):
     """Fibre declaration: percentages sum to 100, names are real, formatting is
     not run-together. Entirely offline and entirely deterministic."""
@@ -187,9 +208,7 @@ def check_fiber_content(raw):
     # wrongly is worse than one that never fires: it carries no model
     # uncertainty, so nothing downstream can moderate it.
     for block in _language_blocks(text):
-        components = re.split(
-            r"(?=(?:SHELL|LINING|FILLING|BODY|HOOD|TRIM|INSERT)\s*:)",
-            block, flags=re.I)
+        components = _split_components(block)
         if any(_PCT.findall(c) for c in components):
             break
     else:
@@ -373,21 +392,62 @@ def check_statutory_phrasing(care_text):
                     "No recognised statutory phrase appeared in the care text.")]
 
 
+# Garment sizes as care tags actually print them. A TNF tag sold in Canada or
+# the EU carries the size in two languages at once — S/P is Small/Petit, L/G is
+# Large/Grand, XL/TG is Extra Large/Très Grand — so a neck tag reading "M" and a
+# care tag reading "M/M" describe the same garment. Comparing the raw strings
+# calls that a mismatch.
+_SIZE_WORDS = {
+    "XSMALL": "XS", "EXTRASMALL": "XS", "XS": "XS", "TP": "XS",
+    "SMALL": "S", "S": "S", "P": "S", "PETIT": "S", "PETITE": "S",
+    "MEDIUM": "M", "M": "M", "MOYEN": "M",
+    "LARGE": "L", "L": "L", "G": "L", "GRAND": "L",
+    "XLARGE": "XL", "EXTRALARGE": "XL", "XL": "XL", "TG": "XL", "TRESGRAND": "XL",
+    "XXL": "XXL", "2XL": "XXL", "TTG": "XXL",
+    "XXXL": "XXXL", "3XL": "XXXL",
+}
+
+
+def _normalise_size(raw):
+    """'M' / 'M/M' / 'MEDIUM' / 'Moyen' -> 'M'. Unrecognised text is returned
+    stripped and upper-cased, so a genuine mismatch between two sizes we do not
+    recognise is still a mismatch."""
+    s = re.sub(r"[^A-Z0-9/]", "", str(raw or "").upper())
+    if not s:
+        return ""
+    parts = [p for p in s.split("/") if p]
+    mapped = {_SIZE_WORDS.get(p) for p in parts}
+    mapped.discard(None)
+    if len(mapped) == 1:                      # every half agrees, e.g. S/P -> S
+        return mapped.pop()
+    return s
+
+
 def check_cross_field(fields):
     """The cross-field join. Counterfeiters photograph one authentic label and
     reuse it across a run, so the fields stop agreeing with each other."""
     out = []
-    sizes = [str(v).strip().upper() for k, v in fields.items()
-             if k.startswith("size") and str(v or "").strip()]
-    if len(sizes) < 2:
+    raw_sizes = [str(v).strip().upper() for k, v in fields.items()
+                 if k.startswith("size") and str(v or "").strip()]
+    sizes = {_normalise_size(s) for s in raw_sizes}
+    if len(raw_sizes) < 2:
         out.append(_result("X1", "Size agrees across tags", UNKNOWN, STRONG,
                            "Fewer than two size-bearing tags were read."))
-    elif len(set(sizes)) == 1:
+    elif len(sizes) == 1:
         out.append(_result("X1", "Size agrees across tags", PASS, STRONG,
-                           f"Size '{sizes[0]}' is consistent across {len(sizes)} tags."))
+                           f"Size '{raw_sizes[0]}' is consistent across "
+                           f"{len(raw_sizes)} tags."))
     else:
-        out.append(_result("X1", "Size agrees across tags", FAIL, CRITICAL,
-                           f"Size differs across tags: {', '.join(sorted(set(sizes)))}."))
+        # STRONG, not CRITICAL. This check used to declare STRONG when it passed
+        # and CRITICAL when it failed — a severity that depends on the outcome,
+        # which meant one disagreement between two small pieces of OCR'd text
+        # ended the analysis at "Counterfeit — Label Validation Failed" with no
+        # model uncertainty anywhere in the chain. The other CRITICAL checks are
+        # arithmetic and vocabulary; this one rests on reading two tags
+        # correctly. It still counts strongly, and the Label rubric's L10 covers
+        # the same ground from the vision side.
+        out.append(_result("X1", "Size agrees across tags", FAIL, STRONG,
+                           f"Size differs across tags: {', '.join(sorted(set(raw_sizes)))}."))
 
     style = (fields.get("style_number") or "").strip()
     family = (fields.get("product_family") or "").strip()

@@ -133,9 +133,11 @@ def test_mangled_statutory_phrasing_fails():
 
 
 # ---- cross-field and batch -------------------------------------------------
-def test_size_mismatch_across_tags_is_a_hard_fail():
+def test_size_mismatch_across_tags_is_reported_as_strong():
+    """Was CRITICAL, and therefore terminal on its own. See
+    test_a_size_disagreement_is_strong_not_terminal for why it is not."""
     r = by_id(lr.check_cross_field({"size_neck": "M", "size_care": "L"}), "X1")
-    assert r["status"] == lr.FAIL and r["severity"] == lr.CRITICAL
+    assert r["status"] == lr.FAIL and r["severity"] == lr.STRONG
 
 
 def test_size_agreement_passes():
@@ -302,3 +304,61 @@ def test_a_genuine_misspelling_is_still_a_hard_fail():
         v = lr.validate({"fiber_content": text})
         assert v["hard_fail"], text
         assert "F2" in v["failed"]
+
+
+# ---- component headers -----------------------------------------------------
+def test_an_unlisted_component_header_does_not_merge_two_components():
+    """Found on a live jacket: 'LINING: 100% POLYESTER  INSULATION: 100%
+    POLYESTER'. INSULATION was not in the fixed header list, so the two merged
+    into one component, summed 200%, and hard-failed as a counterfeit. The list
+    will always be missing the next word; the shape will not."""
+    for text in ("LINING: 100% POLYESTER\nINSULATION: 100% POLYESTER",
+                 "SHELL: 100% NYLON POCKETING: 100% POLYESTER RIB: 95% COTTON 5% ELASTANE",
+                 "FACE: 100% POLYESTER BACKING: 100% POLYURETHANE",
+                 "SHELL: 100% NYLON FILLING: 90% DOWN 10% FEATHER"):
+        f1 = [c for c in lr.check_fiber_content(text) if c["id"] == "F1"][0]
+        assert f1["status"] == lr.PASS, f"{text} -> {f1['evidence']}"
+
+
+def test_a_component_that_really_is_short_still_fails():
+    f1 = [c for c in lr.check_fiber_content("SHELL: 60% NYLON") if c["id"] == "F1"][0]
+    assert f1["status"] == lr.FAIL
+
+
+def test_a_single_component_declaration_needs_no_header():
+    f1 = [c for c in lr.check_fiber_content("100% NYLON") if c["id"] == "F1"][0]
+    assert f1["status"] == lr.PASS
+
+
+# ---- bilingual sizes -------------------------------------------------------
+def test_a_bilingual_size_is_not_a_mismatch():
+    """A TNF tag sold in Canada or the EU prints the size in two languages at
+    once: S/P is Small/Petit, L/G is Large/Grand, XL/TG is Extra Large/Tres
+    Grand. A neck tag reading 'M' and a care tag reading 'M/M' describe the same
+    garment; comparing the raw strings called it a counterfeit."""
+    for neck, care in (("M", "M/M"), ("S", "S/P"), ("L", "L/G"), ("XL", "TG"),
+                       ("Medium", "M"), ("LARGE", "L/G")):
+        v = lr.validate({"size_neck": neck, "size_care": care})
+        x1 = [c for c in v["checks"] if c["id"] == "X1"][0]
+        assert x1["status"] == lr.PASS, f"{neck} vs {care}: {x1['evidence']}"
+
+
+def test_a_genuine_size_disagreement_is_still_reported():
+    for neck, care in (("M", "S/P"), ("L", "XS"), ("S", "XXL")):
+        x1 = [c for c in lr.validate({"size_neck": neck, "size_care": care})["checks"]
+              if c["id"] == "X1"][0]
+        assert x1["status"] == lr.FAIL, f"{neck} vs {care}"
+
+
+def test_a_size_disagreement_is_strong_not_terminal():
+    """This check declared STRONG when it passed and CRITICAL when it failed — a
+    severity that depended on the outcome. One disagreement between two small
+    pieces of OCR'd text ended the analysis at 'Counterfeit — Label Validation
+    Failed', with no model uncertainty anywhere in the chain to moderate it. The
+    other CRITICAL checks are arithmetic and vocabulary; this one rests on
+    reading two tags correctly."""
+    v = lr.validate({"size_neck": "M", "size_care": "S/P"})
+    assert "X1" in v["failed"]          # still reported
+    assert not v["hard_fail"]           # no longer terminal on its own
+    x1 = [c for c in v["checks"] if c["id"] == "X1"][0]
+    assert x1["severity"] == lr.STRONG
