@@ -112,9 +112,12 @@ FAILED = base(engine="Kimi K2.6", verdict="Run Failed", score=None, band="error"
 
 
 def test_export_shows_the_failure_and_its_reason():
+    """Verdict carries the ENUM ONLY so the column can be filtered and pivoted;
+    the explanation moved to Reason, where one long cell cannot stretch the row."""
     ws = _wb([base(), FAILED])["VERITAS analyses"]
     assert verdict_at(ws, 3, 0) == "Inconclusive"
-    assert verdict_at(ws, 3, 1) == "Run Failed — engine exceeded the time budget"
+    assert verdict_at(ws, 3, 1) == "Run Failed"
+    assert ws.cell(3, col_of(ws, "Reason", 1)).value == "engine exceeded the time budget"
 
 
 def test_failed_engine_shares_the_row_with_the_successful_one():
@@ -259,8 +262,8 @@ def test_the_other_dimensions_still_produce_a_verdict():
                               ok("Label", 20), failed],
         "upc_result": {"status": "not_provided"}, "pairing": {"status": "ok"},
         "label_id": {"validation": {"hard_fail": False}}})["composite"]
-    assert c["deviation"] == 20      # dimensions report deviation…
-    assert c["score"] == 80          # …the verdict reports authenticity
+    assert c["deviation"] == 20      # one scale end to end: 0 = matches
+    assert c["score"] == 20          # the composite is not converted anywhere
     assert c["coverage"]["assessed"] == 4
     assert c["coverage"]["errored"] == ["Material"]
     # Material failed, so it is applicable-but-unmeasured: the four that did
@@ -447,9 +450,9 @@ def test_coverage_is_blank_for_a_run_saved_before_it_existed():
     assert ws.cell(3, col_of(ws, "Coverage")).value in (None, "")
 
 
-def test_engine_block_is_twenty_columns():
+def test_engine_block_is_twenty_one_columns():
     ws = _wb([base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")])["VERITAS analyses"]
-    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 20
+    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 21
 
 
 def test_verdict_keeps_its_band_colour():
@@ -465,3 +468,114 @@ def test_estimated_cells_still_italicise_after_the_shift():
                          for d in exporter.DIMS})
     ws = _wb([r])["VERITAS analyses"]
     assert all(ws.cell(3, col_of(ws, d)).font.i for d in exporter.DIMS)
+
+
+# ---- the reporting layer must not lie about the scoring ---------------------
+def test_the_exported_score_is_the_stored_score():
+    """The Score cell is the composite the ladder actually produced. Nothing in
+    the reporting layer may transform it — a sheet whose number disagrees with
+    the methodology is worse than no number."""
+    for value in (0, 12, 15, 50, 85, 100):
+        ws = _wb([base(score=value)])["VERITAS analyses"]
+        assert ws.cell(3, col_of(ws, "Score")).value == value
+
+
+def test_verdict_is_an_enum_and_reason_carries_the_prose():
+    r = base(verdict="Insufficient Evidence", band="insufficient",
+             reason="only 31% of the label checks could be run (need 50%). "
+                    "Contributing: Label.", capped=True)
+    ws = _wb([r])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Verdict")).value == "Insufficient Evidence"
+    assert "31%" in ws.cell(3, col_of(ws, "Reason")).value
+    # Reason sits after Recapture at the end of the block, not beside Verdict
+    assert col_of(ws, "Reason") == col_of(ws, "Recapture") + 1
+
+
+def test_verdict_keeps_its_colour_after_the_split():
+    for band, want in (("counterfeit", "C0392B"), ("authentic", "1E8A4C")):
+        ws = _wb([base(band=band)])["VERITAS analyses"]
+        assert ws.cell(3, col_of(ws, "Verdict")).font.color.rgb.endswith(want), band
+
+
+def test_lane_is_never_blank_on_any_row():
+    """A blank lane falls out of every filter, so the case is never picked up —
+    which is its own silent escape path. Failures need it most."""
+    runs = [base(), FAILED,
+            base(case_id="C9", band="mismatch", verdict="Reference Mismatch", lane=""),
+            base(case_id="C8", band="insufficient", verdict="Insufficient Evidence", lane=None)]
+    ws = _wb(runs)["VERITAS analyses"]
+    lane_cols = [c for c in range(1, ws.max_column + 1) if ws.cell(2, c).value == "Lane"]
+    for row in range(3, ws.max_row + 1):
+        for c in lane_cols:
+            if ws.cell(row, col_of(ws, "Verdict", lane_cols.index(c))).value in (None, "", "not run"):
+                continue
+            assert ws.cell(row, c).value in ("CLEARED", "REVIEW", "REJECTED"),                 f"row {row} has lane {ws.cell(row, c).value!r}"
+
+
+def test_partial_is_visually_distinct_from_measured_and_estimated():
+    """PARTIAL is neither a measurement nor a guess: the class was never
+    detected, so the dimension scored on geometry alone. Styling used to key off
+    `status`, where PARTIAL reads 'scored' and rendered identically to a
+    measurement — so four black numbers sat next to 'Assessed 2/5'."""
+    r = base(dimensions={
+        "Logo": {"score": 10, "finding": "f", "status": "scored", "state": "measured"},
+        "Stitching": {"score": 20, "finding": "f", "status": "scored", "state": "partial"},
+        "Hardware": {"score": 30, "finding": "f", "status": "estimated", "state": "estimated"},
+        "Label": {"score": None, "finding": "f", "status": "", "state": "not_applicable"},
+        "Material": {"score": None, "finding": "f", "status": "abstain",
+                     "state": "not_assessable"},
+    })
+    ws = _wb([r])["VERITAS analyses"]
+    measured = ws.cell(3, col_of(ws, "Logo")).font
+    partial = ws.cell(3, col_of(ws, "Stitching")).font
+    estimated = ws.cell(3, col_of(ws, "Hardware")).font
+    assert not partial.i and partial.color.rgb.endswith("6B7280")   # grey, upright
+    assert estimated.i and estimated.color.rgb.endswith("B07D0A")   # amber, italic
+    assert str(getattr(measured.color, "rgb", "")) != "006B7280"
+    assert ws.cell(3, col_of(ws, "Label")).value == "n/app"
+    assert ws.cell(3, col_of(ws, "Material")).value == "n/a"
+
+
+def test_assessed_states_how_much_was_only_partial():
+    r = base(assessed=4, applicable=5, dimensions={
+        "Logo": {"score": 10, "status": "scored", "state": "measured", "finding": ""},
+        "Stitching": {"score": 20, "status": "scored", "state": "partial", "finding": ""},
+        "Hardware": {"score": 30, "status": "scored", "state": "partial", "finding": ""},
+        "Label": {"score": 0, "status": "scored", "state": "measured", "finding": ""},
+        "Material": {"score": 5, "status": "estimated", "state": "estimated", "finding": ""},
+    })
+    ws = _wb([r])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Assessed")).value == "4/5 · 2 partial"
+
+
+def test_recapture_is_populated_for_insufficient_evidence():
+    r = base(verdict="Insufficient Evidence", band="insufficient",
+             recapture=["Label: Interior care tag, flat and in focus — fibre content, "
+                        "RN number and style number legible"])
+    ws = _wb([r])["VERITAS analyses"]
+    assert "Interior care tag" in ws.cell(3, col_of(ws, "Recapture")).value
+
+
+def test_verifier_reports_agreement_and_the_independent_labels():
+    r = base(verifier="2/3", reviewer_labels=["Insufficient Evidence",
+                                              "Insufficient Evidence",
+                                              "Suspected Counterfeit"])
+    ws = _wb([r])["VERITAS analyses"]
+    v = ws.cell(3, col_of(ws, "Verifier")).value
+    assert v.startswith("2/3 · ")
+    assert v.count("Insufficient") == 2 and "Suspected CF" in v
+
+
+def test_a_reviewer_calling_counterfeit_forces_review_on_a_cleared_item():
+    """The pipeline and a reviewer disagreeing about whether an item is genuine
+    is exactly the case a person should look at."""
+    cleared = base(band="likely_authentic", verdict="Likely Authentic", lane="CLEARED",
+                   reviewer_labels=["Likely Authentic"] * 3)
+    ws = _wb([cleared])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Lane")).value == "CLEARED"
+
+    disputed = base(band="likely_authentic", verdict="Likely Authentic", lane="CLEARED",
+                    reviewer_labels=["Likely Authentic", "Likely Authentic",
+                                     "Suspected Counterfeit"])
+    ws = _wb([disputed])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Lane")).value == "REVIEW"

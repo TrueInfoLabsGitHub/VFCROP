@@ -4,11 +4,12 @@ Layer 1 (primitives -> one dimension score) lives in providers.py, next to the
 rubrics that produce the primitives. Everything from "five dimension results" to
 "a verdict, a lane and a shot list" lives here.
 
-Scale, internally, is DEVIATION: 0 = matches the verified-authentic reference,
-100 = clearly different. The API and the workbook report the inverse
-(AUTHENTICITY, 100 = matches) because that is the scale the product owner asked
-for; `to_authenticity()` is the single conversion point and the dimension cells
-are never converted at all.
+Scale is DEVIATION, everywhere, with no conversion anywhere: 0 = matches the
+verified-authentic reference, 100 = clearly different. Every primitive reports
+it this way, the roll-up `max(weighted_mean, 0.85 x worst)` is only a floor
+because higher means worse, the label critical floor is 85 and the counterfeit
+band is >= 61. The composite is reported on the same scale as the dimensions
+that produced it.
 
 The design principle, which every rule below serves: the system must clear an
 item on the PRESENCE of evidence, never on the ABSENCE of findings. A
@@ -406,10 +407,18 @@ def recapture_list(dims):
 
 
 def to_authenticity(deviation):
-    """The ONE conversion point. Internally everything is deviation (0 matches);
-    the reported verdict score is authenticity (100 matches). Dimension cells
-    are deliberately NOT converted — they keep the deviation logic they have
-    always had, so a high Logo number still means 'the logo is wrong'."""
+    """100 - deviation. Kept for callers that want the inverse for display, but
+    NOT used to produce the reported score.
+
+    The service reported the composite on this inverted scale for a while and it
+    was a mistake. Every primitive returns deviation; the roll-up
+    `max(weighted_mean, 0.85 x worst)` is only a floor if higher means worse;
+    the label critical floor is 85 and the counterfeit band is >= 61. Reporting
+    the composite the other way up meant 85 read as 'confirmed critical tell' in
+    the methodology and 'nearly genuine' in the workbook, on the same row.
+    Making the whole system consistent the other way would mean flipping five
+    dimension columns, both constants and the meaning of every stored number —
+    a large, error-prone change to gain a display preference."""
     return None if deviation is None else int(max(0, min(100, 100 - deviation)))
 
 
@@ -431,8 +440,11 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
             recapture=()):
         band = BAND_FOR_VERDICT[verdict]
         return {
+            # ONE scale, end to end: 0 = matches the reference, 100 = clearly
+            # different. `deviation` is an explicit alias of the same number so
+            # a reader never has to work out which way up a column is.
             "deviation": score,
-            "score": to_authenticity(score),
+            "score": score,
             "band": band,
             "verdict_label": verdict,
             "lane": LANE_FOR_BAND[band],

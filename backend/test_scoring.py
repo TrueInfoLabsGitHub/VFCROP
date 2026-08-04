@@ -196,23 +196,23 @@ def test_every_constant_lives_in_one_config_block():
 
 
 # ---- the ladder ------------------------------------------------------------
-@pytest.mark.parametrize("deviation,score,label", [
-    (0,   100, "Authentic"),            # every dimension identical to the reference
-    (5,    95, "Authentic"),
-    (6,    94, "Likely Authentic"),
-    (30,   70, "Likely Authentic"),
-    (31,   69, "Inconclusive"),
-    (60,   40, "Inconclusive"),
-    (61,   39, "Suspected Counterfeit"),
-    (84,   16, "Suspected Counterfeit"),
+@pytest.mark.parametrize("deviation,label", [
+    (0,  "Authentic"),                  # every dimension identical to the reference
+    (5,  "Authentic"),
+    (6,  "Likely Authentic"),
+    (30, "Likely Authentic"),
+    (31, "Inconclusive"),
+    (60, "Inconclusive"),
+    (61, "Suspected Counterfeit"),
+    (84, "Suspected Counterfeit"),
 ])
-def test_ladder_boundaries_at_full_coverage(deviation, score, label):
-    """Dimensions are fed DEVIATION; the verdict reads AUTHENTICITY. Every
-    dimension is MEASURED here, so the coverage gates are all satisfied and only
-    the bands decide."""
+def test_ladder_boundaries_at_full_coverage(deviation, label):
+    """ONE scale end to end: the composite is reported on the same deviation
+    scale as the dimensions that produced it. Every dimension is MEASURED here,
+    so the coverage gates are all satisfied and only the bands decide."""
     c = all_measured(deviation)
     assert c["deviation"] == deviation
-    assert c["score"] == score
+    assert c["score"] == deviation
     assert c["verdict_label"] == label
 
 
@@ -831,11 +831,22 @@ def test_dimensions_keep_the_deviation_scale():
     assert r["band"] == "authentic"             # low deviation reads as a match
 
 
-def test_the_reported_score_is_the_inverse_of_the_deviation():
+def test_the_composite_is_reported_on_the_dimensions_own_scale():
+    """No conversion anywhere. A composite of 85 means the same thing as a Label
+    of 85 — a confirmed critical tell — rather than the opposite."""
     for deviation in (0, 12, 37, 64, 91, 100):
         c = all_measured(deviation)
         assert c["deviation"] == deviation
-        assert c["score"] == 100 - deviation
+        assert c["score"] == deviation
+
+
+def test_the_label_critical_floor_reads_the_same_in_both_places():
+    """The regression this scale change exists to prevent: 85 must not mean
+    'confirmed critical tell' on the dimension and 'nearly genuine' on the
+    composite, on the same row of the same sheet."""
+    c = all_measured(85)
+    assert c["score"] == 85
+    assert c["band"] == "counterfeit"
 
 
 def test_every_band_has_a_verdict_label():

@@ -391,7 +391,11 @@ def _build_record(req: ExportSaveReq) -> dict:
         # 30% of the item and a 72 over 90% of it are not the same statement.
         "coverage": comp.get("coverage_pct"),
         "deviation": comp.get("deviation"),
-        "lane": comp.get("lane", "") or "",
+        # Every row must carry a lane, failures included. A blank lane falls out
+        # of every filter, so the case is never picked up by anyone — which is
+        # its own silent escape path. Run Failed routes to REVIEW.
+        "lane": (comp.get("lane") or scoring.LANE_FOR_BAND.get(
+            "error" if failed else comp.get("band", ""), "REVIEW")),
         "driver": comp.get("driver") or "",
         "recapture": comp.get("recapture") or [],
         # why a verdict was held back — the coverage column no longer shows it
@@ -408,7 +412,15 @@ def _build_record(req: ExportSaveReq) -> dict:
         "dimensions": dim_map,
         "upc": {"status": upc.get("status", ""), "extracted": upc.get("extracted", ""),
                 "expected": upc.get("expected", "")},
-        "verifier": "confirmed" if verd.get("verifier_confirmed") else "refuted",
+        # Stage 9. 'confirmed/refuted' was the vocabulary of the old prompt that
+        # told three reviewers to REFUTE the verdict — and they refuted 5 of 5,
+        # so the column carried no information. Reviewers now classify
+        # independently and the agreement is tallied in code, so the column
+        # records the tally AND what each reviewer actually said.
+        "verifier": verd.get("verifier_votes") or (
+            "confirmed" if verd.get("verifier_confirmed") else "refuted"),
+        "verifier_confirmed": bool(verd.get("verifier_confirmed")),
+        "reviewer_labels": verd.get("reviewer_labels") or [],
         "confidence": evals.get("confidence"),
         "tokens": tot.get("tokens"),
         "cost": tot.get("cost"),

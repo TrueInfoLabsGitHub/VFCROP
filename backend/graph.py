@@ -68,29 +68,24 @@ class RunState(TypedDict, total=False):
 
 
 def _band(score):
-    """AUTHENTICITY band for a reported score: 100 = matches the authentic
-    reference on every dimension, 0 = matches none of it. High is good.
+    """DEVIATION band for a score: 0 = matches the authentic reference on every
+    dimension, 100 = matches none of it. Low is good — the same direction as
+    every dimension, every primitive and every constant in the system.
 
-        100      Authentic
-        76-99    Likely Authentic
-        51-75    Inconclusive
-        26-50    Likely Counterfeit
-        0-25     Counterfeit
-
-    NOTE: this is now a DISPLAY helper only. Nothing derives a verdict from it —
-    the band comes from the decision ladder in scoring.decide(), which also
-    weighs coverage and evidence and can hold a low-deviation item at
-    Insufficient Evidence rather than clearing it on a number alone.
+    NOTE: this is a DISPLAY helper only. Nothing derives a verdict from it — the
+    band comes from the decision ladder in scoring.decide(), which also weighs
+    coverage and evidence and can hold a low-deviation item at Insufficient
+    Evidence rather than clearing it on a number alone.
     """
     if score is None:
         return "neutral"
-    if score >= 100:
+    if score <= scoring.BAND_AUTHENTIC:
         return "authentic"
-    if score >= 76:
+    if score <= scoring.BAND_LIKELY_AUTH:
         return "likely_authentic"
-    if score >= 51:
+    if score < scoring.BAND_COUNTERFEIT:
         return "caution"
-    if score >= 26:
+    if score < scoring.DISPOSITIVE_THRESHOLD:
         return "likely_counterfeit"
     return "counterfeit"
 

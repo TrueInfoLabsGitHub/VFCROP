@@ -815,7 +815,7 @@ function renderSingle(d){
       <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
     <div class="metrics">
-      <div class="metric"><div class="k">Authenticity</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
+      <div class="metric"><div class="k">Deviation</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
       <div class="metric" title="Share of the item's diagnostic weight that was actually measured. Coverage never travels apart from the score: 72 over 30% of the item and 72 over 90% are not the same statement."><div class="k">Coverage</div><div class="v">${covPct(c)}</div></div>
       <div class="metric"><div class="k">Lane</div><div class="v" style="font-size:21px">${c.lane||'—'}</div></div>
       <div class="metric"><div class="k">Confidence</div><div class="v">${conf}</div></div>
@@ -897,7 +897,7 @@ function renderCompare(data,provs){
   // be outvoted by two that could not.
   const cv=data.case_verdict||null;
   const metrics = primary ? `
-    <div class="metric"><div class="k">Authenticity</div><div class="v" style="color:${bandColor(primary.composite.band)}">${primary.composite.score==null?'—':primary.composite.score}</div></div>
+    <div class="metric"><div class="k">Deviation</div><div class="v" style="color:${bandColor(primary.composite.band)}">${primary.composite.score==null?'—':primary.composite.score}</div></div>
     <div class="metric"><div class="k">Coverage</div><div class="v">${covPct(primary.composite)}</div></div>
     <div class="metric"><div class="k">Case lane</div><div class="v" style="font-size:21px">${cv?cv.lane:'—'}</div></div>
     <div class="metric"><div class="k">Cheapest</div><div class="v" style="color:var(--green);font-size:18.5px">${cheapest?engineName(cheapest):'—'}</div></div>
@@ -1202,7 +1202,7 @@ function renderStoredCase(rec){
       <span class="badge b-gray" style="margin-left:8px;font-size:12.1px">saved run</span>
     </div>
     <div class="metrics">
-      <div class="metric"><div class="k">Authenticity</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
+      <div class="metric"><div class="k">Deviation</div><div class="v" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</div></div>
       <div class="metric" title="Share of the item's diagnostic weight that was actually measured. Coverage never travels apart from the score: 72 over 30% of the item and 72 over 90% are not the same statement."><div class="k">Coverage</div><div class="v">${covPct(c)}</div></div>
       <div class="metric"><div class="k">Lane</div><div class="v" style="font-size:21px">${c.lane||'—'}</div></div>
       <div class="metric"><div class="k">Confidence</div><div class="v">${conf}</div></div>

@@ -99,6 +99,52 @@ def _dim_status(dims, d):
     return (x or {}).get("status", "") if isinstance(x, dict) else ""
 
 
+def _dim_state(dims, d):
+
+    """The dimension's STATE, which is what the arithmetic actually reads.
+
+    Styling used to key off `status`, where a PARTIAL dimension reads 'scored'
+
+    and rendered identically to a measurement — so the sheet showed four black
+
+    numbers next to an 'Assessed 2/5' and the two contradicted each other. The
+
+    count was right; the styling was lying."""
+
+    x = dims.get(d)
+
+    if not isinstance(x, dict):
+
+        return ""
+
+    st = x.get("state")
+
+    if st:
+
+        return st
+
+    # Records saved before `state` existed: map what the old field can tell us.
+
+    return {"scored": scoring.DimState.MEASURED,
+
+            "estimated": scoring.DimState.ESTIMATED,
+
+            "abstain": scoring.DimState.NOT_ASSESSABLE,
+
+            "error": scoring.DimState.FAILED}.get(x.get("status"), "")
+
+
+# How each state renders. PARTIAL gets its own look because it is neither a
+# measurement nor a guess: the class was never detected, so the dimension scored
+# on geometry alone — the primitives a competent counterfeiter gets right.
+_STATE_FONT = {
+    scoring.DimState.MEASURED: None,                              # black, upright
+    scoring.DimState.PARTIAL: Font(color="6B7280"),               # grey, upright
+    scoring.DimState.ESTIMATED: Font(color="B07D0A", italic=True),  # amber, italic
+    scoring.DimState.NOT_APPLICABLE: Font(color="9AA0A6"),        # grey 'n/app'
+}
+
+
 
 
 
@@ -167,11 +213,17 @@ def _pct(v):
 
 def _assessed_cell(rec):
 
-    """n/m — measured of APPLICABLE dimensions. Out of applicable, not out of
+    """n/m measured of APPLICABLE dimensions, plus how many were only PARTIAL.
 
-    five: a T-shirt has four, and scoring it out of five guarantees it looks
+    Out of applicable, not out of five: a T-shirt has four, and scoring it out
 
-    under-assessed when it is fully assessed."""
+    of five guarantees it looks under-assessed when it is fully assessed.
+
+    The partial tally is what makes the number readable. '4/5' alone cannot tell
+
+    you how much of that four was class-gated forensic evidence and how much was
+
+    geometry that a camera angle moves as easily as authenticity does."""
 
     a, m = rec.get("assessed"), rec.get("applicable")
 
@@ -183,7 +235,119 @@ def _assessed_cell(rec):
 
         m = len(DIMS)
 
-    return f"{int(a)}/{int(m)}"
+    dims = rec.get("dimensions") or {}
+
+    partial = sum(1 for d in DIMS if _dim_state(dims, d) == scoring.DimState.PARTIAL)
+
+    cell = f"{int(a)}/{int(m)}"
+
+    return f"{cell} · {partial} partial" if partial else cell
+
+
+def _verdict_enum(rec):
+
+    """The canonical enum value for a stored run — nothing else in the cell.
+
+    Runs saved under earlier wording ('Insufficient Evidence — Recapture',
+
+    'Counterfeit', 'Likely Counterfeit') are normalised here rather than left to
+
+    leak into a column that is supposed to be filterable. The BAND is the stable
+
+    identifier across every version of this service; the wording is not."""
+
+    if rec.get("band") == "error":
+
+        return "Run Failed"
+
+    text = (rec.get("verdict") or "").strip()
+
+    if text in _VERDICT_ENUM:
+
+        return text
+
+    canon = _CANON_VERDICT.get(rec.get("band") or "")
+
+    return canon or text
+
+
+_VERDICT_ENUM = {
+    "Authentic", "Likely Authentic", "Inconclusive", "Inconclusive — Suspicious",
+    "Insufficient Evidence", "Suspected Counterfeit",
+    "Counterfeit — Label Validation Failed", "Reference Mismatch — Cannot Compare",
+    "Run Failed",
+}
+
+# band -> the one wording this column is allowed to print.
+_CANON_VERDICT = {v: k for k, v in scoring.BAND_FOR_VERDICT.items()}
+
+
+def _lane_cell(rec):
+
+    """Lane, never blank. A row with no lane falls out of every filter, so the
+
+    case is silently never picked up — including the failures, which are exactly
+
+    the ones a person needs to see."""
+
+    lane = (rec.get("lane") or "").strip()
+
+    if lane:
+
+        return lane
+
+    band = "error" if rec.get("band") == "error" else rec.get("band", "")
+
+    return scoring.LANE_FOR_BAND.get(band, "REVIEW")
+
+
+def _verifier_cell(rec):
+
+    """Stage 9: the agreement tally plus what each reviewer independently said.
+
+    'confirmed' / 'refuted' was the vocabulary of the prompt that told three
+
+    reviewers to REFUTE the verdict; they refuted 5 cases out of 5, so the
+
+    column carried no information at all."""
+
+    votes = str(rec.get("verifier") or "").strip()
+
+    labels = rec.get("reviewer_labels") or []
+
+    if labels:
+
+        short = ", ".join(_SHORT_LABEL.get(x, x) for x in labels)
+
+        return f"{votes} · {short}" if votes else short
+
+    return votes
+
+
+# Reviewer labels, shortened so three of them fit a column.
+_SHORT_LABEL = {
+    "Authentic": "Authentic", "Likely Authentic": "Likely auth.",
+    "Inconclusive": "Inconclusive", "Insufficient Evidence": "Insufficient",
+    "Suspected Counterfeit": "Suspected CF",
+    "Counterfeit — Label Validation Failed": "Counterfeit",
+}
+
+# A reviewer calling counterfeit while the pipeline cleared the item is a
+# disagreement that must reach a person, whatever the pipeline concluded.
+_ADVERSE_REVIEW = ("Suspected Counterfeit", "Counterfeit — Label Validation Failed")
+
+
+def _lane_with_review_override(rec):
+    """CLEARED becomes REVIEW when any independent reviewer called counterfeit.
+
+    The pipeline and a reviewer disagreeing about whether an item is genuine is
+    precisely the case a human should look at — and clearing it anyway is the
+    one outcome from which there is no recovery."""
+    lane = _lane_cell(rec)
+    if lane == "CLEARED" and any(x in _ADVERSE_REVIEW
+                                 for x in (rec.get("reviewer_labels") or [])):
+        return "REVIEW"
+    return lane
 
 
 
@@ -495,11 +659,21 @@ def _build_analyses_sheet(ws, runs):
 
     # floor when the floor beat the mean.
 
+    # Verdict carries the ENUM VALUE ONLY. It used to carry the verdict and the
+
+    # whole reasoning paragraph, which blew up the row height, truncated
+
+    # mid-sentence, and made the column impossible to filter or pivot on. The
+
+    # prose lives in Reason, at the far end of the block, where one long cell
+
+    # cannot stretch the row it sits in.
+
     metrics = (["Verdict", "Score", "Coverage", "Assessed", "Lane", "Driver"] + DIMS
 
-               + ["Verifier", "Cost ($)", "Latency (s)", "Recapture"]
+               + ["Verifier", "Cost ($)", "Latency (s)", "Recapture", "Reason"]
 
-               + [f"{d} finding" for d in DIMS])            # 21 columns per engine
+               + [f"{d} finding" for d in DIMS])            # 22 columns per engine
 
     _DIM0 = metrics.index(DIMS[0])                          # first dimension column
 
@@ -561,9 +735,13 @@ def _build_analyses_sheet(ws, runs):
 
                 w = 46
 
-            elif m == "Recapture":
+            elif m in ("Recapture", "Reason"):
 
-                w = 40
+                w = 44
+
+            elif m == "Verifier":
+
+                w = 30
 
             elif m in ("Cost ($)", "Latency (s)", "Coverage", "Assessed", "Driver"):
 
@@ -695,13 +873,17 @@ def _build_analyses_sheet(ws, runs):
 
 
 
-                verdict_txt = rec.get("verdict", "")
+                # The enum value and nothing else — filterable, pivotable, one
 
-                if rec.get("band") == "error" and rec.get("error"):
+                # line tall. Everything explanatory goes to Reason.
 
-                    verdict_txt = f"Run Failed — {rec['error']}"
-                elif rec.get("capped") and rec.get("reason"):
-                    verdict_txt = f"{verdict_txt} — {rec['reason']}"
+                verdict_txt = _verdict_enum(rec)
+
+                reason_txt = rec.get("reason", "") or ""
+
+                if rec.get("band") == "error":
+
+                    reason_txt = rec.get("error") or reason_txt or "run failed"
 
                 recap = rec.get("recapture") or []
 
@@ -711,11 +893,11 @@ def _build_analyses_sheet(ws, runs):
 
                 vals = [verdict_txt, s, _pct(rec.get("coverage")), _assessed_cell(rec),
 
-                        rec.get("lane", ""), rec.get("driver", ""),
+                        _lane_with_review_override(rec), rec.get("driver", ""),
 
                         *[_dim_cell(dims, d) for d in DIMS],
 
-                        rec.get("verifier", ""), cost, lat, recap,
+                        _verifier_cell(rec), cost, lat, recap, reason_txt,
 
                         *[(dims.get(d) or {}).get("finding", "") for d in DIMS]]
 
@@ -733,16 +915,23 @@ def _build_analyses_sheet(ws, runs):
 
 
 
-                    # an ESTIMATED number is real output, not a measurement.
+                    # Style a dimension cell by its STATE, which is what the
 
-                    # Mark it without changing the value: it is DISPLAYED in the
+                    # arithmetic reads. An ESTIMATED number is real output but
 
-                    # sheet and EXCLUDED from the arithmetic.
+                    # not a measurement; a PARTIAL one is a measurement that
 
-                    if _DIM0 <= j < _DIM0 + len(DIMS) and \
-                            _dim_status(dims, DIMS[j - _DIM0]) == "estimated":
+                    # never saw its class-gated evidence. Three different things,
 
-                        cell.font = Font(color="B07D0A", italic=True)
+                    # three different looks.
+
+                    if _DIM0 <= j < _DIM0 + len(DIMS):
+
+                        f = _STATE_FONT.get(_dim_state(dims, DIMS[j - _DIM0]))
+
+                        if f is not None:
+
+                            cell.font = f
 
             else:
 
@@ -983,7 +1172,7 @@ def _build_comparison_sheet(wb, runs):
 
                          else rec.get("verdict", "")), sc,
 
-                        _pct(rec.get("coverage")), rec.get("lane", ""),
+                        _pct(rec.get("coverage")), _lane_with_review_override(rec),
 
                         *[_dim_cell(dims, d) for d in DIMS]]
 
@@ -999,12 +1188,15 @@ def _build_comparison_sheet(wb, runs):
 
 
 
-                    # an ESTIMATED number is displayed and never counted
+                    # same three-state styling as the main sheet
 
-                    if _DIM0 <= j < _DIM0 + len(DIMS) and \
-                            _dim_status(dims, DIMS[j - _DIM0]) == "estimated":
+                    if _DIM0 <= j < _DIM0 + len(DIMS):
 
-                        cell.font = Font(color="B07D0A", italic=True)
+                        f = _STATE_FONT.get(_dim_state(dims, DIMS[j - _DIM0]))
+
+                        if f is not None:
+
+                            cell.font = f
 
             col += len(metrics)
 
