@@ -245,3 +245,60 @@ def test_live_ftc_registry_lookup():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---- multilingual care labels ----------------------------------------------
+# Caught in a live batch: a European TNF tag repeats the same declaration in
+# several languages, the sum across all of them came to 800%, and F1 is CRITICAL
+# — so an ordinary label produced a terminal "Counterfeit — Label Validation
+# Failed". A deterministic check that fires wrongly is worse than one that never
+# fires: it carries no model uncertainty, so nothing downstream can moderate it.
+MULTILINGUAL = ("GB: 68% COTTON 32% POLYESTER FR: 68% COTON 32% POLYESTER "
+                "ES: 68% ALGODON 32% POLIESTER")
+
+
+def test_multilingual_declaration_is_not_a_false_hard_fail():
+    f1 = [c for c in lr.check_fiber_content(MULTILINGUAL) if c["id"] == "F1"][0]
+    assert f1["status"] == lr.PASS, f1["evidence"]
+    assert not lr.validate({"fiber_content": MULTILINGUAL})["hard_fail"]
+
+
+def test_a_wrong_sum_still_fails_in_every_language():
+    """The fix must not blind the check — one language block is validated, and a
+    declaration that is wrong in that block is still wrong."""
+    bad = "GB: 60% COTTON 30% POLYESTER FR: 60% COTON 30% POLYESTER"
+    f1 = [c for c in lr.check_fiber_content(bad) if c["id"] == "F1"][0]
+    assert f1["status"] == lr.FAIL
+
+
+def test_a_single_language_label_takes_the_same_path_as_before():
+    for text, want in (("100% NYLON", lr.PASS),
+                       ("SHELL: 100% NYLON FILLING: 90% DOWN 10% FEATHER", lr.PASS),
+                       ("60% COTTON 30% POLYESTER", lr.FAIL)):
+        f1 = [c for c in lr.check_fiber_content(text) if c["id"] == "F1"][0]
+        assert f1["status"] == want, text
+
+
+def test_language_blocks_only_split_when_there_are_markers():
+    assert lr._language_blocks("100% NYLON") == ["100% NYLON"]
+    assert len(lr._language_blocks(MULTILINGUAL)) == 3
+
+
+def test_foreign_fibre_names_are_not_misspellings():
+    """F2's near-miss detector read the French 'coton' and the Spanish
+    'poliester' as misspellings of the English words — they are ~0.9 similar —
+    and F2 is CRITICAL, so a correct multilingual tag hard-failed. They are real
+    fibre names; the vocabulary was wrong, not the label."""
+    for text in ("GB: 68% COTTON 32% POLYESTER FR: 68% COTON 32% POLYESTER",
+                 "DE: 100% BAUMWOLLE IT: 100% COTONE",
+                 "GB: 90% DOWN 10% FEATHER FR: 90% DUVET 10% PLUME"):
+        v = lr.validate({"fiber_content": text})
+        assert not v["hard_fail"], f"{text} -> {v['summary']}"
+
+
+def test_a_genuine_misspelling_is_still_a_hard_fail():
+    """The vocabulary fix must not blind the check that catches the real tell."""
+    for text in ("100% COTTONN", "100% NYLONN LAMINATED", "100% POLYESTERR"):
+        v = lr.validate({"fiber_content": text})
+        assert v["hard_fail"], text
+        assert "F2" in v["failed"]

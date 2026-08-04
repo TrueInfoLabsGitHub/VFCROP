@@ -58,7 +58,33 @@ _NATURAL = {
     "down", "feather", "feathers", "leather", "suede", "bamboo", "viscose", "modal",
     "lycra", "elastane",           # trade names seen in EU-market declarations
 }
-VALID_FIBRES = _MANUFACTURED | _NATURAL
+# The same fibres in the languages a European care tag actually prints them in.
+# Without these, F2's near-miss detector reads the French 'coton' and the
+# Spanish 'poliester' as MISSPELLINGS of the English words — they are 0.9
+# similar — and F2 is CRITICAL, so a correct multilingual tag hard-failed as a
+# counterfeit. They are real fibre names; the vocabulary was the thing that was
+# wrong, not the label.
+_FOREIGN = {
+    # cotton
+    "coton", "baumwolle", "algodon", "algodón", "cotone", "katoen", "bomull",
+    "bavlna", "pamut", "algodao", "algodão", "puuvilla",
+    # polyester / polyamide
+    "poliester", "poliéster", "polyester", "poliestere", "poliamida", "polyamid",
+    "poliammide", "polyamide", "poliamide", "nailon", "naylon",
+    # wool / silk / linen
+    "laine", "wolle", "lana", "ull", "vlna", "gyapju", "gyapjú", "villa",
+    "soie", "seide", "seda", "seta", "zijde", "silke",
+    "lin", "leinen", "lino", "linnen", "pellava",
+    # elastane / acrylic / viscose
+    "elasthanne", "elastan", "elastano", "elastam",
+    "acrylique", "acryl", "acrilico", "acrílico", "akryl",
+    "viscosa", "viskose", "viscose", "viskoosi",
+    # down / feather
+    "duvet", "daunen", "plumon", "plumón", "piumino", "dun", "dun",
+    "plume", "feder", "pluma", "piuma",
+}
+
+VALID_FIBRES = _MANUFACTURED | _NATURAL | _FOREIGN
 
 # Words that legitimately appear inside a fibre declaration and must not be
 # mistaken for a fibre name.
@@ -116,6 +142,29 @@ def _misspelling_of(token, vocabulary, cutoff=0.86):
 # ---------------------------------------------------------------------------
 _PCT = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
 
+# ISO-ish language markers as they appear on a European care tag, e.g.
+# "GB: 68% COTTON  FR: 68% COTON  DE: 68% BAUMWOLLE". Two-letter code, colon.
+_LANG_MARKER = re.compile(
+    r"\b(?:GB|UK|EN|FR|ES|DE|IT|NL|PT|PL|SE|SV|NO|DK|FI|CZ|SK|HU|RO|GR|EL|TR|"
+    r"RU|JP|KR|CN|TW|US|CA|AT|CH|BE|IE)\s*:",
+    re.I)
+
+
+def _language_blocks(text):
+    """Split a multilingual declaration into per-language blocks.
+
+    Returns [text] when there are no language markers, so a normal single
+    language tag takes exactly the path it always did. The caller uses the FIRST
+    block that actually carries percentages: every language states the same
+    composition, so validating one is validating all of them, and summing across
+    them is arithmetic on six copies of the same garment.
+    """
+    marks = list(_LANG_MARKER.finditer(text))
+    if len(marks) < 2:
+        return [text]
+    bounds = [m.start() for m in marks] + [len(text)]
+    return [text[bounds[i]:bounds[i + 1]].strip() for i in range(len(marks))]
+
 
 def check_fiber_content(raw):
     """Fibre declaration: percentages sum to 100, names are real, formatting is
@@ -126,11 +175,25 @@ def check_fiber_content(raw):
         return [_result("F1", "Fibre percentages sum to 100", UNKNOWN, CRITICAL,
                         "No fibre content text was extracted.")]
 
-    # F1 — percentages sum to 100 per declared component. Labels often carry
-    # several components ("SHELL: 100% NYLON  FILLING: 90% DOWN 10% FEATHER"),
-    # so split on component headers before summing.
-    components = re.split(r"(?=(?:SHELL|LINING|FILLING|BODY|HOOD|TRIM|INSERT)\s*:)",
-                          text, flags=re.I)
+    # F1 — percentages sum to 100 per declared component. Split first on
+    # LANGUAGE, then on component headers.
+    #
+    # The language split is not cosmetic. A European TNF tag repeats the same
+    # declaration in six languages:
+    #   "GB: 68% COTTON 32% POLYESTER FR: 68% COTON 32% POLYESTER ES: ..."
+    # Summing across all of them gives 800%, and F1 is CRITICAL, so a perfectly
+    # ordinary multilingual label was returning a terminal
+    # "Counterfeit — Label Validation Failed". A deterministic check that fires
+    # wrongly is worse than one that never fires: it carries no model
+    # uncertainty, so nothing downstream can moderate it.
+    for block in _language_blocks(text):
+        components = re.split(
+            r"(?=(?:SHELL|LINING|FILLING|BODY|HOOD|TRIM|INSERT)\s*:)",
+            block, flags=re.I)
+        if any(_PCT.findall(c) for c in components):
+            break
+    else:
+        components = [text]
     sums, bad = [], []
     for comp in components:
         vals = [float(v) for v in _PCT.findall(comp)]
