@@ -161,11 +161,18 @@ def pairing_node(state: RunState) -> dict:
 
 
 def dimension_node(dim: str, state: RunState) -> dict:
-    # Suspect and reference are not the same product — every dimension score
-    # would be a comparison against the wrong thing. Abstain without spending a
-    # model call. ALWAYS_SCORE overrides this: if every cell must carry a number,
-    # the agents have to run so the number is the model's own estimate.
-    if not ALWAYS_SCORE and (state.get("pairing") or {}).get("status") == "mismatch":
+    # Suspect and reference are not the same product, so every dimension score
+    # would be a deviation measured against the wrong garment. Not unreliable —
+    # meaningless. Abstain without spending a model call.
+    #
+    # ALWAYS_SCORE used to override this, on the reasoning that every cell should
+    # carry a number. It produced rows reading "Reference Mismatch — Cannot
+    # Compare" beside five populated dimension scores: three mutually
+    # contradictory statements in one row, and someone will read the numbers.
+    # A filled cell is worth having when it is the model's honest impression of
+    # the right product; it is worth nothing when it is a measurement of a
+    # different one.
+    if (state.get("pairing") or {}).get("status") == "mismatch":
         return {"dimension_results": [{
             "dimension": dim, "score": None, "band": "neutral",
             "finding": "NOT SCORED — suspect and reference are different products.",

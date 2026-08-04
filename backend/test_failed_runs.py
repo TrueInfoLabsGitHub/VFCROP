@@ -190,8 +190,10 @@ def test_label_drift_collapses_into_a_single_block():
     assert engine_label(ws, 0) == "GPT-5.5"
     assert len([c for c in range(1, ws.max_column + 1)
                 if ws.cell(2, c).value == "Verdict"]) == 1   # no second engine block
-    sc = col_of(ws, "Score", 0)
-    assert [ws.cell(r, sc).value for r in range(3, 7)] == [48, 17, 20, 33]
+    sc = col_of(ws, "Deviation", 0)
+    # Deviation is a fused 'value @ coverage' cell; these runs carry no
+    # coverage, so it renders the bare number.
+    assert [ws.cell(r, sc).value for r in range(3, 7)] == ["48", "17", "20", "33"]
 
 
 def test_distinct_engines_still_get_their_own_block():
@@ -411,28 +413,21 @@ def test_export_filename_describes_the_selection():
 
 
 # ---- coverage travels with the score ---------------------------------------
-def test_coverage_sits_immediately_next_to_the_score():
-    """A score without its coverage is not a statement about the product: 72 over
-    30% of the item and 72 over 90% of it are different claims. The column is
-    adjacent so the reader cannot separate them by accident.
-
-    The 'Assessed' column is back, and now means something different from the
-    one that was removed: measured of APPLICABLE dimensions, not of five. A
-    T-shirt has four."""
+def test_the_column_order_puts_the_verdict_first_and_telemetry_last():
+    """Deviation is not the answer — in the current corpus every case exits at
+    the required-evidence gate before the composite is consulted. Beside Verdict
+    it competes for attention and gets read as the result, so it lives in the
+    telemetry block on the right."""
     wb = _wb([base()])
     an = wb["VERITAS analyses"]
-    assert col_of(an, "Coverage") == col_of(an, "Score") + 1
-    assert col_of(an, "Assessed") == col_of(an, "Score") + 2
-    for head in ("Lane", "Driver", "Recapture"):
-        assert col_of(an, head), f"{head} missing from the analyses sheet"
-
-    mc_runs = [base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")]
-    mc = _wb(mc_runs)["Model comparison"]
-    assert col_of(mc, "Coverage") == col_of(mc, "Score") + 1
-    # Stage 7: one verdict for the case, combined by rule across the engines.
-    # It spans both header rows, so it is found on row 1, not row 2.
-    assert any(mc.cell(1, c).value == "Case verdict"
-               for c in range(1, mc.max_column + 1))
+    order = ["Verdict", "Assessed", "Lane", "Driver", *exporter.DIMS,
+             "Recapture", "Reason", "Verifier", "Deviation", "Cost ($)", "Latency (s)"]
+    cols = [col_of(an, h) for h in order]
+    assert cols == sorted(cols), f"columns are out of order: {order}"
+    # the standalone Coverage column is gone — it is fused into Deviation
+    heads = {an.cell(2, c).value for c in range(1, an.max_column + 1)}
+    assert "Coverage" not in heads
+    assert "Score" not in heads
 
     sc = wb["Engine scorecard"]
     sheads = {sc.cell(1, c).value for c in range(1, sc.max_column + 1)}
@@ -440,19 +435,33 @@ def test_coverage_sits_immediately_next_to_the_score():
     assert {"% Cleared", "% Review", "% Rejected"} <= sheads
 
 
+def test_deviation_and_coverage_are_one_cell():
+    """A deviation of 15 over 20% of the item and one over 90% are different
+    claims. Splitting the pair across the sheet is what lets someone read one
+    without the other."""
+    ws = _wb([base(score=15, deviation=15, coverage=0.68)])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Deviation")).value == "15 @ 68%"
+
+
+def test_deviation_is_grey_and_only_the_verdict_is_coloured():
+    ws = _wb([base(band="counterfeit", score=70, deviation=70, coverage=0.8)])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Verdict")).font.color.rgb.endswith("C0392B")
+    assert str(ws.cell(3, col_of(ws, "Deviation")).font.color.rgb).endswith("6B7280")
+
+
 def test_the_assessed_column_is_out_of_applicable_not_out_of_five():
     ws = _wb([base(assessed=4, applicable=4)])["VERITAS analyses"]
-    assert ws.cell(3, col_of(ws, "Assessed")).value == "4/4"
+    assert ws.cell(3, col_of(ws, "Assessed")).value == "4/4 · 0 partial"
 
 
-def test_coverage_is_blank_for_a_run_saved_before_it_existed():
-    ws = _wb([base()])["VERITAS analyses"]          # base() carries no coverage
-    assert ws.cell(3, col_of(ws, "Coverage")).value in (None, "")
+def test_deviation_is_blank_for_a_run_saved_before_it_existed():
+    ws = _wb([base(score=None)])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Deviation")).value in (None, "")
 
 
-def test_engine_block_is_twenty_one_columns():
+def test_engine_block_is_twenty_columns():
     ws = _wb([base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")])["VERITAS analyses"]
-    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 21
+    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 20
 
 
 def test_verdict_keeps_its_band_colour():
@@ -471,13 +480,13 @@ def test_estimated_cells_still_italicise_after_the_shift():
 
 
 # ---- the reporting layer must not lie about the scoring ---------------------
-def test_the_exported_score_is_the_stored_score():
-    """The Score cell is the composite the ladder actually produced. Nothing in
-    the reporting layer may transform it — a sheet whose number disagrees with
-    the methodology is worse than no number."""
+def test_the_exported_deviation_is_the_stored_composite():
+    """The Deviation cell is the composite the ladder actually produced. Nothing
+    in the reporting layer may transform it — a sheet whose number disagrees
+    with the methodology is worse than no number at all."""
     for value in (0, 12, 15, 50, 85, 100):
-        ws = _wb([base(score=value)])["VERITAS analyses"]
-        assert ws.cell(3, col_of(ws, "Score")).value == value
+        ws = _wb([base(score=value, deviation=value, coverage=0.5)])["VERITAS analyses"]
+        assert ws.cell(3, col_of(ws, "Deviation")).value == f"{value} @ 50%"
 
 
 def test_verdict_is_an_enum_and_reason_carries_the_prose():
@@ -579,3 +588,68 @@ def test_a_reviewer_calling_counterfeit_forces_review_on_a_cleared_item():
                                      "Suspected Counterfeit"])
     ws = _wb([disputed])["VERITAS analyses"]
     assert ws.cell(3, col_of(ws, "Lane")).value == "REVIEW"
+
+
+# ---- Reference Mismatch is terminal ----------------------------------------
+def test_a_mismatch_row_shows_no_numbers_at_all():
+    """Rule 2 is terminal. If the suspect and the reference are different
+    products the comparison never validly happened, and those dimension numbers
+    are deviations measured against the wrong garment — not unreliable,
+    meaningless. A row reading 'Cannot Compare' beside five populated scores is
+    three contradictory statements at once, and the numbers are the part people
+    read."""
+    r = base(band="mismatch", verdict="Reference Mismatch — Cannot Compare",
+             score=None, deviation=None, assessed=3, applicable=5, coverage=0.0,
+             driver="Logo", verifier="1/3",
+             dimensions={d: {"score": 26, "finding": "f", "status": "estimated",
+                             "state": "estimated"} for d in exporter.DIMS})
+    ws = _wb([r])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Verdict")).value == "Reference Mismatch — Cannot Compare"
+    for head in ("Assessed", "Driver", "Deviation", "Verifier"):
+        assert ws.cell(3, col_of(ws, head)).value in (None, ""), head
+    for d in exporter.DIMS:
+        assert ws.cell(3, col_of(ws, d)).value in (None, ""), d
+    # ...but it still routes somewhere a person will see it
+    assert ws.cell(3, col_of(ws, "Lane")).value == "REVIEW"
+
+
+def test_a_mismatch_never_spends_a_model_call(monkeypatch):
+    """And the numbers are not merely hidden — they are never produced. This
+    also recovers the spend and the wall-clock that went into generating values
+    that were then discarded."""
+    import graph
+    import providers
+    called = []
+    monkeypatch.setattr(graph, "run_dimension_agent",
+                        lambda *a, **k: called.append(1) or ({}, {}))
+    monkeypatch.setattr(providers, "ALWAYS_SCORE", True)     # even with it ON
+    monkeypatch.setattr(graph, "ALWAYS_SCORE", True)
+    out = graph.dimension_node("Logo", {"pairing": {"status": "mismatch", "note": "n"},
+                                        "brand": "TNF", "case_id": "c"})
+    assert called == [], "a model call was spent comparing against the wrong product"
+    assert out["dimension_results"][0]["score"] is None
+
+
+def test_a_run_that_produced_no_verdict_has_a_blank_verifier():
+    """'refuted' on a Run Failed row is a reviewer's opinion of a verdict that
+    does not exist."""
+    ws = _wb([FAILED])["VERITAS analyses"]
+    assert ws.cell(3, col_of(ws, "Verifier")).value in (None, "")
+    assert ws.cell(3, col_of(ws, "Lane")).value == "REVIEW"
+
+
+def test_the_assessed_format_never_varies():
+    """A format that changes by row cannot be scanned down a column: '1/4' next
+    to '1/5 · 2 partial' reads as two different measurements."""
+    rows = [base(case_id="A", assessed=1, applicable=4),
+            base(case_id="B", assessed=4, applicable=5, dimensions={
+                "Logo": {"score": 1, "status": "scored", "state": "partial", "finding": ""},
+                "Stitching": {"score": 2, "status": "scored", "state": "partial", "finding": ""},
+                "Hardware": {"score": 3, "status": "scored", "state": "measured", "finding": ""},
+                "Label": {"score": 4, "status": "scored", "state": "measured", "finding": ""},
+                "Material": {"score": 5, "status": "estimated", "state": "estimated", "finding": ""}})]
+    ws = _wb(rows)["VERITAS analyses"]
+    c = col_of(ws, "Assessed")
+    vals = [ws.cell(r, c).value for r in (3, 4)]
+    assert vals == ["1/4 · 0 partial", "4/5 · 2 partial"]
+    assert all(" partial" in v for v in vals)

@@ -211,6 +211,52 @@ def _pct(v):
         return ""
 
 
+def _no_comparison(rec):
+
+    """Did this run produce a valid comparison at all?
+
+    A Reference Mismatch means the suspect and the reference are different
+
+    products, so nothing was ever measured against the right garment. A Run
+
+    Failed produced no verdict to describe. Both must show blanks rather than
+
+    numbers — a populated row beside 'Cannot Compare' is three contradictory
+
+    statements at once, and the numbers are the part people read."""
+
+    return rec.get("band") in ("mismatch", "error")
+
+
+def _deviation_cell(rec):
+
+    """The composite and the coverage it was computed over, in ONE cell.
+
+    '15 @ 68%'. They are one statement: 15 over 20% of the item and 15 over 90%
+
+    of it are different claims, and a reader who sees only the first number has
+
+    been told something the analysis did not support."""
+
+    if _no_comparison(rec):
+
+        return ""
+
+    dev = rec.get("deviation")
+
+    if dev is None:
+
+        dev = rec.get("score")
+
+    if not isinstance(dev, (int, float)):
+
+        return ""
+
+    cov = _pct(rec.get("coverage"))
+
+    return f"{int(round(dev))} @ {cov}" if cov else str(int(round(dev)))
+
+
 def _assessed_cell(rec):
 
     """n/m measured of APPLICABLE dimensions, plus how many were only PARTIAL.
@@ -224,6 +270,10 @@ def _assessed_cell(rec):
     you how much of that four was class-gated forensic evidence and how much was
 
     geometry that a camera angle moves as easily as authenticity does."""
+
+    if _no_comparison(rec):
+
+        return ""
 
     a, m = rec.get("assessed"), rec.get("applicable")
 
@@ -239,9 +289,13 @@ def _assessed_cell(rec):
 
     partial = sum(1 for d in DIMS if _dim_state(dims, d) == scoring.DimState.PARTIAL)
 
-    cell = f"{int(a)}/{int(m)}"
+    # Always state the partial count, zero included. A format that varies by row
 
-    return f"{cell} · {partial} partial" if partial else cell
+    # cannot be scanned down a column, and '1/4' next to '1/5 · 2 partial' reads
+
+    # as two different measurements rather than one with a zero in it.
+
+    return f"{int(a)}/{int(m)} · {partial} partial"
 
 
 def _verdict_enum(rec):
@@ -310,6 +364,13 @@ def _verifier_cell(rec):
     reviewers to REFUTE the verdict; they refuted 5 cases out of 5, so the
 
     column carried no information at all."""
+
+    # Nothing was verified because nothing was concluded. 'refuted' on a Run
+    # Failed row is a reviewer's opinion of a verdict that does not exist.
+
+    if _no_comparison(rec):
+
+        return ""
 
     votes = str(rec.get("verifier") or "").strip()
 
@@ -659,21 +720,28 @@ def _build_analyses_sheet(ws, runs):
 
     # floor when the floor beat the mean.
 
-    # Verdict carries the ENUM VALUE ONLY. It used to carry the verdict and the
+    # Column order is an argument about what the reader should look at.
+    #
+    # Verdict carries the ENUM VALUE ONLY — it used to carry the reasoning
+    # paragraph too, which blew up row height, truncated mid-sentence and made
+    # the column impossible to filter. The prose lives in Reason.
+    #
+    # Deviation sits in the telemetry block at the far right, not beside the
+    # verdict, because it is not the answer: in the current corpus every case
+    # exits at the required-evidence gate before the composite is consulted at
+    # all. Beside Verdict it competes for attention and gets read as the result.
+    # It is fused with its coverage in one cell ("15 @ 68%") — a deviation of 15
+    # over 20% of the item and one over 90% are different claims, and splitting
+    # the pair across the sheet is exactly what lets someone read one without
+    # the other. Assessed carries the how-much-did-we-look signal on the left.
 
-    # whole reasoning paragraph, which blew up the row height, truncated
+    metrics = (["Verdict", "Assessed", "Lane", "Driver"] + DIMS
 
-    # mid-sentence, and made the column impossible to filter or pivot on. The
+               + ["Recapture", "Reason", "Verifier", "Deviation",
 
-    # prose lives in Reason, at the far end of the block, where one long cell
+                  "Cost ($)", "Latency (s)"]
 
-    # cannot stretch the row it sits in.
-
-    metrics = (["Verdict", "Score", "Coverage", "Assessed", "Lane", "Driver"] + DIMS
-
-               + ["Verifier", "Cost ($)", "Latency (s)", "Recapture", "Reason"]
-
-               + [f"{d} finding" for d in DIMS])            # 22 columns per engine
+               + [f"{d} finding" for d in DIMS])            # 20 columns per engine
 
     _DIM0 = metrics.index(DIMS[0])                          # first dimension column
 
@@ -742,6 +810,14 @@ def _build_analyses_sheet(ws, runs):
             elif m == "Verifier":
 
                 w = 30
+
+            elif m == "Deviation":
+
+                w = 11
+
+            elif m == "Assessed":
+
+                w = 15
 
             elif m in ("Cost ($)", "Latency (s)", "Coverage", "Assessed", "Driver"):
 
@@ -891,15 +967,33 @@ def _build_analyses_sheet(ws, runs):
 
                     recap = "\n".join(str(x) for x in recap)
 
-                vals = [verdict_txt, s, _pct(rec.get("coverage")), _assessed_cell(rec),
+                # Rule 2 is terminal: on a Reference Mismatch the comparison
 
-                        _lane_with_review_override(rec), rec.get("driver", ""),
+                # never validly happened, so the dimension cells and the driver
 
-                        *[_dim_cell(dims, d) for d in DIMS],
+                # are blank rather than showing deviations measured against a
 
-                        _verifier_cell(rec), cost, lat, recap, reason_txt,
+                # different garment.
 
-                        *[(dims.get(d) or {}).get("finding", "") for d in DIMS]]
+                void = _no_comparison(rec)
+
+                dim_vals = ["" for _ in DIMS] if void else [_dim_cell(dims, d) for d in DIMS]
+
+                vals = [verdict_txt, _assessed_cell(rec),
+
+                        _lane_with_review_override(rec),
+
+                        "" if void else rec.get("driver", ""),
+
+                        *dim_vals,
+
+                        recap, reason_txt, _verifier_cell(rec),
+
+                        _deviation_cell(rec), cost, lat,
+
+                        *["" if void else (dims.get(d) or {}).get("finding", "")
+
+                          for d in DIMS]]
 
                 for j, v in enumerate(vals):
 
@@ -907,9 +1001,21 @@ def _build_analyses_sheet(ws, runs):
 
                     cell.alignment = top
 
-                    if j <= 1 and band in _BAND_FONT:        # colour verdict + score
+                    # Verdict alone carries the colour. Deviation is telemetry,
+
+                    # not the answer — colouring it invites a reader to treat
+
+                    # the number as the verdict, which is the habit this whole
+
+                    # layout is trying to break.
+
+                    if j == 0 and band in _BAND_FONT:
 
                         cell.font = Font(color=_BAND_FONT[band], bold=True)
+
+                    elif metrics[j] == "Deviation":
+
+                        cell.font = Font(color="6B7280")      # grey, understated
 
 
 
