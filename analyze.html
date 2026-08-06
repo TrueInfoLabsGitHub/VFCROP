@@ -311,10 +311,7 @@
           <div class="card pad" style="display:flex;flex-direction:column">
             <div class="sect-lbl">Engine</div>
             <div class="engine" id="engine">
-              <button class="eng" data-prov="openai"><i class="ti ti-sparkles"></i>OpenAI · GPT-5.5</button>
-              <button class="eng" data-prov="gemini"><i class="ti ti-diamond"></i>Gemini 3.1 Pro</button>
-              <button class="eng" data-prov="kimi"><i class="ti ti-bolt"></i>Kimi K2.6</button>
-              <button class="eng on" data-prov="all"><i class="ti ti-arrows-split-2"></i>Compare all</button>
+              <button class="eng on" data-prov="openai"><i class="ti ti-sparkles"></i>OpenAI · GPT-5.5</button>
             </div>
             <div class="lbl" style="margin:16px 0 8px">Readiness</div>
             <div class="ckl" id="checklist"></div>
@@ -425,7 +422,7 @@
 const API = (location.port === '8753') ? 'http://127.0.0.1:8000' : '';
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
-let suspectImgs=[], upcB64=null, provider='all', refSource='product';
+let suspectImgs=[], upcB64=null, provider='openai', refSource='product';
 let products=[], productId='', npImgs=[];
 let LIVE_PROVIDERS=[], MODE={}, activeEngine='all', lastReport=null, lastRuns=[], exportOn=false;
 let DASH=null, dashFilter='all';
@@ -447,10 +444,13 @@ function caseHeader(){ const cs=curCase();
     </div>`; }
 function updateCaseHeader(){ const el=$('#caseheader'); if(el) el.innerHTML=caseHeader(); }
 let caseId='', brand='TNF';
-const ENGINE_LABEL={openai:'GPT-5.5',gemini:'Gemini 3.1 Pro',kimi:'Kimi K2.6',all:'Compare all'};
-const ENGINE_COLOR={openai:'#1f2937',gemini:'#5b5bd6',kimi:'#0e9488'};
+// One engine since 2026-08-06. The retired labels stay in the map so a SAVED
+// run from Gemini or Kimi still renders with its own name in the dashboard and
+// the case detail — that history was really produced and must not be relabelled.
+const ENGINE_LABEL={openai:'GPT-5.5','Gemini 3.1 Pro':'Gemini 3.1 Pro','Kimi K2.6':'Kimi K2.6'};
+const ENGINE_COLOR={openai:'#1f2937','Gemini 3.1 Pro':'#5b5bd6','Kimi K2.6':'#0e9488'};
 const vinfo=b=>({authentic:{c:'b-green',l:'Match'},likely_authentic:{c:'b-green',l:'Close match'},caution:{c:'b-amber',l:'Review'},likely_counterfeit:{c:'b-amber',l:'Suspect'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'},hard_fail:{c:'b-red',l:'Hard fail'},error:{c:'b-gray',l:'Failed'}}[b]||{c:'b-gray',l:'N/A'});
-let findingLayout='radar', lastSingleData=null, cmpRes=null;
+let findingLayout='radar', lastSingleData=null;
 const engineName=p=>ENGINE_LABEL[p]||p;
 // DIMENSION bands: deviation, low = matches. The composite band comes from the
 // backend on the authenticity scale and uses the likely_* names below.
@@ -493,16 +493,15 @@ $('#sbback').onclick=()=>{ $('#sidebar').classList.remove('open'); $('#sbback').
 /* ---------- health / mode ---------- */
 fetch(API+'/api/health').then(r=>r.json()).then(h=>{
   MODE=h.mode||{};
-  LIVE_PROVIDERS=['openai','gemini','kimi'].filter(p=>MODE[p]==='live');
+  LIVE_PROVIDERS=MODE.openai==='live'?['openai']:[];
   const anyLive=LIVE_PROVIDERS.length>0;
   const pill=$('#modepill');
-  pill.textContent = anyLive ? ('Live · '+LIVE_PROVIDERS.map(engineName).join(', ')) : (MODE.allow_mock?'Mock mode':'No engines configured');
+  pill.textContent = anyLive ? ('Live · '+engineName('openai')) : (MODE.allow_mock?'Mock mode':'No engine configured');
   pill.className='badge '+(anyLive?'b-green':'b-amber');
-  [['openai',MODE.openai_model||'GPT-5.5'],['gemini',MODE.gemini_label||'Gemini 3.1 Pro'],['kimi',MODE.kimi_label||'Kimi K2.6']].forEach(([p,lbl])=>{
-    const b=$('.eng[data-prov="'+p+'"]'); if(!b) return; ENGINE_LABEL[p]=lbl;
-    b.lastChild.nodeValue=' '+lbl;
-    if(MODE[p]!=='live'){ b.disabled=true; b.insertAdjacentHTML('beforeend','<span class="tag">set key</span>'); }
-  });
+  ENGINE_LABEL.openai = MODE.openai_label || MODE.openai_model || 'GPT-5.5';
+  const eb=$('.eng[data-prov="openai"]');
+  if(eb){ eb.lastChild.nodeValue=' OpenAI · '+ENGINE_LABEL.openai;
+    if(MODE.openai!=='live'){ eb.disabled=true; eb.insertAdjacentHTML('beforeend','<span class="tag">set key</span>'); } }
   if(MODE.serpapi!=='live'){ const g=$('.eng[data-src="google"]'); if(g){ g.disabled=true; g.textContent='Google reverse (set key)'; } }
   renderModels();
 }).catch(()=>{ const pill=$('#modepill'); pill.textContent='backend offline'; pill.className='badge b-amber'; renderModels(); });
@@ -661,24 +660,14 @@ $('#run').onclick=async()=>{
   // not only with the save, which happens after scoring has already finished.
   const body={case_id:caseId,brand,reference_source:refSource,product_id:productId,product:refLabel(),suspect_images:suspectImgs,upc_image:upcB64};
   try{
-    if(provider==='all'){
-      const provs=(LIVE_PROVIDERS.length?LIVE_PROVIDERS:['openai']).slice();
-      const r=await fetch(API+'/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,providers:provs})});
-      if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);
-      stopProc(); renderCompare(data,provs);
-      const oksP=provs.filter(p=>data.results[p]&&data.results[p].ok);
-      // save every engine, failures included: a dropped failure is
-      // indistinguishable from an engine that was never run
-      setLastRuns(provs.map(p=>({data:data.results[p]||{ok:false,error:'no result returned'}, engine:engineName(p)})));
-      benchAppend(oksP.map(p=>benchRow(engineName(p),caseId,data.results[p])));
-    } else {
-      activeEngine=provider;
-      const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,provider})});
-      if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);
-      stopProc(); renderSingle(data); lastReport={engine:engineName(provider),reports:[{name:engineName(provider),color:ENGINE_COLOR[provider],report:data.report}]};
-      setLastRun(data, engineName(provider));
-      benchAppend([benchRow(engineName(provider),caseId,data)]);
-    }
+    // One engine, one path. The compare branch went with Gemini and Kimi.
+    activeEngine='openai';
+    const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,provider:'openai'})});
+    if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);
+    stopProc(); renderSingle(data);
+    lastReport={engine:engineName('openai'),reports:[{name:engineName('openai'),color:ENGINE_COLOR.openai,report:data.report}]};
+    setLastRun(data, engineName('openai'));
+    benchAppend([benchRow(engineName('openai'),caseId,data)]);
     $('#nav .nav-item[data-page="reports"]').classList.add('hasnew');
     $('#v-proc').classList.add('hidden'); $('#v-result').classList.remove('hidden');
   }catch(e){
@@ -686,7 +675,7 @@ $('#run').onclick=async()=>{
     $('#runerr').innerHTML=`<div class="errbox">Run failed — ${e.message}</div>`;
     // record the failure too, so the case does not silently vanish from the export
     try{ setLastRuns([{data:{ok:false,error:e.message,case_id:caseId,brand:brand},
-                       engine:engineName(provider==='all'?'openai':provider)}]); }catch(_){}
+                       engine:engineName('openai')}]); }catch(_){}
   }
 };
 function backToInput(){ $('#v-result').classList.add('hidden'); $('#v-proc').classList.add('hidden'); $('#v-input').classList.remove('hidden'); }
@@ -755,33 +744,6 @@ function radarLegend(dims){
     return `<div class="legrow" onclick="focusDim(${i})"><span class="legdot" style="background:${col}"></span><span class="legname">${x.dimension}</span><span class="legbar"><i style="width:${x.score==null?0:x.score}%;background:${col}"></i></span><span class="legscore" style="color:${col}">${x.score==null?'n/a':x.score}</span></div>`; }).join('');
 }
 // multi-engine radar: one polygon per engine, coloured by engine
-function radarOverlay(oks,res,dimNames){
-  const N=dimNames.length; if(!N) return '';
-  const cx=140,cy=125,R=95; const ang=i=>-Math.PI/2 + i*2*Math.PI/N; const pt=(i,r)=>[cx+r*Math.cos(ang(i)),cy+r*Math.sin(ang(i))];
-  let rings=''; [0.25,0.5,0.75,1].forEach(f=>{ const p=dimNames.map((_,i)=>pt(i,R*f).map(n=>n.toFixed(1)).join(',')).join(' ');
-    rings+=`<polygon points="${p}" style="fill:${f===1?'var(--chart-ring)':'none'};stroke:var(--chart-grid)" stroke-width="1"/>`; });
-  let spokes='',labels='';
-  dimNames.forEach((d,i)=>{ const [ex,ey]=pt(i,R); spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" style="stroke:var(--chart-grid)" stroke-width="1"/>`;
-    const [lx,ly]=pt(i,R+19),anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
-    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="14" font-weight="600" style="fill:var(--chart-label)">${d}</text>`; });
-  let series='';
-  oks.forEach(p=>{ const col=ENGINE_COLOR[p]||'#1f2937'; const dims=res[p].dimensions||[];
-    const poly=dimNames.map((dn,i)=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:0; return pt(i,R*sc/100).map(n=>n.toFixed(1)).join(','); }).join(' ');
-    series+=`<polygon points="${poly}" fill="${col}" fill-opacity=".15" stroke="${col}" stroke-width="3" stroke-linejoin="round"/>`;
-    dimNames.forEach((dn,i)=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:0; const [px,py]=pt(i,R*sc/100); series+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${col}"/>`; }); });
-  return `<svg width="460" height="345" viewBox="-30 0 340 255" role="img" aria-label="Engine divergence radar">${rings}${spokes}${series}${labels}</svg>`;
-}
-// engines x dimensions heatmap, risk-coloured
-function heatmapTable(oks,res,dimNames){
-  const tint={authentic:'var(--green-bg)',caution:'var(--amber-bg)',counterfeit:'var(--red-bg)'};
-  const head='<th></th>'+dimNames.map(d=>`<th style="font-weight:600;color:var(--sec);font-size:15px;padding:6px;text-align:center">${d}</th>`).join('');
-  const rows=oks.map(p=>{ const dims=res[p].dimensions||[];
-    const cells=dimNames.map(dn=>{ const dd=dims.find(x=>x.dimension===dn); const sc=dd?dd.score:null;
-      const bg=sc==null?'var(--panel)':tint[band(sc)]; const col=sc==null?'var(--mut)':bandColor(band(sc));
-      return `<td style="text-align:center;padding:15px 0;border-radius:7px;font-family:var(--mono);font-weight:700;font-size:19px;background:${bg};color:${col}">${sc==null?'—':sc}</td>`; }).join('');
-    return `<tr><td style="font-size:16.5px;font-weight:600;color:var(--ink);padding-right:8px;white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:8px"></span>${engineName(p)}</td>${cells}</tr>`; }).join('');
-  return `<table style="width:100%;border-collapse:separate;border-spacing:5px;font-size:16px"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
-}
 function compareStrip(d){
   const sus = suspectImgs.length ? suspectImgs.slice(0,3).map((b,i)=>`<div class="refc"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span></div>`).join('') : '<span class="muted" style="font-size:14.7px">No suspect photos.</span>';
   let refs=''; const fm=d&&d.fetched_meta, p=products.find(x=>x.id===productId);
@@ -883,84 +845,6 @@ function pipelineStrip(report){
 }
 
 /* ---------- render: compare ---------- */
-function renderCompare(data,provs){
-  const res=data.results||{};
-  const oks=provs.filter(p=>res[p]&&res[p].ok);
-  const primary=oks.length?res[oks[0]]:null;
-  const bands=oks.map(p=>res[p].composite.band);
-  const agree=bands.length && bands.every(b=>b===bands[0]);
-  const cheapest=oks.slice().sort((a,b)=>(res[a].report.totals.cost-res[b].report.totals.cost))[0];
-  const dimNames=['Logo','Stitching','Hardware','Label','Material'];
-  activeEngine=oks[0]||'all';
-  // Stage 7: the case verdict is combined BY RULE on the server and never by
-  // averaging the engines — one engine that actually resolved the tell must not
-  // be outvoted by two that could not.
-  const cv=data.case_verdict||null;
-  const metrics = primary ? `
-    <div class="metric"><div class="k">Deviation</div><div class="v" style="color:${bandColor(primary.composite.band)}">${primary.composite.score==null?'—':primary.composite.score}</div></div>
-    <div class="metric"><div class="k">Coverage</div><div class="v">${covPct(primary.composite)}</div></div>
-    <div class="metric"><div class="k">Case lane</div><div class="v" style="font-size:21px">${cv?cv.lane:'—'}</div></div>
-    <div class="metric"><div class="k">Cheapest</div><div class="v" style="color:var(--green);font-size:18.5px">${cheapest?engineName(cheapest):'—'}</div></div>
-    <div class="metric"><div class="k">Engines</div><div class="v">${provs.length}</div></div>` : '';
-  const engRows=provs.map(p=>{ const r=res[p];
-    const nm=`<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}`;
-    if(!r) return `<tr><td>${nm}</td><td colspan="9" class="muted" style="font-size:14.2px"><span class="spin"></span> running…</td></tr>`;
-    if(!r.ok) return `<tr><td>${nm}</td><td colspan="9" style="font-size:14.2px;color:var(--red-deep)">${(r.error||'error').slice(0,90)}</td></tr>`;
-    const c=r.composite,t=r.report.totals,ev=(r.report||{}).evals||{},isCheap=p===cheapest;
-    const cf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
-    return `<tr class="${isCheap?'hl':''}"><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:7px"></span>${engineName(p)}${isCheap?' <span class="badge b-green" style="font-size:12.3px;padding:1px 7px">cheapest</span>':''}</td>
-      <td><span class="badge ${badgeClass(c.band)}" style="font-size:13.5px">${verdictLabel(c.band,c.score)}</span></td>
-      <td class="num" style="color:${bandColor(c.band)}">${c.score==null?'—':c.score}</td>
-      <td class="num">${covPct(c)}</td>
-      <td class="num" style="font-size:13px">${c.lane||'—'}</td>
-      <td class="num">${(r.upc||{}).status||'—'}</td>
-      <td class="num" title="independent reviewers landing in the same class as the pipeline">${(r.verdict||{}).verifier_votes||'—'}</td>
-      <td class="num">${cf}</td>
-      <td class="num" ${isCheap?'style="color:var(--green)"':''}>$${(t.cost||0).toFixed(4)}</td>
-      <td class="num">${((t.wall_ms||0)/1000).toFixed(1)}s</td></tr>`; }).join('');
-  const legend=oks.map(p=>`<div class="legrow" style="grid-template-columns:12px 1fr;cursor:default"><span class="legdot" style="background:${ENGINE_COLOR[p]||'#1f2937'}"></span><span class="legname">${engineName(p)}</span></div>`).join('');
-  cmpRes=res;
-  const fEngTabs=oks.map((p,i)=>`<button class="ly${i===0?' on':''}" data-feng="${p}" onclick="setFindingEngine('${p}')"><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${ENGINE_COLOR[p]||'#1f2937'};margin-right:6px;vertical-align:middle"></span>${engineName(p)}</button>`).join('');
-  const forensic = oks.length ? `
-    <div class="row" style="justify-content:space-between;margin:0 0 12px;flex-wrap:wrap;gap:8px">
-      <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center">
-        <div class="sect-lbl" style="margin:0">Forensic finding</div>
-        <div class="lyswitch" id="fengswitch">${fEngTabs}</div>
-      </div>
-      <div class="lyswitch" id="lyswitch">
-        <button class="ly${findingLayout==='radar'?' on':''}" onclick="setLayout('radar')">Radar hero</button>
-        <button class="ly${findingLayout==='dossier'?' on':''}" onclick="setLayout('dossier')">Dossier</button>
-        <button class="ly${findingLayout==='table'?' on':''}" onclick="setLayout('table')">Data table</button>
-      </div>
-    </div>
-    <div id="findingbody"></div>` : '';
-  $('#v-result').innerHTML=`
-    <div class="rhead">
-      <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
-      <div><div style="font-size:19.7px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:14.7px">${refLabel()} · ${provs.length} engines · ${agree?'consensus':'split'}</div></div>
-      <span class="badge ${cv?badgeClass(cv.band):(primary?badgeClass(primary.composite.band):'b-gray')}" style="margin-left:auto" title="${cv?(cv.reason||'').replace(/"/g,'&quot;'):''}">${cv?cv.verdict_label:(primary?verdictLabel(primary.composite.band,primary.composite.score):'—')}${agree&&oks.length>1?' · '+oks.length+'/'+oks.length+' agree':''}</span>
-      <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
-    </div>
-    <div class="metrics">${metrics}</div>
-    <div class="sect-lbl">Model divergence</div>
-    <div class="card pad" style="margin-bottom:16px"><div class="radar-card">${oks.length?radarOverlay(oks,res,dimNames):'<div class="muted" style="font-size:16.1px">No engine completed.</div>'}<div class="radar-legend" style="min-width:150px;flex:0 0 auto">${legend}</div></div></div>
-    <div class="sect-lbl">Dimension scores by engine</div>
-    <div class="card pad" style="margin-bottom:16px;overflow-x:auto">${heatmapTable(oks,res,dimNames)}</div>
-    <div class="sect-lbl">Engine comparison</div>
-    <div class="tablewrap big" style="margin-bottom:16px;overflow-x:auto"><table><thead><tr><th>Engine</th><th>Verdict</th><th class="num">Score</th><th class="num">Cov</th><th class="num">Lane</th><th class="num">UPC</th><th class="num">Agree</th><th class="num">Conf</th><th class="num">Cost</th><th class="num">Latency</th></tr></thead><tbody>${engRows}</tbody></table></div>
-    ${forensic}
-    <div class="sect-lbl">Evidence comparison</div>
-    <div class="card pad">${compareStrip(primary||{})}</div>`;
-  if(oks.length){ lastSingleData=res[oks[0]]; renderFindingBody(res[oks[0]]); }
-  lastReport = oks.length ? {engine:'Compare ('+oks.map(engineName).join(', ')+')', reports: oks.map(p=>({name:engineName(p),color:ENGINE_COLOR[p],report:res[p].report}))} : null;
-}
-function setFindingEngine(p){
-  if(!cmpRes||!cmpRes[p]||!cmpRes[p].ok) return;
-  lastSingleData=cmpRes[p];
-  document.querySelectorAll('#fengswitch .ly').forEach(b=>b.classList.toggle('on', b.getAttribute('data-feng')===p));
-  renderFindingBody(cmpRes[p]);
-}
-
 /* ---------- comparison CSV log ---------- */
 const BENCH_KEY='veritas-bench-v2', DIM_ORDER=['Logo','Stitching','Hardware','Label','Material'];
 function benchLoad(){ try{ return JSON.parse(localStorage.getItem(BENCH_KEY)||'[]'); }catch(e){ return []; } }
@@ -1252,10 +1136,8 @@ function renderCases(){
 }
 renderCases();
 function renderModels(){
-  const PRICE={'GPT-5.5':[5,30],'GPT-5.2':[1.75,14],'Gemini 3.1 Pro':[2,12],'Gemini 3 Pro':[2,12],'Kimi K2.6':[0.66,3.41],'Kimi K2.7':[0.72,3.49]};
-  const rows=[['openai','OpenAI',MODE.openai_model,ENGINE_LABEL.openai,'Primary · vision'],
-    ['gemini','Gemini',MODE.gemini_model,ENGINE_LABEL.gemini,'Low-cost challenger'],
-    ['kimi','Kimi (Moonshot)',MODE.kimi_model,ENGINE_LABEL.kimi,'Reasoning challenger · slower']];
+  const PRICE={'GPT-5.5':[5,30],'GPT-5.2':[1.75,14]};
+  const rows=[['openai','OpenAI',MODE.openai_model,ENGINE_LABEL.openai,'Vision · verdict · review']];
   $('#modelsbody').innerHTML=rows.map(([p,name,mid,lbl,role])=>{ const live=MODE[p]==='live'; const pr=PRICE[lbl]||[null,null]; const col=ENGINE_COLOR[p]||'var(--accent)';
     return `<div class="mcard" style="border-left:3px solid ${col}">
       <div style="min-width:0">

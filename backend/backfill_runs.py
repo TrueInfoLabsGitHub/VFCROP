@@ -57,6 +57,7 @@ def needs_backfill(rec):
 def provider_for(engine_label):
     """Stored engine label -> provider key understood by the graph."""
     e = (engine_label or "").strip().lower()
+    # Retired engines: this maps EXISTING records, which still name them.
     if "gemini" in e:
         return "gemini"
     if "kimi" in e or "moonshot" in e:

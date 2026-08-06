@@ -208,8 +208,28 @@ def test_engine_label_is_canonicalised_at_save_time():
     client label cannot split the block."""
     assert app._canonical_engine("", {"provider": "openai"}) == "GPT-5.5"
     assert app._canonical_engine("  gpt-5.5 ", {}) == "GPT-5.5"
-    assert app._canonical_engine("gpt-5.5", {"provider": "gemini"}) == "Gemini 3.1 Pro"
     assert app._canonical_engine("", {}) == "(engine not recorded)"
+
+
+def test_a_retired_engine_label_still_resolves_to_itself():
+    """Gemini and Kimi were removed on 2026-08-06. Nothing runs on them, but
+    hundreds of saved runs carry those labels and they are real history. If the
+    canonicaliser relabelled them GPT-5.5 the export would merge three engines'
+    results into one column block and quietly misattribute every one of them."""
+    for label in ("Gemini 3.1 Pro", "Kimi K2.6", "kimi k2.6"):
+        got = app._canonical_engine(label, {})
+        assert got.lower() == label.lower(), got
+    # ...and a retired engine can never be produced by a NEW run, because the
+    # provider on the response is what a new run is canonicalised by
+    assert app._ENGINE_CANON == {"openai": "GPT-5.5"}
+
+
+def test_only_one_engine_can_be_requested():
+    assert app._PROVIDERS == ("openai",)
+    import providers
+    for asked in ("openai", "gemini", "kimi", "anything"):
+        cfg = providers._cfg(asked)
+        assert cfg is None or cfg["model"] == providers.OPENAI_MODEL, asked
 
 
 # ---- rate limits must not destroy a run ------------------------------------

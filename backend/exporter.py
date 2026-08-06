@@ -601,6 +601,11 @@ def _avg(xs, nd=1):
 
 
 # Engine families, matched loosely so historical label drift still collapses.
+#
+# Gemini and Kimi were removed from the service on 2026-08-06 and no new run can
+# produce them. Their families stay HERE because the export reads history: some
+# 180 saved runs carry those labels, and dropping the mapping would scatter them
+# into per-spelling column blocks or hide them altogether.
 
 # Records already saved under 'gpt-5.5' / 'GPT-5.5' / 'GPT 5.5' must land in ONE
 

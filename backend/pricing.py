@@ -6,6 +6,10 @@ model labels used by providers.py (the "(mock)" suffix is stripped before
 lookup so estimated mock costs match what a live run would cost).
 """
 
+# The Gemini and Kimi entries are retained deliberately. Those engines were
+# removed on 2026-08-06 and nothing calls them any more, but runs saved under
+# them are still in the store, and anything that re-prices a historical run
+# needs its rate to exist or the cost silently becomes zero.
 PRICING = {
     # label:            (input_per_1M, output_per_1M)
     "Gemini 3 Pro":     (2.00, 12.00),   # verified via OpenRouter

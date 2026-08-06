@@ -2,8 +2,8 @@
 
 POST /api/analyze runs the LangGraph orchestration and returns the structured
 dimension results, composite verdict, UPC result, and the per-run Run Report
-(token usage, cost per agent, eval signals). Mock mode runs with no API keys;
-set GEMINI_API_KEY / OPENAI_API_KEY to go live.
+(token usage, cost per agent, eval signals). Mock mode runs with no API key;
+set OPENAI_API_KEY to go live.
 
 Run:  uvicorn app:app --port 8000   (from the backend/ directory)
 """
@@ -32,18 +32,16 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
 GRAPH = build_graph()
 
 
-# In-memory async jobs. A full run (esp. Compare with the slow Kimi reasoning
-# model) can take minutes; holding one HTTP request open that long trips the
+# In-memory async jobs. A full run can take minutes — eleven vision calls, five
+# of them concurrent — and holding one HTTP request open that long trips the
 # platform's gateway timeout (→ 502). Instead we start the work in a background
 # thread, return a job id immediately, and let the UI poll for the result.
 _JOBS: dict = {}
 _JOBS_LOCK = threading.Lock()
 
-# Hard ceiling on one run's wall-clock, so a stuck/very-slow engine can't run
-# forever — the job returns whatever finished within the budget. Reasoning
-# models (Kimi K2.6) run a full parallel-dimension + verdict chain that can take
-# several minutes; the run is an async job the frontend polls, so this can be
-# generous without risking a gateway timeout. Raise on Railway if Kimi needs more.
+# Hard ceiling on one run's wall-clock, so a stuck engine can't run forever —
+# the job returns whatever finished within the budget. The run is an async job
+# the frontend polls, so this can be generous without risking a gateway timeout.
 RUN_DEADLINE = float(os.environ.get("RUN_DEADLINE", "420"))
 
 
@@ -73,13 +71,15 @@ def _start_job(fn):
     return {"job_id": jid}
 
 
-_PROVIDERS = ("openai", "gemini", "kimi")
+# One engine. Gemini and Kimi were removed on 2026-08-06; `provider` survives on
+# the request so existing clients keep working, and any value resolves to GPT-5.5.
+_PROVIDERS = ("openai",)
 
 
 class AnalyzeReq(BaseModel):
     case_id: str
     brand: str = "TNF"
-    provider: str = "openai"                  # "openai" (GPT-5.5) | "gemini" | "kimi" (via router)
+    provider: str = "openai"                  # GPT-5.5 — the only engine
     reference_source: str = "local"           # "local" (data/) | "google" | "product" (catalog)
     product_id: str | None = None             # selected catalog product (when reference_source=product)
     product: str = ""                        # product name — drives the per-product
@@ -91,9 +91,10 @@ class AnalyzeReq(BaseModel):
 
 
 class CompareReq(AnalyzeReq):
-    # Which engines to run side-by-side on the SAME inputs. They execute
-    # concurrently; each returns its own full result (or an error entry).
-    providers: list[str] = ["openai", "gemini", "kimi"]
+    # Kept so an older client calling /api/compare still gets a valid answer.
+    # With one engine there is nothing to compare: the endpoint runs GPT-5.5 once
+    # and returns it in the same envelope.
+    providers: list[str] = ["openai"]
 
 
 @app.get("/api/health")
@@ -157,11 +158,13 @@ def analyze(req: AnalyzeReq):
 
 @app.post("/api/compare")
 def compare(req: CompareReq):
-    """Start a side-by-side run of several engines on identical inputs. They run
-    concurrently in the background and each result is published as it completes,
-    so fast engines show immediately. Any engine still running when the deadline
-    hits is marked as timed out — the run always returns."""
-    provs = [p for p in req.providers if p in _PROVIDERS] or ["openai"]
+    """Retained for backward compatibility only.
+
+    This ran several engines side by side on identical inputs. With Gemini and
+    Kimi removed there is one engine, so it runs GPT-5.5 once and returns it in
+    the multi-engine envelope an older client expects. New clients should call
+    /api/analyze."""
+    provs = ["openai"]
 
     def run(p):
         try:
@@ -327,7 +330,12 @@ class ExportSaveReq(BaseModel):
 # single engine into two column blocks and leaves half the rows looking unsaved.
 # The provider on the response is authoritative; the client-supplied label is
 # only a fallback.
-_ENGINE_CANON = {"openai": "GPT-5.5", "gemini": "Gemini 3.1 Pro", "kimi": "Kimi K2.6"}
+_ENGINE_CANON = {"openai": "GPT-5.5"}
+
+# Engines that were retired on 2026-08-06. Nothing runs on them any more, but
+# runs saved under these labels are real history and must keep resolving to
+# themselves rather than being silently relabelled as GPT-5.5.
+_RETIRED_ENGINES = ("Gemini 3.1 Pro", "Kimi K2.6", "Gemini 3 Pro", "Kimi K2")
 
 
 def _canonical_engine(req_engine: str, data: dict) -> str:
@@ -335,8 +343,8 @@ def _canonical_engine(req_engine: str, data: dict) -> str:
     if prov in _ENGINE_CANON:
         return _ENGINE_CANON[prov]
     label = (req_engine or "").strip()
-    for canon in _ENGINE_CANON.values():          # tolerate case/spacing drift
-        if label.lower() == canon.lower():
+    for canon in list(_ENGINE_CANON.values()) + list(_RETIRED_ENGINES):
+        if label.lower() == canon.lower():        # tolerate case/spacing drift
             return canon
     return label or "(engine not recorded)"
 

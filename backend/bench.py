@@ -21,7 +21,7 @@ Dataset format — a JSONL file, one case per line:
 
 Run:
   cd backend
-  python bench.py --cases ../bench/cases.jsonl --providers openai,gemini,kimi
+  python bench.py --cases ../bench/cases.jsonl --providers openai
 --------------------------------------------------------------------------
 """
 import argparse
@@ -36,7 +36,7 @@ from graph import DIMENSIONS, WEIGHTS, _VERDICT_LABEL, _band
 from pricing import price_usage
 from providers import run_dimension_agent, run_upc_tool, run_verdict
 
-PROVIDERS = ("openai", "gemini", "kimi")
+PROVIDERS = ("openai",)          # Gemini and Kimi removed 2026-08-06
 
 
 def _b64(path, base):
@@ -106,7 +106,7 @@ def main():
     ap = argparse.ArgumentParser(description="VERITAS engine benchmark")
     ap.add_argument("--cases", required=True, help="path to cases .jsonl")
     ap.add_argument("--images-dir", default=None, help="base dir for image paths (default: cases file dir)")
-    ap.add_argument("--providers", default="openai,gemini,kimi")
+    ap.add_argument("--providers", default="openai")
     ap.add_argument("--baseline", default="openai", help="engine to measure agreement against")
     ap.add_argument("--out", default=None, help="output dir (default: alongside cases file)")
     args = ap.parse_args()

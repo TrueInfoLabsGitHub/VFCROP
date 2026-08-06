@@ -1,10 +1,10 @@
 """Model providers for the VERITAS analysis graph.
 
-Two real providers (Gemini for vision, OpenAI for the verdict tier) and a
-deterministic mock fallback so the whole pipeline runs end-to-end with NO API
-keys. Each call returns (result_dict, usage_dict) where usage carries the
-token counts that pricing.py turns into cost — that's what feeds the Run
-Report. Set GEMINI_API_KEY / OPENAI_API_KEY to flip a provider to live.
+One engine — OpenAI GPT-5.5 — plus a deterministic mock fallback so the whole
+pipeline runs end-to-end with NO API key. Each call returns
+(result_dict, usage_dict) where usage carries the token counts that pricing.py
+turns into cost; that is what feeds the Run Report. Set OPENAI_API_KEY to go
+live.
 """
 import base64
 import hashlib
@@ -27,53 +27,19 @@ from references import reference_path
 # Load backend/.env so keys set there take effect without exporting them.
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+# GPT-5.5 is the only engine. Gemini (via OpenRouter) and Kimi (via Moonshot)
+# were removed on 2026-08-06; the multi-engine plumbing they needed — provider
+# routing, per-engine labels, the compare endpoint — went with them.
+#
+# Runs already saved under those engines are untouched and still render in the
+# export. Removing them from the service means the service no longer CALLS them;
+# it does not mean deleting history that was really produced.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-pro-preview")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.5")
 
-# Friendly labels track the actual configured model (drives display + pricing).
-_GEMINI_LABELS = {
-    "gemini-3-pro-preview": "Gemini 3 Pro", "gemini-pro-latest": "Gemini 3 Pro",
-    "gemini-2.5-pro": "Gemini 2.5 Pro", "gemini-2.5-flash": "Gemini 2.5 Flash",
-    "gemini-flash-latest": "Gemini 2.5 Flash",
-}
+# Friendly label tracks the actual configured model (drives display + pricing).
 _OPENAI_LABELS = {"gpt-5.5": "GPT-5.5", "gpt-5.2": "GPT-5.2"}
-GEMINI_LABEL = _GEMINI_LABELS.get(GEMINI_MODEL, GEMINI_MODEL)
 OPENAI_LABEL = _OPENAI_LABELS.get(OPENAI_MODEL, OPENAI_MODEL)
-
-# Gemini is served through OpenRouter (OpenAI-compatible API) — no Google billing needed.
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
-OPENROUTER_MODEL = os.environ.get("GEMINI_OR_MODEL", "google/gemini-3.1-pro-preview")
-_OR_LABELS = {
-    "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
-    "google/gemini-3.1-pro-preview-customtools": "Gemini 3.1 Pro",
-    "google/gemini-2.5-pro": "Gemini 2.5 Pro",
-    "google/gemini-2.5-pro-preview": "Gemini 2.5 Pro",
-    "google/gemini-pro-latest": "Gemini Pro",
-}
-OPENROUTER_LABEL = _OR_LABELS.get(OPENROUTER_MODEL, "Gemini Pro")
-
-# Kimi (Moonshot) — a challenger engine on the same OpenAI-compatible interface.
-# Defaults to OpenRouter routing; set KIMI_BASE to hit the Moonshot API directly.
-# KIMI_API_KEY takes precedence; if unset we reuse OPENROUTER_API_KEY.
-KIMI_API_KEY = os.environ.get("KIMI_API_KEY", "").strip()
-KIMI_BASE = os.environ.get("KIMI_BASE", "https://openrouter.ai/api/v1").strip()
-KIMI_MODEL = os.environ.get("KIMI_MODEL", "moonshotai/kimi-k2.6")
-_KIMI_LABELS = {
-    # OpenRouter-style ids
-    "moonshotai/kimi-k2.6": "Kimi K2.6", "moonshotai/kimi-k2.7": "Kimi K2.7",
-    "moonshotai/kimi-k2.7-code": "Kimi K2.7", "moonshotai/kimi-k2.5": "Kimi K2.5",
-    "moonshotai/kimi-k2": "Kimi K2",
-    # Moonshot direct-API ids
-    "kimi-k2.6": "Kimi K2.6", "kimi-k2.5": "Kimi K2.5",
-    "kimi-k2.7": "Kimi K2.7", "kimi-k2.7-code": "Kimi K2.7",
-}
-KIMI_LABEL = _KIMI_LABELS.get(KIMI_MODEL, "Kimi")
-
-
-def _kimi_key():
-    return KIMI_API_KEY or OPENROUTER_API_KEY
 
 
 # Testing switch: when false (the default) a missing key or a failed live call
@@ -82,9 +48,9 @@ def _kimi_key():
 # Set ALLOW_MOCK=1 to restore the no-key demo fallback.
 ALLOW_MOCK = os.environ.get("ALLOW_MOCK", "0").strip().lower() in ("1", "true", "yes", "on")
 
-# Per-call HTTP timeout (seconds). Reasoning models (Kimi K2.6) can spend many
-# seconds thinking before the first token, especially under the concurrent load
-# of Compare mode (5 dimension agents x N engines). Keep this generous.
+# Per-call HTTP timeout (seconds). A vision call on six high-detail photographs
+# can spend a while before the first token, and the five dimension agents fan
+# out at once. Keep this generous.
 CHAT_TIMEOUT = float(os.environ.get("CHAT_TIMEOUT", "240"))
 
 # Retry policy for rate limits and transient upstream errors. The dimension
@@ -95,11 +61,11 @@ RETRY_ATTEMPTS = max(1, int(os.environ.get("RETRY_ATTEMPTS", "4")))
 RETRY_BASE_DELAY = float(os.environ.get("RETRY_BASE_DELAY", "2"))
 RETRY_MAX_DELAY = float(os.environ.get("RETRY_MAX_DELAY", "30"))
 
-# Cap concurrent in-flight calls PER PROVIDER. Five dimension agents fan out at
-# once, and Compare multiplies that by the number of engines — a burst large
-# enough to trip a provider's per-minute request/token limit before any retry
-# logic gets a chance. Throttling at the source prevents the 429 rather than
-# recovering from it. Per provider, so a slow engine never blocks a fast one.
+# Cap concurrent in-flight calls. Five dimension agents fan out at once, plus
+# the label and barcode readers — a burst large enough to trip the per-minute
+# request/token limit before any retry logic gets a chance. Throttling at the
+# source prevents the 429 rather than recovering from it. Keyed by endpoint,
+# which is now always the one.
 MAX_INFLIGHT = max(1, int(os.environ.get("MAX_INFLIGHT_PER_PROVIDER", "3")))
 _inflight_sems = {}
 _inflight_lock = threading.Lock()
@@ -112,9 +78,6 @@ def _limiter(base):
             sem = threading.Semaphore(MAX_INFLIGHT)
             _inflight_sems[base] = sem
         return sem
-
-# Which provider runs the vision (dimension) agents by default: "openai" or "gemini".
-VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "openai").strip().lower()
 
 # A dimension scored below this self-reported confidence is treated as a guess
 # and abstained rather than folded into the composite. Models hedge with a
@@ -166,45 +129,19 @@ _APPLICABILITY_NOTE = (
 VERIFY_VOTES = max(1, int(os.environ.get("VERIFY_VOTES", "3")))
 
 
-def _cfg(provider):
-    """Resolve a request's provider ('openai' | 'gemini') to an OpenAI-compatible
-    chat endpoint. 'gemini' is routed through OpenRouter. Returns None if the
-    selected provider has no key (caller then falls back to mock)."""
-    if provider == "gemini":
-        if not OPENROUTER_API_KEY:
-            return None
-        return {"base": "https://openrouter.ai/api/v1", "key": OPENROUTER_API_KEY,
-                "model": OPENROUTER_MODEL, "label": OPENROUTER_LABEL, "strict": False,
-                "extra_headers": {"HTTP-Referer": "http://localhost:8753", "X-Title": "VF VERITAS"}}
-    if provider == "kimi":
-        key = _kimi_key()
-        if not key:
-            return None
-        on_openrouter = "openrouter.ai" in KIMI_BASE
-        headers = ({"HTTP-Referer": "http://localhost:8753", "X-Title": "VF VERITAS"}
-                   if on_openrouter else {})
-        # On OpenRouter, prefer the fastest-throughput host and allow fallback to
-        # another provider if one stalls — the biggest reliability win for Kimi.
-        # Gated on the OpenRouter base; Moonshot-direct would reject the extra key.
-        extra_body = ({"provider": {"sort": "throughput", "allow_fallbacks": True}}
-                      if on_openrouter else {})
-        # Stream Kimi's responses: it's a slow reasoning model, and streaming makes
-        # the read timeout apply per-chunk instead of to the whole generation, so a
-        # long "thinking" phase no longer trips "read operation timed out".
-        return {"base": KIMI_BASE.rstrip("/"), "key": key, "model": KIMI_MODEL,
-                "label": KIMI_LABEL, "strict": False, "extra_headers": headers,
-                "stream": True, "extra_body": extra_body}
+def _cfg(provider="openai"):
+    """The OpenAI chat endpoint, or None when no key is configured (the caller
+    then falls back to mock, or raises when ALLOW_MOCK is off).
+
+    `provider` is retained so every existing call site keeps working unchanged;
+    there is one engine now, and any value resolves to it."""
     if OPENAI_API_KEY:
         return {"base": "https://api.openai.com/v1", "key": OPENAI_API_KEY,
                 "model": OPENAI_MODEL, "label": OPENAI_LABEL, "strict": True, "extra_headers": {}}
     return None
 
 
-def _label_for(provider):
-    if provider == "gemini":
-        return OPENROUTER_LABEL
-    if provider == "kimi":
-        return KIMI_LABEL
+def _label_for(provider="openai"):
     return OPENAI_LABEL
 
 
@@ -359,30 +296,25 @@ def _chat(cfg, content, schema, schema_name, timeout):
 
 
 def _vision_label():
-    return GEMINI_LABEL if VISION_PROVIDER == "gemini" else OPENAI_LABEL
+    return OPENAI_LABEL
 
 
 def _vision_live():
-    return ((VISION_PROVIDER == "gemini" and bool(GEMINI_API_KEY))
-            or (VISION_PROVIDER != "gemini" and bool(OPENAI_API_KEY)))
+    return bool(OPENAI_API_KEY)
 
 
 def mode() -> dict:
+    """What the health badge reads. The gemini / kimi / openrouter keys are gone
+    along with the engines; `engines` is now the single-item list the UI uses to
+    label a run."""
     return {
-        # default-engine fields the badge reads
         "vision": "live" if OPENAI_API_KEY else "mock",
         "vision_model": OPENAI_MODEL if OPENAI_API_KEY else None,
         "verdict": "live" if OPENAI_API_KEY else "mock",
-        # per-provider availability the toggle reads
         "openai": "live" if OPENAI_API_KEY else "mock",
         "openai_model": OPENAI_MODEL if OPENAI_API_KEY else None,
-        "gemini": "live" if OPENROUTER_API_KEY else "mock",        # Gemini via OpenRouter
-        "gemini_model": OPENROUTER_MODEL if OPENROUTER_API_KEY else None,
-        "gemini_label": OPENROUTER_LABEL if OPENROUTER_API_KEY else None,
-        "kimi": "live" if _kimi_key() else "mock",                 # Kimi (Moonshot) via router
-        "kimi_model": KIMI_MODEL if _kimi_key() else None,
-        "kimi_label": KIMI_LABEL if _kimi_key() else None,
-        "openrouter": "live" if OPENROUTER_API_KEY else "mock",
+        "openai_label": OPENAI_LABEL,
+        "engines": [OPENAI_LABEL],
         "allow_mock": ALLOW_MOCK,
         "serpapi": "live" if rimage.available() else "mock",   # Google reverse-image
         "supabase": "live" if supa.available() else "mock",    # product catalog
@@ -1643,30 +1575,9 @@ def _mock_dimension(dim, case_id, t0, label):
     return result, usage
 
 
-def _gemini_dimension(dim, suspect_b64s, reference_file, t0, brand="TNF"):
-    ref_b64 = _img_b64(reference_file)
-    schema = {k: v for k, v in _DIM_SCHEMA.items() if k != "additionalProperties"}
-    prompt = _dim_prompt(dim, brand)
-    parts = [{"text": prompt}]
-    for i, b in enumerate(suspect_b64s):
-        parts.append({"text": f"SUSPECT photo {i + 1}:"})
-        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": b}})
-    if ref_b64:
-        parts += [{"text": "AUTHENTIC REFERENCE:"},
-                  {"inline_data": {"mime_type": "image/jpeg", "data": ref_b64}}]
-    body = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {"responseMimeType": "application/json", "responseSchema": schema},
-    }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    r = httpx.post(url, json=body, timeout=60)
-    r.raise_for_status()
-    data = r.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
-    parsed = json.loads(text)
-    um = data.get("usageMetadata", {})
-    return _dim_result(dim, parsed, GEMINI_LABEL,
-                       um.get("promptTokenCount", 0), um.get("candidatesTokenCount", 0), t0)
+# _gemini_dimension lived here. It spoke Google's native generateContent shape
+# rather than the OpenAI-compatible one every other path uses, so it went with
+# the engine.
 
 
 def _label_dimension(cfg, suspect_b64s, ref_b64s, t0):

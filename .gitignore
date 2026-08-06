@@ -14,7 +14,12 @@ __pycache__/
 *.egg-info/
 
 # --- local scratch / temp ---
+# backend/_*.* is one-off harness territory: retest runners, checkpoints and
+# their logs. Handy locally, never part of the service.
 backend/_*.py
+backend/_*.json
+backend/_*.log
+backend/_*.xlsx
 .image-slots.state.json
 *.state.json
 

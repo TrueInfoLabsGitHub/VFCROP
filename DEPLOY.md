@@ -17,8 +17,6 @@ Copy these from your local `backend/.env` — **never commit them**:
 |---|---|
 | `OPENAI_API_KEY` | your OpenAI key |
 | `OPENAI_MODEL` | `gpt-5.5` |
-| `OPENROUTER_API_KEY` | your OpenRouter key |
-| `GEMINI_OR_MODEL` | `google/gemini-3.1-pro-preview` |
 | `SERPAPI_API_KEY` | your SerpAPI key |
 | `SERPAPI_COST_PER_SEARCH` | `0` |
 | `SUPABASE_URL` | `https://xxxx.supabase.co` |
