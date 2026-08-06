@@ -613,11 +613,13 @@ def _avg(xs, nd=1):
 
 # their scores are sitting a screen to the right.
 
-_ENGINE_FAMILY = (("gpt", "GPT-5.5"), ("openai", "GPT-5.5"),
-
-                  ("gemini", "Gemini 3.1 Pro"),
-
-                  ("kimi", "Kimi K2.6"), ("moonshot", "Kimi K2.6"))
+# Gemini and Kimi were removed on 2026-08-06 and their history purged, except
+# on a handful of cases where theirs was the ONLY result — deleting those would
+# have erased the case itself. Those survivors are not in the family map on
+# purpose: an unmatched label falls through to its OWN column block under its
+# own name, which is exactly right for a retired engine. Folding them into the
+# GPT-5.5 block would misattribute somebody else's analysis to this one.
+_ENGINE_FAMILY = (("gpt", "GPT-5.5"), ("openai", "GPT-5.5"))
 
 
 

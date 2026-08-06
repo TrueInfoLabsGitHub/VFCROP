@@ -6,22 +6,15 @@ model labels used by providers.py (the "(mock)" suffix is stripped before
 lookup so estimated mock costs match what a live run would cost).
 """
 
-# The Gemini and Kimi entries are retained deliberately. Those engines were
-# removed on 2026-08-06 and nothing calls them any more, but runs saved under
-# them are still in the store, and anything that re-prices a historical run
-# needs its rate to exist or the cost silently becomes zero.
+# Gemini and Kimi were removed on 2026-08-06 and their stored runs purged, so
+# their rates went too. An unknown label prices at 0.0 rather than raising —
+# see price_usage — which is the right behaviour for a model we do not bill for,
+# and would be the wrong behaviour for one we do. If another engine is ever
+# added, add its rate here in the same commit.
 PRICING = {
     # label:            (input_per_1M, output_per_1M)
-    "Gemini 3 Pro":     (2.00, 12.00),   # verified via OpenRouter
-    "Gemini 3.1 Pro":   (2.00, 12.00),   # verified via OpenRouter
-    "Gemini 2.5 Pro":   (1.25, 10.00),   # verified via OpenRouter
-    "Gemini 2.5 Flash": (0.30, 2.50),
     "GPT-5.5":          (5.00, 30.00),   # verified via OpenRouter (openai/gpt-5.5)
     "GPT-5.2":          (1.75, 14.00),   # verified via OpenRouter (openai/gpt-5.2)
-    "Kimi K2.6":        (0.66, 3.41),   # current native-multimodal flagship (kimi-k2.6)
-    "Kimi K2.7":        (0.72, 3.49),   # coding-focused variant (kimi-k2.7-code)
-    "Kimi K2.5":        (0.60, 2.50),   # prior multimodal generation (kimi-k2.5)
-    "Kimi K2":          (0.60, 2.50),   # earlier Kimi K2 generation
     "aggregator":       (0.0, 0.0),   # deterministic node, no model
 }
 

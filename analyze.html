@@ -444,11 +444,11 @@ function caseHeader(){ const cs=curCase();
     </div>`; }
 function updateCaseHeader(){ const el=$('#caseheader'); if(el) el.innerHTML=caseHeader(); }
 let caseId='', brand='TNF';
-// One engine since 2026-08-06. The retired labels stay in the map so a SAVED
-// run from Gemini or Kimi still renders with its own name in the dashboard and
-// the case detail — that history was really produced and must not be relabelled.
-const ENGINE_LABEL={openai:'GPT-5.5','Gemini 3.1 Pro':'Gemini 3.1 Pro','Kimi K2.6':'Kimi K2.6'};
-const ENGINE_COLOR={openai:'#1f2937','Gemini 3.1 Pro':'#5b5bd6','Kimi K2.6':'#0e9488'};
+// One engine since 2026-08-06, and the Gemini/Kimi history was purged with them.
+// engineName falls back to the raw label, so anything unexpected shows its own
+// name rather than being silently displayed as GPT-5.5.
+const ENGINE_LABEL={openai:'GPT-5.5'};
+const ENGINE_COLOR={openai:'#1f2937'};
 const vinfo=b=>({authentic:{c:'b-green',l:'Match'},likely_authentic:{c:'b-green',l:'Close match'},caution:{c:'b-amber',l:'Review'},likely_counterfeit:{c:'b-amber',l:'Suspect'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'},hard_fail:{c:'b-red',l:'Hard fail'},error:{c:'b-gray',l:'Failed'}}[b]||{c:'b-gray',l:'N/A'});
 let findingLayout='radar', lastSingleData=null;
 const engineName=p=>ENGINE_LABEL[p]||p;
@@ -660,7 +660,7 @@ $('#run').onclick=async()=>{
   // not only with the save, which happens after scoring has already finished.
   const body={case_id:caseId,brand,reference_source:refSource,product_id:productId,product:refLabel(),suspect_images:suspectImgs,upc_image:upcB64};
   try{
-    // One engine, one path. The compare branch went with Gemini and Kimi.
+    // One engine, one path.
     activeEngine='openai';
     const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,provider:'openai'})});
     if(!r.ok) throw new Error(await readErr(r)); const {job_id}=await r.json(); const data=await pollJob(job_id);

@@ -332,19 +332,14 @@ class ExportSaveReq(BaseModel):
 # only a fallback.
 _ENGINE_CANON = {"openai": "GPT-5.5"}
 
-# Engines that were retired on 2026-08-06. Nothing runs on them any more, but
-# runs saved under these labels are real history and must keep resolving to
-# themselves rather than being silently relabelled as GPT-5.5.
-_RETIRED_ENGINES = ("Gemini 3.1 Pro", "Kimi K2.6", "Gemini 3 Pro", "Kimi K2")
-
 
 def _canonical_engine(req_engine: str, data: dict) -> str:
     prov = str((data or {}).get("provider") or "").strip().lower()
     if prov in _ENGINE_CANON:
         return _ENGINE_CANON[prov]
     label = (req_engine or "").strip()
-    for canon in list(_ENGINE_CANON.values()) + list(_RETIRED_ENGINES):
-        if label.lower() == canon.lower():        # tolerate case/spacing drift
+    for canon in _ENGINE_CANON.values():          # tolerate case/spacing drift
+        if label.lower() == canon.lower():
             return canon
     return label or "(engine not recorded)"
 
