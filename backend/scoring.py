@@ -6,7 +6,7 @@ rubrics that produce the primitives. Everything from "five dimension results" to
 
 Scale is DEVIATION, everywhere, with no conversion anywhere: 0 = matches the
 verified-authentic reference, 100 = clearly different. Every primitive reports
-it this way, the roll-up `max(weighted_mean, 0.85 x worst)` is only a floor
+it this way, the roll-up `max(weighted_mean, 85% x worst)` is only a floor
 because higher means worse, the label critical floor is 85 and the counterfeit
 band is >= 61. The composite is reported on the same scale as the dimensions
 that produced it.
@@ -26,6 +26,12 @@ from __future__ import annotations
 # outcome data — they are the spec's stated starting points, gathered in one
 # place precisely so they CAN be fitted later without hunting through modules.
 # Do not tune them by eye against individual cases.
+#
+# EVERY VALUE HERE IS A WHOLE NUMBER 0-100 — the same scale as every score the
+# system reports, so a reader never has to work out which of two scales a line
+# is on. Weights, shares, floors and confidence thresholds are all percentages.
+# The arithmetic below needs fractions; `_pc()` is the ONLY place that converts,
+# so a value can be read straight off this block and quoted to a client.
 # ---------------------------------------------------------------------------
 SCORING_CONSTANTS = {
     # ---- Layer 1: primitives -> a dimension score -------------------------
@@ -33,42 +39,53 @@ SCORING_CONSTANTS = {
     # which the method group's share drifted with how many primitives that
     # method happened to have (embroidery 55%, rubberised 50%, screen 44%) —
     # two items scored on different instruments, then compared as if identical.
-    "GROUP_SHARES": {"method": 0.50, "geometry": 0.30, "placement": 0.20},
-    # Tiered worst-primitive floor. A flat 0.85 overfires on geometry, where a
+    "GROUP_SHARES": {"method": 50, "geometry": 30, "placement": 20},
+    # Tiered worst-primitive floor. A flat 85 overfires on geometry, where a
     # rumpled garment alone produces baseline_deviation ~90.
-    "GROUP_FLOOR_FACTOR": {"method": 0.85, "geometry": 0.60, "placement": 0.60},
-    "PRIMITIVE_MIN_CONFIDENCE": 0.50,
+    "GROUP_FLOOR_FACTOR": {"method": 85, "geometry": 60, "placement": 60},
+    "PRIMITIVE_MIN_CONFIDENCE": 50,
     # Exposure moves these more than authenticity does, so they may suggest
     # "suspicious" and never more. Mirrors the L1/L2 damping on the Label rubric.
     "DAMP_CEILING": 50,
 
     # ---- Layer 2: dimensions -> a composite -------------------------------
-    "DIM_WEIGHTS": {"Label": 0.30, "Logo": 0.25, "Hardware": 0.20,
-                    "Stitching": 0.15, "Material": 0.10},
+    "DIM_WEIGHTS": {"Label": 30, "Logo": 25, "Hardware": 20,
+                    "Stitching": 15, "Material": 10},
     # How much ONE dimension is allowed to assert on its own, as a floor under
     # the weighted mean. A dispositive label tell must not be averaged away.
-    "DIM_DIAGNOSTIC": {"Label": 0.90, "Logo": 0.85, "Hardware": 0.80,
-                       "Stitching": 0.70, "Material": 0.60},
+    "DIM_DIAGNOSTIC": {"Label": 90, "Logo": 85, "Hardware": 80,
+                       "Stitching": 70, "Material": 60},
     # A dimension that lost its method group ran on the primitives a competent
     # counterfeiter gets right and a camera angle gets wrong. Weight and
     # ceiling both drop.
-    "PARTIAL_WEIGHT_FACTOR": 0.40,
-    "PARTIAL_DIAGNOSTIC_FACTOR": 0.50,
-    "MIN_DIM_CONFIDENCE": 0.35,
+    "PARTIAL_WEIGHT_FACTOR": 40,
+    "PARTIAL_DIAGNOSTIC_FACTOR": 50,
+    "MIN_DIM_CONFIDENCE": 35,
 
     # ---- the ladder --------------------------------------------------------
     "DISPOSITIVE_THRESHOLD": 85,
-    "DISPOSITIVE_CONFIDENCE": 0.60,
+    "DISPOSITIVE_CONFIDENCE": 60,
+    # ANY ONE DIMENSION in the counterfeit band convicts the item, without
+    # corroboration and without a coverage requirement. Starts equal to
+    # BAND_COUNTERFEIT so "the counterfeit band" means the same number whether
+    # it is applied to one dimension or to the composite; kept as its own key so
+    # the two can be fitted apart later.
+    "DIM_COUNTERFEIT": 61,
+    # Whether a PARTIAL dimension may convict on its own. False by design: a
+    # partial ran on geometry and placement, and a rumpled garment alone
+    # produces baseline_deviation around 90 (see GROUP_FLOOR_FACTOR). Turning
+    # this on converts every badly-photographed genuine item into a rejection.
+    "PARTIAL_MAY_CONVICT": False,
     "BAND_AUTHENTIC": 5,
     "BAND_LIKELY_AUTH": 30,
     "BAND_COUNTERFEIT": 61,
-    "COVERAGE_FOR_COUNTERFEIT": 0.35,
-    "COVERAGE_FOR_CONCLUSION": 0.50,
-    "COVERAGE_FOR_LIKELY_AUTH": 0.60,
-    "COVERAGE_FOR_AUTHENTIC": 0.75,
+    "COVERAGE_FOR_COUNTERFEIT": 35,
+    "COVERAGE_FOR_CONCLUSION": 50,
+    "COVERAGE_FOR_LIKELY_AUTH": 60,
+    "COVERAGE_FOR_AUTHENTIC": 75,
     # The anti-escape rule: coverage alone is gameable, so clearance also
     # requires the care tag to have actually been read.
-    "LABEL_EVIDENCE_COVERAGE": 0.50,
+    "LABEL_EVIDENCE_COVERAGE": 50,
 
     # ---- UPC ---------------------------------------------------------------
     "UPC_MISMATCH_FLOOR": 70,      # reads to a DIFFERENT product
@@ -79,6 +96,18 @@ SCORING_CONSTANTS = {
 }
 
 _C = SCORING_CONSTANTS
+
+
+def _pc(v):
+    """A config percentage as the fraction the arithmetic wants.
+
+    Every threshold in SCORING_CONSTANTS is a whole number 0-100. Every value
+    they are compared against — confidence, internal coverage, effective
+    weight — is a 0-1 fraction, and those travel into stored records, so the
+    conversion happens here rather than by rescaling what gets persisted."""
+    return v / 100.0
+
+
 GROUP_SHARES = _C["GROUP_SHARES"]
 GROUP_FLOOR_FACTOR = _C["GROUP_FLOOR_FACTOR"]
 PRIMITIVE_MIN_CONFIDENCE = _C["PRIMITIVE_MIN_CONFIDENCE"]
@@ -90,6 +119,8 @@ PARTIAL_DIAGNOSTIC_FACTOR = _C["PARTIAL_DIAGNOSTIC_FACTOR"]
 MIN_DIM_CONFIDENCE = _C["MIN_DIM_CONFIDENCE"]
 DISPOSITIVE_THRESHOLD = _C["DISPOSITIVE_THRESHOLD"]
 DISPOSITIVE_CONFIDENCE = _C["DISPOSITIVE_CONFIDENCE"]
+DIM_COUNTERFEIT = _C["DIM_COUNTERFEIT"]
+PARTIAL_MAY_CONVICT = _C["PARTIAL_MAY_CONVICT"]
 BAND_AUTHENTIC = _C["BAND_AUTHENTIC"]
 BAND_LIKELY_AUTH = _C["BAND_LIKELY_AUTH"]
 BAND_COUNTERFEIT = _C["BAND_COUNTERFEIT"]
@@ -130,6 +161,8 @@ BAND_FOR_VERDICT = {
     "Insufficient Evidence": "insufficient",
     "Suspected Counterfeit": "counterfeit",
     "Counterfeit — Label Validation Failed": "hard_fail",
+    "Counterfeit — Specification Contradiction": "hard_fail",
+    "Counterfeit — Impossible Product": "hard_fail",
     "Reference Mismatch — Cannot Compare": "mismatch",
     "Run Failed": "error",
 }
@@ -215,7 +248,7 @@ def roll_up_primitives(prims):
     """
     usable = [p for p in prims
               if p.get("deviation") is not None
-              and float(p.get("confidence") or 0) >= PRIMITIVE_MIN_CONFIDENCE
+              and float(p.get("confidence") or 0) >= _pc(PRIMITIVE_MIN_CONFIDENCE)
               and p.get("group") in GROUP_SHARES]
     if not usable:
         return None, DimState.NOT_ASSESSABLE, 0.0, "", None
@@ -230,8 +263,9 @@ def roll_up_primitives(prims):
         weighted_mean += (share / total_share) * (
             sum(float(p["deviation"]) for p in members) / len(members))
 
-    worst = max(usable, key=lambda p: GROUP_FLOOR_FACTOR[p["group"]] * float(p["deviation"]))
-    floor = GROUP_FLOOR_FACTOR[worst["group"]] * float(worst["deviation"])
+    worst = max(usable,
+                key=lambda p: _pc(GROUP_FLOOR_FACTOR[p["group"]]) * float(p["deviation"]))
+    floor = _pc(GROUP_FLOOR_FACTOR[worst["group"]]) * float(worst["deviation"])
     score = max(weighted_mean, floor)
 
     # How much of the dimension's applicable evidence actually scored.
@@ -258,16 +292,22 @@ class Dim:
     without its state is what produced 'Likely Authentic' from four guesses.
     """
 
-    __slots__ = ("name", "score", "state", "confidence", "internal_coverage", "finding")
+    __slots__ = ("name", "score", "state", "confidence", "internal_coverage", "finding",
+                 "deterministic")
 
     def __init__(self, name, score=None, state=DimState.ESTIMATED, confidence=0.0,
-                 internal_coverage=0.0, finding=""):
+                 internal_coverage=0.0, finding="", deterministic=False):
         self.name = name
         self.score = None if score is None else float(score)
         self.state = state
         self.confidence = _f(confidence)
         self.internal_coverage = _f(internal_coverage)
         self.finding = finding or ""
+        # True when this dimension was MEASURED by a deterministic rule
+        # rather than by comparison against the reference photographs. It
+        # still scores and still contributes, but it cannot stand in for a
+        # forensic examination in the evidence gate — see evidence_gate().
+        self.deterministic = bool(deterministic)
 
     @classmethod
     def from_record(cls, name, rec):
@@ -286,7 +326,8 @@ class Dim:
                      "abstain": DimState.NOT_ASSESSABLE,
                      "error": DimState.FAILED}.get(rec.get("status"), DimState.ESTIMATED)
         return cls(name, rec.get("score"), state, rec.get("confidence"),
-                   rec.get("internal_coverage", 0.0), rec.get("finding", ""))
+                   rec.get("internal_coverage", 0.0), rec.get("finding", ""),
+                   rec.get("deterministic", False))
 
     @property
     def applicable(self):
@@ -296,30 +337,31 @@ class Dim:
     def contributes(self):
         return (self.state in CONTRIBUTING_STATES
                 and self.score is not None
-                and self.confidence >= MIN_DIM_CONFIDENCE
+                and self.confidence >= _pc(MIN_DIM_CONFIDENCE)
                 and self.effective_weight > 0)
 
     @property
     def effective_weight(self):
         """Base weight, scaled by how much of the dimension was actually
         examined, and discounted again when the method group never ran."""
-        w = DIM_WEIGHTS.get(self.name, 0.0) * self.internal_coverage
+        w = _pc(DIM_WEIGHTS.get(self.name, 0)) * self.internal_coverage
         if self.state == DimState.PARTIAL:
-            w *= PARTIAL_WEIGHT_FACTOR
+            w *= _pc(PARTIAL_WEIGHT_FACTOR)
         return w
 
     @property
     def diagnostic(self):
-        d = DIM_DIAGNOSTIC.get(self.name, 0.0)
+        d = _pc(DIM_DIAGNOSTIC.get(self.name, 0))
         if self.state == DimState.PARTIAL:
-            d *= PARTIAL_DIAGNOSTIC_FACTOR
+            d *= _pc(PARTIAL_DIAGNOSTIC_FACTOR)
         return d
 
     def as_dict(self):
         return {"dimension": self.name, "score": self.score, "state": self.state,
                 "confidence": round(self.confidence, 2),
                 "internal_coverage": round(self.internal_coverage, 2),
-                "effective_weight": round(self.effective_weight, 4)}
+                "effective_weight": round(self.effective_weight, 4),
+                "deterministic": self.deterministic}
 
 
 def mark_applicability(dims, category, runtime_not_applicable=()):
@@ -355,7 +397,7 @@ def composite_score(dims):
 def coverage(dims):
     """Share of the item's diagnostic weight that was actually measured."""
     applicable = [d for d in dims if d.applicable]
-    total = sum(DIM_WEIGHTS.get(d.name, 0.0) for d in applicable)
+    total = sum(_pc(DIM_WEIGHTS.get(d.name, 0)) for d in applicable)
     if not total:
         return 0.0
     return sum(d.effective_weight for d in applicable if d.contributes) / total
@@ -385,11 +427,17 @@ def evidence_gate(dims):
     label = by.get("Label")
     if not label or label.state != DimState.MEASURED:
         return False, "the care/neck label was not measured"
-    if label.internal_coverage < LABEL_EVIDENCE_COVERAGE:
+    if label.internal_coverage < _pc(LABEL_EVIDENCE_COVERAGE):
         return False, (f"only {label.internal_coverage:.0%} of the label checks could be "
-                       f"run (need {LABEL_EVIDENCE_COVERAGE:.0%})")
+                       f"run (need {LABEL_EVIDENCE_COVERAGE}%)")
+    # `not d.deterministic` is load-bearing. The deterministic rules read the
+    # CARE TAG — the same tag that satisfies the label half of this gate. If a
+    # text check could also satisfy this half, one legible tag would clear
+    # both conditions and the gate would be asserting "the label, plus the
+    # label". It exists to require a genuinely separate forensic examination.
     others = [d for d in dims
-              if d.name != "Label" and d.state == DimState.MEASURED and d.score is not None]
+              if d.name != "Label" and d.state == DimState.MEASURED
+              and d.score is not None and not d.deterministic]
     if not others:
         return False, "no forensic dimension besides the label was measured"
     return True, ""
@@ -412,7 +460,7 @@ def to_authenticity(deviation):
 
     The service reported the composite on this inverted scale for a while and it
     was a mistake. Every primitive returns deviation; the roll-up
-    `max(weighted_mean, 0.85 x worst)` is only a floor if higher means worse;
+    `max(weighted_mean, 85% x worst)` is only a floor if higher means worse;
     the label critical floor is 85 and the counterfeit band is >= 61. Reporting
     the composite the other way up meant 85 read as 'confirmed critical tell' in
     the methodology and 'nearly genuine' in the workbook, on the same row.
@@ -424,12 +472,19 @@ def to_authenticity(deviation):
 
 def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=False,
            hard_fail_reason="", pairing_ok=True, pairing_note="", run_ok=True,
-           run_error="", label_readable=True, runtime_not_applicable=()):
+           run_error="", label_readable=True, runtime_not_applicable=(),
+           spec_hard_fail=False, spec_fail_reason="",
+           provenance_hard_fail=False, provenance_fail_reason=""):
     """The decision ladder. First match wins and the ORDER IS LOAD-BEARING:
 
     escalation runs BEFORE the coverage gate, because a confirmed dispositive
     defect needs no corroboration; clearance runs after it AND additionally
     requires positive evidence.
+
+    Rung 4b is the widest of the escalations: ANY single measured dimension in
+    the counterfeit band convicts, without corroboration and without coverage.
+    It sits above the composite rungs on purpose — the composite averages, and
+    an average is how one real defect is diluted by four clean dimensions.
 
     Returns a dict shaped for the composite: deviation, score (authenticity),
     band, verdict_label, coverage, lane, driver, recapture, reason.
@@ -484,13 +539,30 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
         return emit("Counterfeit — Label Validation Failed",
                     hard_fail_reason or "a deterministic label check failed")
 
+    # 3b. The item's own printed text contradicts itself, or contradicts the
+    #     specification its own markings claim. Both strings were read; the
+    #     contradiction is looked up, not judged. Sits here for the same
+    #     reason rung 3 does — no model judgement is involved, so it stands
+    #     even when nothing else was assessable.
+    if spec_hard_fail:
+        return emit("Counterfeit — Specification Contradiction",
+                    spec_fail_reason or "the item's markings contradict each other")
+
+    # 3c. The item claims a product, technology or era that did not exist
+    #     when it was made. A dated trademark is a fact about the world, not
+    #     an observation about this garment.
+    if provenance_hard_fail:
+        return emit("Counterfeit — Impossible Product",
+                    provenance_fail_reason
+                    or "the item claims something that did not exist when it was made")
+
     # 4. One confirmed dispositive defect is enough. Only a MEASURED dimension
     #    may trigger this — a PARTIAL one is running on geometry, which
     #    photography moves as much as authenticity does.
     dispositive = [d for d in dims
                    if d.state == DimState.MEASURED and d.contributes
                    and d.score >= DISPOSITIVE_THRESHOLD
-                   and d.confidence >= DISPOSITIVE_CONFIDENCE]
+                   and d.confidence >= _pc(DISPOSITIVE_CONFIDENCE)]
     if dispositive:
         d = max(dispositive, key=lambda x: x.score)
         res = emit("Suspected Counterfeit",
@@ -500,10 +572,43 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
         res["driver"] = d.name          # the defect drove it, whatever the mean said
         return res
 
+    # 4b. ANY ONE DIMENSION in the counterfeit band is enough, on its own.
+    #
+    #     This is the widest rule on the ladder and it is deliberate: a single
+    #     forensic dimension reading 61 or worse convicts the item, with no
+    #     corroboration from the other four and no coverage requirement. It
+    #     supersedes what the composite would have said, because the composite
+    #     AVERAGES — and averaging is how one real defect gets diluted by four
+    #     dimensions that happened to look fine.
+    #
+    #     Two guards remain, and both are about what a score MEANS rather than
+    #     how large it is:
+    #       * the dimension must CONTRIBUTE — an estimate is a filled cell, not
+    #         an observation, and a dimension under the confidence floor is an
+    #         impression;
+    #       * it must be MEASURED unless PARTIAL_MAY_CONVICT is set. A partial
+    #         never resolved its method class, so it scored on geometry and
+    #         placement — the primitives a rumpled garment moves as much as a
+    #         counterfeiter does.
+    adverse = [d for d in dims
+               if d.contributes
+               and d.score is not None
+               and d.score >= DIM_COUNTERFEIT
+               and (d.state == DimState.MEASURED or PARTIAL_MAY_CONVICT)]
+    if adverse:
+        d = max(adverse, key=lambda x: x.score)
+        note = "" if label_readable else " — label unverified"
+        res = emit("Suspected Counterfeit",
+                   f"{d.name} is in the counterfeit band ({d.score:.0f}/100 deviation) "
+                   f"at confidence {d.confidence:.2f}. One dimension in the band is "
+                   f"enough — it is not averaged against the others{note}.")
+        res["driver"] = d.name          # the dimension that convicted, not the mean
+        return res
+
     # 5/6. Significant deviation. Suspicion is never suppressed for want of
     #      coverage; thin coverage only downgrades it to a review item.
     if dev is not None and dev >= BAND_COUNTERFEIT:
-        if cov >= COVERAGE_FOR_COUNTERFEIT:
+        if cov >= _pc(COVERAGE_FOR_COUNTERFEIT):
             note = "" if label_readable else " (label unverified)"
             return emit("Suspected Counterfeit",
                         f"composite deviation {dev}/100 over {cov:.0%} of the item{note}")
@@ -520,17 +625,17 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
 
     # 8. Enough was measured to be sure it is the same item, but not enough to
     #    say anything about it.
-    if cov < COVERAGE_FOR_CONCLUSION:
+    if cov < _pc(COVERAGE_FOR_CONCLUSION):
         return emit("Insufficient Evidence",
-                    f"effective coverage {cov:.0%} (need {COVERAGE_FOR_CONCLUSION:.0%}). "
+                    f"effective coverage {cov:.0%} (need {COVERAGE_FOR_CONCLUSION}%). "
                     f"Contributing: {', '.join(live) or 'none'}.")
 
     # 9/10. Clearance, on the presence of evidence.
     if dev is not None:
-        if dev <= BAND_AUTHENTIC and cov >= COVERAGE_FOR_AUTHENTIC:
+        if dev <= BAND_AUTHENTIC and cov >= _pc(COVERAGE_FOR_AUTHENTIC):
             return emit("Authentic",
                         f"no deviation on any measured dimension, {cov:.0%} coverage")
-        if dev <= BAND_LIKELY_AUTH and cov >= COVERAGE_FOR_LIKELY_AUTH:
+        if dev <= BAND_LIKELY_AUTH and cov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
             return emit("Likely Authentic",
                         f"minor deviation only ({dev}/100) at {cov:.0%} coverage")
 
@@ -545,7 +650,9 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
 # would be the dilution bug again, one level up: a single engine that actually
 # resolved the foundry code would be voted down by two that could not.
 # ---------------------------------------------------------------------------
-_ADVERSE = ("Suspected Counterfeit", "Counterfeit — Label Validation Failed")
+_ADVERSE = ("Suspected Counterfeit", "Counterfeit — Label Validation Failed",
+            "Counterfeit — Specification Contradiction",
+            "Counterfeit — Impossible Product")
 _CLEARED = ("Authentic", "Likely Authentic")
 
 # Band -> the canonical verdict text. Used to read a stored run written before

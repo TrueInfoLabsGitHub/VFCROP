@@ -17,7 +17,10 @@ from langgraph.graph import END, START, StateGraph
 
 import os
 
+import logo_rules
+import material_rules
 import scoring
+import spec_rules
 import supa
 from pricing import price_usage
 from providers import (ALWAYS_SCORE, _cfg, run_dimension_agent,
@@ -229,6 +232,17 @@ def upc_node(state: RunState) -> dict:
     return {"upc_result": result, "usage_log": [usage]}
 
 
+def _label_fields(state) -> dict:
+    """The OCR'd label fields, ALWAYS a dict.
+
+    Three call sites read these independently — the category guess, the
+    deterministic rules and the persisted record — and a malformed or
+    legacy record carrying a non-dict here would take the whole run down
+    from whichever one reached it first."""
+    f = (state.get("label_id") or {}).get("fields")
+    return f if isinstance(f, dict) else {}
+
+
 def _category_for(state: RunState) -> str:
     """Best guess at the product category, for the applicability table.
 
@@ -239,7 +253,31 @@ def _category_for(state: RunState) -> str:
     return scoring.normalise_category(
         state.get("product_name", ""),
         (state.get("pairing") or {}).get("suspect_item", ""),
-        ((state.get("label_id") or {}).get("fields") or {}).get("product_family", ""))
+        _label_fields(state).get("product_family", ""))
+
+
+def _inject(dim_objs, name, inject):
+    """A deterministic FAIL, applied to the dimension it concerns.
+
+    RAISES ONLY. If the rubric already scored that dimension higher, the
+    rubric wins and nothing here touches it — a deterministic rule may add
+    suspicion to a dimension and may never subtract it, which is the same
+    one-way rule the ladder runs on.
+    """
+    if not inject:
+        return
+    for d in dim_objs:
+        if d.name != name or d.state == scoring.DimState.NOT_APPLICABLE:
+            continue
+        if d.score is not None and d.contributes and d.score >= inject["score"]:
+            return                      # the rubric already says worse
+        d.score = inject["score"]
+        d.state = scoring.DimState.MEASURED
+        d.confidence = max(d.confidence, inject["confidence"])
+        d.internal_coverage = max(d.internal_coverage, inject["internal_coverage"])
+        d.finding = inject["finding"]
+        d.deterministic = True
+        return
 
 
 def aggregate_node(state: RunState) -> dict:
@@ -257,6 +295,27 @@ def aggregate_node(state: RunState) -> dict:
     dims = state["dimension_results"]
     by = {d["dimension"]: d for d in dims}
     dim_objs = [scoring.Dim.from_record(d["dimension"], d) for d in dims]
+    # Both deterministic layers read the SAME OCR output the label validator
+    # does. No extra model call: `run_label_identity` already transcribes the
+    # care text, the fibre declaration, the date code and the brand marks.
+    fields = _label_fields(state)
+    material = material_rules.validate(fields)
+    logo = logo_rules.validate(fields)
+    # The per-STYLE layer. Unlike the three above it reads more than text:
+    # it compares each rubric's DETECTED method class against what TNF
+    # publishes for the style code the garment itself claims. That is only
+    # possible where sku_registry.json has a row; everywhere else every
+    # check reports unknown and nothing is asserted.
+    spec = spec_rules.validate(
+        fields,
+        product=" ".join(str(x) for x in (
+            state.get("product_name", ""),
+            (state.get("pairing") or {}).get("suspect_item", "")) if x),
+        dim_results=dims)
+    _inject(dim_objs, "Material", material_rules.dimension_injection(material))
+    _inject(dim_objs, "Logo", logo_rules.dimension_injection(logo))
+    for _dim, _inj in spec["injections"].items():
+        _inject(dim_objs, _dim, _inj)
 
     # Reported alongside the ladder's own numbers, for the UI and the export.
     #   assessed  — a real measurement stood behind the number
@@ -284,6 +343,16 @@ def aggregate_node(state: RunState) -> dict:
         label_readable=(by.get("Label") or {}).get("status") == "scored",
         runtime_not_applicable=[d["dimension"] for d in dims
                                 if d.get("state") == scoring.DimState.NOT_APPLICABLE],
+        spec_hard_fail=(material["spec_hard_fail"] or logo["spec_hard_fail"]
+                        or spec["spec_hard_fail"]),
+        spec_fail_reason=(material["spec_reason"] or logo["spec_reason"]
+                          or spec["spec_reason"]),
+        provenance_hard_fail=(material["provenance_hard_fail"]
+                              or logo["provenance_hard_fail"]
+                              or spec["provenance_hard_fail"]),
+        provenance_fail_reason=(material["provenance_reason"]
+                                or logo["provenance_reason"]
+                                or spec["provenance_reason"]),
     )
 
     applicable = [d for d in result["dimension_states"]
@@ -311,8 +380,18 @@ def aggregate_node(state: RunState) -> dict:
         "coverage_pct": result["coverage_pct"],
         "dimension_states": result["dimension_states"],
         "contributing": result["contributing"],
-        "deterministic": bool(validation.get("hard_fail")),
-        "failed_checks": validation.get("failed", []),
+        "deterministic": bool(validation.get("hard_fail")
+                              or material["spec_hard_fail"]
+                              or material["provenance_hard_fail"]
+                              or logo["spec_hard_fail"]
+                              or logo["provenance_hard_fail"]
+                              or spec["spec_hard_fail"]
+                              or spec["provenance_hard_fail"]),
+        "failed_checks": (validation.get("failed", [])
+                          + material["failed"] + logo["failed"] + spec["failed"]),
+        "material_validation": material,
+        "logo_validation": logo,
+        "spec_validation": spec,
         # `capped` used to mean "a band was overridden". The ladder has no
         # override step — it decides once — so it now means "this verdict is a
         # non-answer", which is what every consumer actually used it for.

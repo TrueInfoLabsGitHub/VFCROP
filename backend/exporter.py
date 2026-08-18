@@ -325,15 +325,19 @@ def _verdict_enum(rec):
     return canon or text
 
 
-_VERDICT_ENUM = {
-    "Authentic", "Likely Authentic", "Inconclusive", "Inconclusive — Suspicious",
-    "Insufficient Evidence", "Suspected Counterfeit",
-    "Counterfeit — Label Validation Failed", "Reference Mismatch — Cannot Compare",
-    "Run Failed",
-}
+_VERDICT_ENUM = set(scoring.BAND_FOR_VERDICT) | {"Run Failed"}
 
 # band -> the one wording this column is allowed to print.
+#
+# NOT a plain inversion of BAND_FOR_VERDICT any more. Three verdicts share the
+# `hard_fail` band — Label Validation Failed, Specification Contradiction and
+# Impossible Product — and inverting a many-to-one map keeps whichever key came
+# last, which silently relabelled every specification contradiction as an
+# impossible product in the client-facing column. This map is only a FALLBACK
+# for stored runs whose wording predates the current enum, and every such run
+# was written when Label Validation Failed was the only hard fail there was.
 _CANON_VERDICT = {v: k for k, v in scoring.BAND_FOR_VERDICT.items()}
+_CANON_VERDICT["hard_fail"] = "Counterfeit — Label Validation Failed"
 
 
 def _lane_cell(rec):
@@ -742,13 +746,21 @@ def _build_analyses_sheet(ws, runs):
     # the pair across the sheet is exactly what lets someone read one without
     # the other. Assessed carries the how-much-did-we-look signal on the left.
 
-    metrics = (["Verdict", "Assessed", "Lane", "Driver"] + DIMS
-
-               + ["Recapture", "Reason", "Verifier", "Deviation",
-
-                  "Cost ($)", "Latency (s)"]
-
-               + [f"{d} finding" for d in DIMS])            # 20 columns per engine
+    # The analyst layout, trimmed to the columns the client actually reads: the
+    # verdict, how much of the item was assessed, and the five dimension scores.
+    #
+    # WHAT WAS REMOVED, AND WHERE IT WENT. Lane, Driver, Recapture, Reason,
+    # Verifier, Deviation, Cost, Latency and the five finding columns are no
+    # longer printed. Every one of them is still COMPUTED and still stored on the
+    # run record — nothing in the pipeline changed, only what this sheet renders
+    # — so restoring any of them is one entry here plus the matching entry in
+    # `vals` below. The two lists MUST stay in lockstep: the header, the widths
+    # and the per-cell styling all index off them.
+    #
+    # Lane is gone by request. It was the routing column — CLEARED / REVIEW /
+    # REJECTED is what tells a person what to DO with a row — so the verdict now
+    # has to carry that meaning on its own.
+    metrics = ["Verdict", "Assessed"] + DIMS                # 7 columns per engine
 
     _DIM0 = metrics.index(DIMS[0])                          # first dimension column
 
@@ -950,29 +962,20 @@ def _build_analyses_sheet(ws, runs):
 
                 dims = rec.get("dimensions") or {}
 
-                cost = round(float(rec.get("cost") or 0), 4)
 
-                lat = round(float(rec.get("latency_ms") or 0) / 1000, 1)
 
 
 
                 # The enum value and nothing else — filterable, pivotable, one
 
-                # line tall. Everything explanatory goes to Reason.
 
                 verdict_txt = _verdict_enum(rec)
 
-                reason_txt = rec.get("reason", "") or ""
 
-                if rec.get("band") == "error":
 
-                    reason_txt = rec.get("error") or reason_txt or "run failed"
 
-                recap = rec.get("recapture") or []
 
-                if isinstance(recap, list):
 
-                    recap = "\n".join(str(x) for x in recap)
 
                 # Rule 2 is terminal: on a Reference Mismatch the comparison
 
@@ -986,21 +989,7 @@ def _build_analyses_sheet(ws, runs):
 
                 dim_vals = ["" for _ in DIMS] if void else [_dim_cell(dims, d) for d in DIMS]
 
-                vals = [verdict_txt, _assessed_cell(rec),
-
-                        _lane_with_review_override(rec),
-
-                        "" if void else rec.get("driver", ""),
-
-                        *dim_vals,
-
-                        recap, reason_txt, _verifier_cell(rec),
-
-                        _deviation_cell(rec), cost, lat,
-
-                        *["" if void else (dims.get(d) or {}).get("finding", "")
-
-                          for d in DIMS]]
+                vals = [verdict_txt, _assessed_cell(rec), *dim_vals]
 
                 for j, v in enumerate(vals):
 

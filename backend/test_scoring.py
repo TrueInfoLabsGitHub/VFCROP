@@ -48,12 +48,16 @@ def dim(name, score, status="scored", confidence=0.8, state=None, coverage=None)
 
 
 def state(dims, upc_status="not_provided", pairing_status="ok", hard_fail=False,
-          product=""):
+          product="", label_fields=None):
     return {"dimension_results": dims,
             "upc_result": {"status": upc_status},
             "product_name": product,
             "pairing": {"status": pairing_status, "note": "n", "suspect_item": ""},
-            "label_id": {"validation": {"hard_fail": hard_fail, "failed": ["R3"],
+            # `fields` feeds the deterministic MATERIAL layer, which reads the
+            # same OCR output the label validator does. Empty by default, so
+            # every check there reports UNKNOWN and the new rungs stay dormant.
+            "label_id": {"fields": label_fields or {},
+                         "validation": {"hard_fail": hard_fail, "failed": ["R3"],
                                         "summary": "RN resolves to another company."}}}
 
 
@@ -177,7 +181,7 @@ def test_missing_reference_file_does_not_crash():
 # ---- weights ---------------------------------------------------------------
 def test_weights_and_diagnostics_cover_every_dimension():
     assert set(graph.WEIGHTS) == set(DIMENSIONS)
-    assert round(sum(graph.WEIGHTS.values()), 6) == 1.0
+    assert sum(graph.WEIGHTS.values()) == 100      # whole-number percentages
     assert set(scoring.DIM_DIAGNOSTIC) == set(DIMENSIONS)
     # Label carries the identity evidence, so it is both the heaviest weight and
     # the most diagnostic dimension.
@@ -237,18 +241,36 @@ def test_a_partial_dimension_may_not_trigger_the_dispositive_rule():
     assert c["verdict_label"] != "Suspected Counterfeit"
 
 
-def test_thin_coverage_downgrades_suspicion_but_never_suppresses_it():
-    """Rules 5/6. Deviation is significant but almost nothing was measured: the
-    item becomes a review item that says which way it leans, not a clearance.
 
-    70 rather than 90 on purpose — at 85+ the dispositive rule fires first, by
-    design, and this is testing what happens when it does not."""
+def test_one_measured_dimension_in_the_band_convicts_on_thin_coverage():
+    """Rung 4b. A single MEASURED dimension at 61 or worse convicts outright —
+    no corroboration, no coverage requirement, and no averaging against the four
+    dimensions that happened to look fine.
+
+    This case used to return 'Inconclusive — Suspicious' because coverage was
+    under 35%. It no longer does: coverage gates what the COMPOSITE may
+    conclude, and rung 4b does not consult the composite."""
     dims = [dim("Material", 70, confidence=0.8)]
     dims += [dim(d, 70, "estimated", 0.3) for d in DIMENSIONS if d != "Material"]
     c = agg(dims)
-    assert c["verdict_label"] == "Inconclusive — Suspicious"
-    assert c["lane"] == "REVIEW"
-    assert c["coverage_pct"] < scoring.COVERAGE_FOR_COUNTERFEIT
+    assert c["verdict_label"] == "Suspected Counterfeit"
+    assert c["lane"] == "REJECTED"
+    assert c["driver"] == "Material"
+    assert c["coverage_pct"] < scoring.COVERAGE_FOR_COUNTERFEIT / 100
+
+
+def test_thin_coverage_still_downgrades_a_COMPOSITE_only_suspicion():
+    """Rung 6 survives for the case it was written for: the composite reaches
+    the band while NO single dimension does, so there is nothing dispositive to
+    convict on and thin coverage still means 'review, leaning bad'."""
+    dims = [dim("Label", 60, confidence=0.8, coverage=0.4),
+            dim("Logo", 58, confidence=0.8, coverage=0.4)]
+    dims += [dim(d, None, "abstain", 0.0) for d in DIMENSIONS
+             if d not in ("Label", "Logo")]
+    c = agg(dims)
+    assert all(d["score"] is None or d["score"] < scoring.DIM_COUNTERFEIT
+               for d in c["dimension_states"])
+    assert c["verdict_label"] in ("Inconclusive — Suspicious", "Insufficient Evidence")
 
 
 def test_an_unread_label_annotates_rather_than_suppresses():
@@ -589,7 +611,7 @@ def test_rubric_unknown_method_is_partial(dim, method, heavy, light):
 def test_rubric_method_group_carries_half_the_dimension(dim, method, heavy, light):
     assert providers._primitive_group(dim, heavy, method) == "method"
     assert providers._primitive_group(dim, light, method) == "geometry"
-    assert scoring.GROUP_SHARES["method"] == 0.50
+    assert scoring.GROUP_SHARES["method"] == 50
 
 
 @pytest.mark.parametrize("dim,method,heavy,light", RUBRIC_CASES, ids=RUBRIC_IDS)
@@ -858,3 +880,222 @@ def test_every_band_has_a_verdict_label():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ---- rungs 3b / 3c: deterministic material contradictions ------------------
+def _mat(care="", fiber="", family=""):
+    return {"care_text": care, "fiber_content": fiber, "product_family": family}
+
+
+def test_spec_contradiction_convicts_over_a_clean_vision_result():
+    """GORE-TEX and DRYVENT on one care tag. Both strings were read and both are
+    in the mutually-exclusive table — no model judgement is involved."""
+    dims = [dim(d, 5) for d in DIMENSIONS]              # every dimension says clean
+    c = agg(dims, label_fields=_mat(care="GORE-TEX® PRODUCT. DRYVENT™ 2L SHELL."))
+    assert c["verdict_label"] == "Counterfeit — Specification Contradiction"
+    assert c["band"] == "hard_fail" and c["lane"] == "REJECTED"
+    assert c["deterministic"] is True
+
+
+def test_spec_contradiction_stands_with_nothing_assessable():
+    """Same reason rung 3 sits where it does: it needs the tag, not the garment.
+    Convicts from one legible macro with zero dimensions scored."""
+    dims = [dim(d, None, "abstain", 0.0) for d in DIMENSIONS]
+    c = agg(dims, label_fields=_mat(care="GORE-TEX® AND HYVENT® SHELL"))
+    assert c["band"] == "hard_fail"
+    assert c["lane"] == "REJECTED"
+
+
+def test_label_hard_fail_still_wins_over_a_spec_contradiction():
+    """Rung 3 is tried before 3b, and the ordering is load-bearing."""
+    dims = [dim(d, 5) for d in DIMENSIONS]
+    c = agg(dims, hard_fail=True,
+            label_fields=_mat(care="GORE-TEX® PRODUCT. DRYVENT™ SHELL."))
+    assert c["verdict_label"] == "Counterfeit — Label Validation Failed"
+
+
+def test_a_clean_material_tag_leaves_the_normal_path_untouched():
+    dims = [dim(d, 5) for d in DIMENSIONS]
+    c = agg(dims, label_fields=_mat(care="GORE-TEX® PRODUCT. MACHINE WASH.",
+                                    fiber="SHELL: 100% NYLON"))
+    assert c["band"] == "authentic"
+
+
+def test_unreadable_material_fields_never_convict():
+    """The rule the whole system runs on: absence of evidence is not evidence."""
+    dims = [dim(d, 5) for d in DIMENSIONS]
+    assert agg(dims, label_fields={})["band"] == "authentic"
+    assert agg(dims, label_fields=None)["band"] == "authentic"
+
+
+def test_new_verdicts_are_adverse_across_engines():
+    """An engine reporting either new verdict must drive the combined answer,
+    exactly as the existing hard fail does."""
+    for v in ("Counterfeit — Specification Contradiction",
+              "Counterfeit — Impossible Product"):
+        assert v in scoring._ADVERSE
+        assert scoring.LANE_FOR_BAND[scoring.BAND_FOR_VERDICT[v]] == "REJECTED"
+
+
+# ---- Phase 2: deterministic results reaching the dimension ------------------
+def test_sub_critical_material_fail_raises_the_material_dimension():
+    """GORE-TEX with no registered mark is graded STRONG, so it does not convict
+    at rung 3b — but it must still show up on the dimension it concerns."""
+    dims = [dim(d, 5) for d in DIMENSIONS]
+    c = agg(dims, label_fields=_mat(care="GORE-TEX PRODUCT", family="RESOLVE JACKET"))
+    mat = next(d for d in c["dimension_states"] if d["dimension"] == "Material")
+    assert mat["state"] == scoring.DimState.MEASURED
+    assert mat["deterministic"] is True
+    assert c["driver"] == "Material"
+    assert c["band"] != "authentic"            # it was 'authentic' without the rule
+
+
+def test_a_passing_material_check_injects_nothing():
+    """GUARDRAIL 1. A clean care tag says nothing about the FABRIC. If a pass
+    could buy coverage or lower the score, a counterfeiter with a working
+    printer would have bought a clearance."""
+    dims = [dim(d, 5) for d in DIMENSIONS]
+    clean = agg(dims, label_fields=_mat(care="GORE-TEX® PRODUCT. MACHINE WASH.",
+                                        fiber="SHELL: 100% NYLON"))
+    none = agg(dims, label_fields={})
+    assert clean["coverage_pct"] == none["coverage_pct"]
+    assert clean["score"] == none["score"]
+    assert clean["band"] == none["band"] == "authentic"
+
+
+def test_injection_raises_only_and_never_lowers():
+    """A deterministic rule may add suspicion to a dimension and may never
+    subtract it."""
+    dims = [dim(d, 5) for d in DIMENSIONS]
+    dims = [dim("Material", 90) if d["dimension"] == "Material" else d for d in dims]
+    c = agg(dims, label_fields=_mat(care="GORE-TEX PRODUCT", family="RESOLVE JACKET"))
+    mat = next(d for d in c["dimension_states"] if d["dimension"] == "Material")
+    assert mat["score"] == 90                  # the rubric already said worse
+    assert mat["deterministic"] is False
+
+
+
+def test_deterministic_measurement_cannot_satisfy_the_evidence_gate():
+    """GUARDRAIL 2, asserted against the gate itself.
+
+    The deterministic rules read the CARE TAG — the same tag that satisfies the
+    label half of this gate. Letting a text check satisfy the other half would
+    make the gate assert 'the label, plus the label'.
+
+    Tested on the function rather than through a verdict, because a
+    deterministic injection scores 70+ and rung 4b now convicts before the
+    ladder ever reaches the gate."""
+    label = scoring.Dim("Label", 5, scoring.DimState.MEASURED, 0.8, 1.0)
+    det = scoring.Dim("Material", 70, scoring.DimState.MEASURED, 0.85, 0.5,
+                      deterministic=True)
+    ok, why = scoring.evidence_gate([label, det])
+    assert ok is False
+    assert "no forensic dimension besides the label" in why
+
+    rubric = scoring.Dim("Material", 5, scoring.DimState.MEASURED, 0.8, 1.0)
+    assert scoring.evidence_gate([label, rubric])[0] is True
+
+
+def test_a_rubric_measured_dimension_does_satisfy_the_gate():
+    """The control for the test above — nothing else about the gate moved."""
+    dims = [dim("Label", 5, coverage=1.0), dim("Material", 5, coverage=1.0)] + [
+        dim(d, None, "abstain", 0.0) for d in DIMENSIONS if d not in ("Label", "Material")]
+    c = agg(dims, label_fields={})
+    assert scoring.evidence_gate(
+        [scoring.Dim.from_record(d["dimension"], d) for d in dims])[0] is True
+
+
+def test_dim_defaults_to_non_deterministic():
+    """Every stored run predates this flag, so the default must be the value
+    that changes nothing."""
+    assert scoring.Dim("Logo", 10).deterministic is False
+    assert scoring.Dim.from_record("Logo", {"score": 10}).deterministic is False
+
+
+def test_exporter_prints_every_verdict_verbatim():
+    """The Verdict column is the client-facing deliverable. It used to normalise
+    an unrecognised wording through a band->verdict map built by INVERTING
+    BAND_FOR_VERDICT — and three verdicts now share the hard_fail band, so the
+    inversion kept only the last and relabelled every specification
+    contradiction as an impossible product."""
+    import exporter
+    for v in scoring.BAND_FOR_VERDICT:
+        rec = {"verdict": v, "band": scoring.BAND_FOR_VERDICT[v]}
+        assert exporter._verdict_enum(rec) == v, v
+
+
+def test_legacy_hard_fail_wording_falls_back_to_the_original_verdict():
+    """Every stored run with band=hard_fail predates the other two hard fails."""
+    import exporter
+    assert exporter._verdict_enum({"verdict": "Counterfeit", "band": "hard_fail"}) ==         "Counterfeit — Label Validation Failed"
+
+
+def test_every_verdict_has_a_band_and_a_lane():
+    for v, band in scoring.BAND_FOR_VERDICT.items():
+        assert band in scoring.LANE_FOR_BAND, v
+        assert scoring.LANE_FOR_BAND[band] in ("CLEARED", "REVIEW", "REJECTED"), v
+
+
+# ---- rung 4b: any one dimension in the counterfeit band --------------------
+def test_every_dimension_convicts_alone_at_the_band():
+    """The mandatory rule. All five, no exceptions, no corroboration."""
+    for name in DIMENSIONS:
+        dims = [dim(d, (61 if d == name else 2)) for d in DIMENSIONS]
+        c = agg(dims)
+        assert c["verdict_label"] == "Suspected Counterfeit", name
+        assert c["lane"] == "REJECTED", name
+        assert c["driver"] == name, name
+
+
+def test_one_below_the_band_does_not_convict():
+    for name in DIMENSIONS:
+        dims = [dim(d, (60 if d == name else 2)) for d in DIMENSIONS]
+        assert agg(dims)["verdict_label"] != "Suspected Counterfeit", name
+
+
+def test_a_partial_dimension_never_convicts_alone():
+    """A partial never resolved its method class, so it scored on geometry and
+    placement — and a rumpled garment alone produces baseline_deviation near 90.
+    Letting that convict turns every badly-photographed genuine item into a
+    rejection. Flip PARTIAL_MAY_CONVICT to change it."""
+    for score in (61, 80, 99, 100):
+        dims = [dim("Material", score, state=scoring.DimState.PARTIAL)]
+        dims += [dim(d, 2) for d in DIMENSIONS if d != "Material"]
+        assert agg(dims)["verdict_label"] != "Suspected Counterfeit", score
+
+
+def test_an_estimated_dimension_never_convicts():
+    """A filled cell is not an observation. Four guesses must not outvote one
+    measurement, and one guess must not convict on its own."""
+    dims = [dim("Material", 95, "estimated", 0.3)]
+    dims += [dim(d, 2) for d in DIMENSIONS if d != "Material"]
+    assert agg(dims)["verdict_label"] != "Suspected Counterfeit"
+
+
+def test_a_dimension_below_the_confidence_floor_never_convicts():
+    dims = [dim("Material", 95, confidence=0.30)]
+    dims += [dim(d, 2) for d in DIMENSIONS if d != "Material"]
+    assert agg(dims)["verdict_label"] != "Suspected Counterfeit"
+
+
+def test_the_band_convicts_regardless_of_coverage():
+    """Rung 4b sits above every coverage gate: it does not consult the
+    composite, so there is nothing for thin coverage to moderate."""
+    dims = [dim("Hardware", 75, coverage=0.2)]
+    dims += [dim(d, None, "abstain", 0.0) for d in DIMENSIONS if d != "Hardware"]
+    c = agg(dims)
+    assert c["verdict_label"] == "Suspected Counterfeit"
+    assert c["coverage_pct"] < 0.35
+
+
+def test_the_worst_dimension_becomes_the_driver():
+    dims = [dim("Logo", 65), dim("Material", 88), dim("Label", 70)]
+    dims += [dim(d, 2) for d in DIMENSIONS if d not in ("Logo", "Material", "Label")]
+    assert agg(dims)["driver"] == "Material"
+
+
+def test_the_new_knobs_live_in_the_config_block():
+    for key in ("DIM_COUNTERFEIT", "PARTIAL_MAY_CONVICT"):
+        assert key in scoring.SCORING_CONSTANTS
+        assert getattr(scoring, key) == scoring.SCORING_CONSTANTS[key]
+    assert scoring.DIM_COUNTERFEIT == scoring.BAND_COUNTERFEIT   # same band, both scales

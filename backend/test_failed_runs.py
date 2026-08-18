@@ -111,13 +111,12 @@ FAILED = base(engine="Kimi K2.6", verdict="Run Failed", score=None, band="error"
               confidence=None, cost=None, latency_ms=None)
 
 
-def test_export_shows_the_failure_and_its_reason():
-    """Verdict carries the ENUM ONLY so the column can be filtered and pivoted;
-    the explanation moved to Reason, where one long cell cannot stretch the row."""
+
+def test_export_shows_the_failure_as_its_own_verdict():
+    """A failed run is not a blank row — it says Run Failed in the enum column."""
     ws = _wb([base(), FAILED])["VERITAS analyses"]
     assert verdict_at(ws, 3, 0) == "Inconclusive"
     assert verdict_at(ws, 3, 1) == "Run Failed"
-    assert ws.cell(3, col_of(ws, "Reason", 1)).value == "engine exceeded the time budget"
 
 
 def test_failed_engine_shares_the_row_with_the_successful_one():
@@ -178,6 +177,7 @@ def test_failed_runs_are_not_relabelled_as_not_run():
 
 
 # ---- one engine, one block -------------------------------------------------
+
 def test_label_drift_collapses_into_a_single_block():
     """The bug that hid half the sheet: the same engine saved under different
     spellings created several column blocks, so scores existed but sat off to
@@ -190,10 +190,9 @@ def test_label_drift_collapses_into_a_single_block():
     assert engine_label(ws, 0) == "GPT-5.5"
     assert len([c for c in range(1, ws.max_column + 1)
                 if ws.cell(2, c).value == "Verdict"]) == 1   # no second engine block
-    sc = col_of(ws, "Deviation", 0)
-    # Deviation is a fused 'value @ coverage' cell; these runs carry no
-    # coverage, so it renders the bare number.
-    assert [ws.cell(r, sc).value for r in range(3, 7)] == ["48", "17", "20", "33"]
+    # One block means one Verdict column and four populated rows under it.
+    vc = col_of(ws, "Verdict", 0)
+    assert all(ws.cell(r, vc).value not in (None, "", "not run") for r in range(3, 7))
 
 
 def test_distinct_engines_still_get_their_own_block():
@@ -433,40 +432,24 @@ def test_export_filename_describes_the_selection():
 
 
 # ---- coverage travels with the score ---------------------------------------
-def test_the_column_order_puts_the_verdict_first_and_telemetry_last():
-    """Deviation is not the answer — in the current corpus every case exits at
-    the required-evidence gate before the composite is consulted. Beside Verdict
-    it competes for attention and gets read as the result, so it lives in the
-    telemetry block on the right."""
-    wb = _wb([base()])
-    an = wb["VERITAS analyses"]
-    order = ["Verdict", "Assessed", "Lane", "Driver", *exporter.DIMS,
-             "Recapture", "Reason", "Verifier", "Deviation", "Cost ($)", "Latency (s)"]
+
+def test_the_analyses_sheet_carries_only_the_agreed_columns():
+    """The client-facing format, locked.
+
+    Lane, Driver, Recapture, Reason, Verifier, Deviation, Cost, Latency and the
+    five finding columns were removed by request. They are all still COMPUTED
+    and still stored on the run record — this asserts only what the sheet
+    RENDERS, so a helper quietly reappearing in `vals` is caught here."""
+    an = _wb([base()])["VERITAS analyses"]
+    order = ["Verdict", "Assessed", *exporter.DIMS]
     cols = [col_of(an, h) for h in order]
-    assert cols == sorted(cols), f"columns are out of order: {order}"
-    # the standalone Coverage column is gone — it is fused into Deviation
+    assert cols == sorted(cols), "columns are out of order"
+
     heads = {an.cell(2, c).value for c in range(1, an.max_column + 1)}
-    assert "Coverage" not in heads
-    assert "Score" not in heads
-
-    sc = wb["Engine scorecard"]
-    sheads = {sc.cell(1, c).value for c in range(1, sc.max_column + 1)}
-    assert "Avg coverage" in sheads
-    assert {"% Cleared", "% Review", "% Rejected"} <= sheads
-
-
-def test_deviation_and_coverage_are_one_cell():
-    """A deviation of 15 over 20% of the item and one over 90% are different
-    claims. Splitting the pair across the sheet is what lets someone read one
-    without the other."""
-    ws = _wb([base(score=15, deviation=15, coverage=0.68)])["VERITAS analyses"]
-    assert ws.cell(3, col_of(ws, "Deviation")).value == "15 @ 68%"
-
-
-def test_deviation_is_grey_and_only_the_verdict_is_coloured():
-    ws = _wb([base(band="counterfeit", score=70, deviation=70, coverage=0.8)])["VERITAS analyses"]
-    assert ws.cell(3, col_of(ws, "Verdict")).font.color.rgb.endswith("C0392B")
-    assert str(ws.cell(3, col_of(ws, "Deviation")).font.color.rgb).endswith("6B7280")
+    for gone in ("Lane", "Driver", "Recapture", "Reason", "Verifier", "Deviation",
+                 "Coverage", "Cost ($)", "Latency (s)",
+                 *[f"{d} finding" for d in exporter.DIMS]):
+        assert gone not in heads, f"{gone} is back on the analyses sheet"
 
 
 def test_the_assessed_column_is_out_of_applicable_not_out_of_five():
@@ -474,14 +457,12 @@ def test_the_assessed_column_is_out_of_applicable_not_out_of_five():
     assert ws.cell(3, col_of(ws, "Assessed")).value == "4/4 · 0 partial"
 
 
-def test_deviation_is_blank_for_a_run_saved_before_it_existed():
-    ws = _wb([base(score=None)])["VERITAS analyses"]
-    assert ws.cell(3, col_of(ws, "Deviation")).value in (None, "")
 
-
-def test_engine_block_is_twenty_columns():
-    ws = _wb([base(case_id="C1", engine="gpt-5.5"), base(case_id="C1", engine="Kimi K2.6")])["VERITAS analyses"]
-    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 20
+def test_engine_block_is_seven_columns():
+    """Verdict, Assessed and the five dimensions. Nothing else."""
+    ws = _wb([base(case_id="C1", engine="gpt-5.5"),
+              base(case_id="C1", engine="Kimi K2.6")])["VERITAS analyses"]
+    assert col_of(ws, "Verdict", 1) - col_of(ws, "Verdict", 0) == 7
 
 
 def test_verdict_keeps_its_band_colour():
@@ -500,24 +481,16 @@ def test_estimated_cells_still_italicise_after_the_shift():
 
 
 # ---- the reporting layer must not lie about the scoring ---------------------
-def test_the_exported_deviation_is_the_stored_composite():
-    """The Deviation cell is the composite the ladder actually produced. Nothing
-    in the reporting layer may transform it — a sheet whose number disagrees
-    with the methodology is worse than no number at all."""
-    for value in (0, 12, 15, 50, 85, 100):
-        ws = _wb([base(score=value, deviation=value, coverage=0.5)])["VERITAS analyses"]
-        assert ws.cell(3, col_of(ws, "Deviation")).value == f"{value} @ 50%"
 
-
-def test_verdict_is_an_enum_and_reason_carries_the_prose():
+def test_verdict_is_an_enum_and_nothing_else():
+    """One filterable, pivotable value per cell — never the explanation."""
     r = base(verdict="Insufficient Evidence", band="insufficient",
              reason="only 31% of the label checks could be run (need 50%). "
                     "Contributing: Label.", capped=True)
     ws = _wb([r])["VERITAS analyses"]
-    assert ws.cell(3, col_of(ws, "Verdict")).value == "Insufficient Evidence"
-    assert "31%" in ws.cell(3, col_of(ws, "Reason")).value
-    # Reason sits after Recapture at the end of the block, not beside Verdict
-    assert col_of(ws, "Reason") == col_of(ws, "Recapture") + 1
+    v = ws.cell(3, col_of(ws, "Verdict")).value
+    assert v == "Insufficient Evidence"
+    assert "31%" not in v and "\n" not in v
 
 
 def test_verdict_keeps_its_colour_after_the_split():
@@ -577,40 +550,45 @@ def test_assessed_states_how_much_was_only_partial():
     assert ws.cell(3, col_of(ws, "Assessed")).value == "4/5 · 2 partial"
 
 
-def test_recapture_is_populated_for_insufficient_evidence():
-    r = base(verdict="Insufficient Evidence", band="insufficient",
-             recapture=["Label: Interior care tag, flat and in focus — fibre content, "
-                        "RN number and style number legible"])
-    ws = _wb([r])["VERITAS analyses"]
-    assert "Interior care tag" in ws.cell(3, col_of(ws, "Recapture")).value
-
-
-def test_verifier_reports_agreement_and_the_independent_labels():
-    r = base(verifier="2/3", reviewer_labels=["Insufficient Evidence",
-                                              "Insufficient Evidence",
-                                              "Suspected Counterfeit"])
-    ws = _wb([r])["VERITAS analyses"]
-    v = ws.cell(3, col_of(ws, "Verifier")).value
-    assert v.startswith("2/3 · ")
-    assert v.count("Insufficient") == 2 and "Suspected CF" in v
 
 
 def test_a_reviewer_calling_counterfeit_forces_review_on_a_cleared_item():
     """The pipeline and a reviewer disagreeing about whether an item is genuine
-    is exactly the case a person should look at."""
-    cleared = base(band="likely_authentic", verdict="Likely Authentic", lane="CLEARED",
-                   reviewer_labels=["Likely Authentic"] * 3)
-    ws = _wb([cleared])["VERITAS analyses"]
-    assert ws.cell(3, col_of(ws, "Lane")).value == "CLEARED"
+    is exactly the case a person should look at.
+
+    Asserted against the FUNCTION, not a cell. The analyses sheet no longer
+    prints Lane, and Model comparison only renders with two or more engines —
+    so on a single-engine run this override is currently surfaced nowhere in the
+    workbook. The logic is unchanged and still drives Model comparison; this
+    test is what keeps it from being quietly deleted as dead code."""
+    agreed = base(band="likely_authentic", verdict="Likely Authentic", lane="CLEARED",
+                  reviewer_labels=["Likely Authentic"] * 3)
+    assert exporter._lane_with_review_override(agreed) == "CLEARED"
 
     disputed = base(band="likely_authentic", verdict="Likely Authentic", lane="CLEARED",
                     reviewer_labels=["Likely Authentic", "Likely Authentic",
                                      "Suspected Counterfeit"])
-    ws = _wb([disputed])["VERITAS analyses"]
-    assert ws.cell(3, col_of(ws, "Lane")).value == "REVIEW"
+    assert exporter._lane_with_review_override(disputed) == "REVIEW"
+
+
+def test_the_review_override_still_reaches_model_comparison():
+    """Two engines, so the comparison sheet renders — the one place the override
+    is still visible to a reader."""
+    disputed = [base(case_id="C1", engine="gpt-5.5", band="likely_authentic",
+                     verdict="Likely Authentic", lane="CLEARED",
+                     reviewer_labels=["Likely Authentic", "Likely Authentic",
+                                      "Suspected Counterfeit"]),
+                base(case_id="C1", engine="Kimi K2.6", band="likely_authentic",
+                     verdict="Likely Authentic", lane="CLEARED",
+                     reviewer_labels=["Likely Authentic"] * 3)]
+    ws = _wb(disputed)["Model comparison"]
+    lanes = [c for c in range(1, ws.max_column + 1) if ws.cell(2, c).value == "Lane"]
+    assert lanes, "Model comparison lost its Lane column"
+    assert ws.cell(3, lanes[0]).value == "REVIEW"
 
 
 # ---- Reference Mismatch is terminal ----------------------------------------
+
 def test_a_mismatch_row_shows_no_numbers_at_all():
     """Rule 2 is terminal. If the suspect and the reference are different
     products the comparison never validly happened, and those dimension numbers
@@ -625,12 +603,9 @@ def test_a_mismatch_row_shows_no_numbers_at_all():
                              "state": "estimated"} for d in exporter.DIMS})
     ws = _wb([r])["VERITAS analyses"]
     assert ws.cell(3, col_of(ws, "Verdict")).value == "Reference Mismatch — Cannot Compare"
-    for head in ("Assessed", "Driver", "Deviation", "Verifier"):
-        assert ws.cell(3, col_of(ws, head)).value in (None, ""), head
+    assert ws.cell(3, col_of(ws, "Assessed")).value in (None, "")
     for d in exporter.DIMS:
         assert ws.cell(3, col_of(ws, d)).value in (None, ""), d
-    # ...but it still routes somewhere a person will see it
-    assert ws.cell(3, col_of(ws, "Lane")).value == "REVIEW"
 
 
 def test_a_mismatch_never_spends_a_model_call(monkeypatch):
@@ -650,14 +625,6 @@ def test_a_mismatch_never_spends_a_model_call(monkeypatch):
     assert out["dimension_results"][0]["score"] is None
 
 
-def test_a_run_that_produced_no_verdict_has_a_blank_verifier():
-    """'refuted' on a Run Failed row is a reviewer's opinion of a verdict that
-    does not exist."""
-    ws = _wb([FAILED])["VERITAS analyses"]
-    assert ws.cell(3, col_of(ws, "Verifier")).value in (None, "")
-    assert ws.cell(3, col_of(ws, "Lane")).value == "REVIEW"
-
-
 def test_the_assessed_format_never_varies():
     """A format that changes by row cannot be scanned down a column: '1/4' next
     to '1/5 · 2 partial' reads as two different measurements."""
@@ -673,3 +640,27 @@ def test_the_assessed_format_never_varies():
     vals = [ws.cell(r, c).value for r in (3, 4)]
     assert vals == ["1/4 · 0 partial", "4/5 · 2 partial"]
     assert all(" partial" in v for v in vals)
+
+
+def test_removed_columns_are_still_computed_on_the_record():
+    """The sheet stopped PRINTING them; the pipeline did not stop producing
+    them. Recapture in particular is the shot list that tells a person how to
+    resolve an Insufficient Evidence case, and it is still there to be surfaced
+    in the UI or a future column."""
+    import graph
+    import scoring
+    dims = [{"dimension": d, "score": None,
+             "state": scoring.DimState.NOT_ASSESSABLE, "confidence": 0.0,
+             "internal_coverage": 0.0, "status": "abstain", "finding": ""}
+            for d in exporter.DIMS]
+    comp = graph.aggregate_node({
+        "dimension_results": dims, "upc_result": {"status": "not_provided"},
+        "product_name": "jacket",
+        "pairing": {"status": "ok", "note": "", "suspect_item": ""},
+        "label_id": {"fields": {}, "validation": {"hard_fail": False,
+                                                  "failed": [], "summary": ""}},
+    })["composite"]
+    assert comp["verdict_label"] == "Insufficient Evidence"
+    assert comp["lane"] == "REVIEW"          # still computed, just not printed
+    assert comp["recapture"]                 # the shot list still exists
+    assert comp["reason"]                    # so does the explanation

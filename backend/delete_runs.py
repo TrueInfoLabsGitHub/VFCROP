@@ -20,6 +20,16 @@ import os
 import sys
 import time
 
+# Every other script that talks to Supabase from this machine does this first —
+# the local TLS stack is intercepted (Avast), so the system trust store has to be
+# injected or every request dies on CERTIFICATE_VERIFY_FAILED. This file was the
+# one that did not, which made it look like the database was unreachable.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:                       # not needed where TLS is not intercepted
+    pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import supa                                                      # noqa: E402

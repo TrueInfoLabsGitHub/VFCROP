@@ -725,7 +725,7 @@ _LOGO_PRIMITIVE_NAMES = sorted(set(_LOGO_GEOMETRY) | _LOGO_APPLICATION_ALL | set
 # The rubric prompt still describes application evidence as "weight 3x", which
 # is the right instruction to a model about what to look at hardest. The
 # arithmetic no longer uses per-primitive weights at all: the roll-up gives the
-# method group a FIXED 0.50 share (scoring.GROUP_SHARES), because under
+# method group a FIXED 50% share (scoring.GROUP_SHARES), because under
 # per-primitive weighting the method group's real share drifted with how many
 # primitives that method happened to have — embroidery 55%, rubberised 50%,
 # screen 44% — so two items were scored on different instruments.
@@ -1347,7 +1347,7 @@ def _normalise_primitive(dim, p, method):
     elif name in DAMPED_PRIMITIVES:
         val = min(val, scoring.DAMP_CEILING)    # exposure, not authenticity
     # Below the confidence floor the row is an impression, not an observation.
-    if conf < scoring.PRIMITIVE_MIN_CONFIDENCE:
+    if conf < scoring.PRIMITIVE_MIN_CONFIDENCE / 100:
         return {"name": name, "deviation": None, "confidence": conf, "group": group}
     return {"name": name, "deviation": val, "confidence": conf, "group": group}
 
@@ -1647,10 +1647,15 @@ _LABEL_ID_SCHEMA = {
         "country_of_origin": {"type": "string"},
         "size_neck": {"type": "string"}, "size_care": {"type": "string"},
         "care_text": {"type": "string"}, "product_family": {"type": "string"},
+        # Phase 1b. Both feed deterministic rules only — a date turns on
+        # every era check, and the mark text is what the sub-brand,
+        # tagline and collaboration checks read. Neither is interpreted.
+        "date_code": {"type": "string"}, "mark_text": {"type": "string"},
         "legible": {"type": "boolean"},
     },
     "required": ["rn", "ca", "style_number", "fiber_content", "country_of_origin",
-                 "size_neck", "size_care", "care_text", "product_family", "legible"],
+                 "size_neck", "size_care", "care_text", "product_family",
+                 "date_code", "mark_text", "legible"],
     "additionalProperties": False,
 }
 
@@ -1672,6 +1677,13 @@ _LABEL_ID_PROMPT = (
     "- size_neck / size_care: size as printed on the neck tag and on the care tag "
     "respectively; leave a field empty if that tag is not shown.\n"
     "- care_text: the care/washing instruction text verbatim.\n"
+    "- date_code: any manufacture date, season code or year printed anywhere "
+    "on the tags, verbatim (e.g. FW19, 2019, 09/2021, AW21). Leave empty if none "
+    "is visible — never infer a date from how the product looks.\n"
+    "- mark_text: every brand mark, sub-brand, series name, tagline or "
+    "collaboration name printed on the tags, verbatim and comma-separated "
+    "(e.g. SUMMIT SERIES, NEVER STOP EXPLORING). Copy what is printed — never "
+    "add a mark you expect to be there.\n"
     "- legible: true only if at least one tag was clearly readable.\n\n"
     "Return JSON only."
 )
@@ -1936,6 +1948,8 @@ _AGREEMENT_CLASS = {
     "Insufficient Evidence": "insufficient",
     "Suspected Counterfeit": "adverse",
     "Counterfeit — Label Validation Failed": "adverse",
+    "Counterfeit — Specification Contradiction": "adverse",
+    "Counterfeit — Impossible Product": "adverse",
     "Reference Mismatch — Cannot Compare": "review",
     "Run Failed": "review",
 }

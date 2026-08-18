@@ -1,0 +1,130 @@
+{
+  "_README": {
+    "what": "Per-style published specification. Read by sku_registry.py and spec_rules.py.",
+    "scale": "Every value here is what THE NORTH FACE publishes for that style. Nothing is inferred.",
+    "years": "Rows are keyed by the first year the spec is known good. A lookup for an OLDER garment returns None -> every check reports unknown, which is the safe direction. Do not backdate a row to make it match.",
+    "fields": {
+      "decoration_method": "embroidery | screen | rubberised | transfer  (matches the Logo rubric's application_method enum)",
+      "structure_type": "woven | knit | fleece_pile | coated_laminate | nonwoven  (matches the Material rubric's structure_type enum)",
+      "primary_fibres": "acceptable dominant shell/body fibres; a list because solids and heathers differ",
+      "has_zip": "false means the garment has no zip at all - a detected zip is a contradiction",
+      "fill_power": "null for synthetic insulation. A stated fill power on a null row is a contradiction",
+      "membrane": "null when the garment has no membrane"
+    }
+  },
+
+  "NF0A3C8D": {
+    "2023": {
+      "name": "1996 Retro Nuptse Jacket",
+      "decoration_method": "embroidery",
+      "logo_placements": ["left_chest", "back_right_shoulder", "left_sleeve_700"],
+      "structure_type": "woven",
+      "primary_fibres": ["nylon"],
+      "shell_denier_gsm": "40D 57 g/m2 recycled nylon ripstop",
+      "lining_denier_gsm": "50D 69 g/m2 recycled nylon taffeta",
+      "fill_power": 700,
+      "fill_type": "recycled down",
+      "insulation_kind": "down",
+      "membrane": null,
+      "zipper_line": "VISLON",
+      "has_zip": true,
+      "seam_sealing": null
+    }
+  },
+
+  "NF0A88XH": {
+    "2023": {
+      "name": "Retro Denali Jacket",
+      "decoration_method": "embroidery",
+      "logo_placements": ["left_chest", "back_right_shoulder"],
+      "structure_type": "fleece_pile",
+      "primary_fibres": ["polyester"],
+      "shell_denier_gsm": "360 g/m2 recycled polyester fleece body",
+      "lining_denier_gsm": "118 g/m2 recycled nylon overlay",
+      "fill_power": null,
+      "fill_type": null,
+      "insulation_kind": null,
+      "membrane": null,
+      "zipper_line": "VISLON",
+      "has_zip": true,
+      "seam_sealing": null
+    }
+  },
+
+  "NF0A8D1P": {
+    "2023": {
+      "name": "ThermoBall Jacket 2.0",
+      "decoration_method": "embroidery",
+      "logo_placements": ["left_chest", "back_right_shoulder"],
+      "structure_type": "woven",
+      "primary_fibres": ["polyester"],
+      "shell_denier_gsm": "20D 44 g/m2 WINDWALL recycled polyester",
+      "lining_denier_gsm": "30D 52 g/m2 WINDWALL",
+      "fill_power": null,
+      "fill_type": "ThermoBall recycled polyester",
+      "insulation_kind": "synthetic",
+      "membrane": "WINDWALL",
+      "zipper_line": "VISLON",
+      "has_zip": true,
+      "seam_sealing": null
+    }
+  },
+
+  "NF0A5GLL": {
+    "2023": {
+      "name": "ThermoBall Eco Jacket 2.0",
+      "decoration_method": "embroidery",
+      "logo_placements": ["left_chest", "back_right_shoulder"],
+      "structure_type": "woven",
+      "primary_fibres": ["polyester"],
+      "shell_denier_gsm": "20D 44 g/m2 WINDWALL recycled polyester",
+      "lining_denier_gsm": "30D 52 g/m2 WINDWALL",
+      "fill_power": null,
+      "fill_type": "ThermoBall recycled polyester",
+      "insulation_kind": "synthetic",
+      "membrane": "WINDWALL",
+      "zipper_line": "VISLON",
+      "has_zip": true,
+      "seam_sealing": null
+    }
+  },
+
+  "NF0A831M": {
+    "2023": {
+      "name": "GORE-TEX Mountain Jacket",
+      "decoration_method": "embroidery",
+      "logo_placements": ["left_chest", "back_right_shoulder"],
+      "structure_type": "coated_laminate",
+      "primary_fibres": ["polyester"],
+      "shell_denier_gsm": "150D 176 g/m2 GORE-TEX 2L recycled polyester",
+      "lining_denier_gsm": "73 g/m2 recycled polyester",
+      "fill_power": null,
+      "fill_type": null,
+      "insulation_kind": null,
+      "membrane": "GORE-TEX",
+      "layer_count": "2L",
+      "zipper_line": null,
+      "has_zip": true,
+      "seam_sealing": "fully_taped"
+    }
+  },
+
+  "NF0A7UNL": {
+    "2023": {
+      "name": "Half Dome Pullover Hoodie",
+      "decoration_method": "screen",
+      "logo_placements": ["chest"],
+      "structure_type": "knit",
+      "primary_fibres": ["cotton", "polyester"],
+      "shell_denier_gsm": "250 g/m2 body; 73/27 cotton-polyester solids or 56/44 polyester-cotton heathers",
+      "lining_denier_gsm": null,
+      "fill_power": null,
+      "fill_type": null,
+      "insulation_kind": null,
+      "membrane": null,
+      "zipper_line": null,
+      "has_zip": false,
+      "seam_sealing": null
+    }
+  }
+}

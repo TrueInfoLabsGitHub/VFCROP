@@ -373,6 +373,10 @@ def _build_record(req: ExportSaveReq) -> dict:
                                     "internal_coverage": x.get("internal_coverage", 0.0)}
                for x in dims if x.get("dimension")}
     upc = d.get("upc") or {}
+    # ALWAYS a dict. Read in two places below, and a malformed or legacy
+    # payload carrying a non-dict here would break persistence outright.
+    _f = (d.get("label_id") or {}).get("fields")
+    _fields = _f if isinstance(_f, dict) else {}
     verd = d.get("verdict") or {}
     tot = (d.get("report") or {}).get("totals") or {}
     evals = (d.get("report") or {}).get("evals") or {}
@@ -410,7 +414,46 @@ def _build_record(req: ExportSaveReq) -> dict:
             "counts": (((d.get("label_id") or {}).get("validation")) or {}).get("counts", {}),
             "summary": (((d.get("label_id") or {}).get("validation")) or {}).get("summary", ""),
         },
-        "style_number": (((d.get("label_id") or {}).get("fields")) or {}).get("style_number", ""),
+        "spec_validation": {
+            "spec_hard_fail": bool((comp.get("spec_validation") or {}).get("spec_hard_fail")),
+            "provenance_hard_fail": bool(
+                (comp.get("spec_validation") or {}).get("provenance_hard_fail")),
+            "failed": (comp.get("spec_validation") or {}).get("failed", []),
+            "counts": (comp.get("spec_validation") or {}).get("counts", {}),
+            "internal_coverage": (comp.get("spec_validation") or {}).get(
+                "internal_coverage", 0.0),
+            "summary": (comp.get("spec_validation") or {}).get("summary", ""),
+        },
+        "logo_validation": {
+            "spec_hard_fail": bool((comp.get("logo_validation") or {}).get("spec_hard_fail")),
+            "provenance_hard_fail": bool(
+                (comp.get("logo_validation") or {}).get("provenance_hard_fail")),
+            "failed": (comp.get("logo_validation") or {}).get("failed", []),
+            "counts": (comp.get("logo_validation") or {}).get("counts", {}),
+            "internal_coverage": (comp.get("logo_validation") or {}).get(
+                "internal_coverage", 0.0),
+            "summary": (comp.get("logo_validation") or {}).get("summary", ""),
+        },
+        "material_validation": {
+            "spec_hard_fail": bool((comp.get("material_validation") or {}).get("spec_hard_fail")),
+            "provenance_hard_fail": bool(
+                (comp.get("material_validation") or {}).get("provenance_hard_fail")),
+            "failed": (comp.get("material_validation") or {}).get("failed", []),
+            "counts": (comp.get("material_validation") or {}).get("counts", {}),
+            "internal_coverage": (comp.get("material_validation") or {}).get(
+                "internal_coverage", 0.0),
+            "summary": (comp.get("material_validation") or {}).get("summary", ""),
+        },
+        # The OCR'd tag text the deterministic layers ran on. Kept because a
+        # verdict that cannot be re-derived is not auditable, and because every
+        # future text rule has to be backtestable against real tags — the first
+        # material rules shipped blind precisely because this was not stored.
+        "label_fields": {
+            k: _fields.get(k, "")
+            for k in ("care_text", "fiber_content", "product_family", "date_code",
+                      "mark_text", "style_number")
+        },
+        "style_number": _fields.get("style_number", ""),
         "pairing": (d.get("pairing") or {}).get("status", ""),
         "dimensions": dim_map,
         "upc": {"status": upc.get("status", ""), "extracted": upc.get("extracted", ""),

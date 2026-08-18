@@ -154,7 +154,7 @@ def test_5_no_escape_invariant():
             label = next(x for x in r["dimension_states"] if x["dimension"] == "Label")
             assert label["state"] == DimState.MEASURED, \
                 f"cleared with a {label['state']} label: {r['verdict_label']}"
-            assert label["internal_coverage"] >= scoring.LABEL_EVIDENCE_COVERAGE, \
+            assert label["internal_coverage"] >= scoring.LABEL_EVIDENCE_COVERAGE / 100, \
                 f"cleared on {label['internal_coverage']:.0%} label coverage"
             others = [x for x in r["dimension_states"]
                       if x["dimension"] != "Label" and x["state"] == DimState.MEASURED
