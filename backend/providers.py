@@ -680,11 +680,15 @@ def _aggregate_label(checks):
 
 
 def _band(score):
+    """The band a single dimension's score falls in.
+
+    Kept in step with scoring.BAND_* on purpose: a cell reading "caution" beside
+    a verdict of Suspected Counterfeit is the sheet contradicting itself."""
     if score is None:
         return "neutral"
-    if score <= 30:
+    if score <= scoring.BAND_AUTHENTIC:
         return "authentic"
-    if score <= 60:
+    if score <= scoring.BAND_LIKELY_AUTH:
         return "caution"
     return "counterfeit"
 

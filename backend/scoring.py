@@ -66,19 +66,37 @@ SCORING_CONSTANTS = {
     "DISPOSITIVE_THRESHOLD": 85,
     "DISPOSITIVE_CONFIDENCE": 60,
     # ANY ONE DIMENSION in the counterfeit band convicts the item, without
-    # corroboration and without a coverage requirement. Starts equal to
+    # corroboration and without a coverage requirement. Held equal to
     # BAND_COUNTERFEIT so "the counterfeit band" means the same number whether
     # it is applied to one dimension or to the composite; kept as its own key so
     # the two can be fitted apart later.
-    "DIM_COUNTERFEIT": 61,
+    "DIM_COUNTERFEIT": 31,
     # Whether a PARTIAL dimension may convict on its own. False by design: a
     # partial ran on geometry and placement, and a rumpled garment alone
     # produces baseline_deviation around 90 (see GROUP_FLOOR_FACTOR). Turning
     # this on converts every badly-photographed genuine item into a rejection.
     "PARTIAL_MAY_CONVICT": False,
-    "BAND_AUTHENTIC": 5,
+    # The band ladder, set by the operator:
+    #     0-10   authentic
+    #    11-30   caution
+    #    31+     counterfeit
+    #
+    # NOTE, RECORDED DELIBERATELY. Two constants below were chosen to sit UNDER
+    # the old counterfeit floor of 61 and now sit ABOVE this one:
+    #
+    #   * DAMP_CEILING (50) caps exposure-sensitive primitives - sheen, gloss,
+    #     DWR beading - so they could "suggest suspicious and never more". A cap
+    #     of 50 is above a floor of 31, so lighting can now reach the counterfeit
+    #     band on its own.
+    #   * GROUP_FLOOR_FACTOR["geometry"] (60) against the ~90 baseline_deviation
+    #     a RUMPLED GARMENT produces gives 54, also above 31, so creasing can now
+    #     reach it too.
+    #
+    # Both were left as they are on instruction. If false rejections on genuine
+    # stock climb, these two are the first place to look - not the bands.
+    "BAND_AUTHENTIC": 10,
     "BAND_LIKELY_AUTH": 30,
-    "BAND_COUNTERFEIT": 61,
+    "BAND_COUNTERFEIT": 31,
     "COVERAGE_FOR_COUNTERFEIT": 35,
     "COVERAGE_FOR_CONCLUSION": 50,
     "COVERAGE_FOR_LIKELY_AUTH": 60,

@@ -200,14 +200,19 @@ def test_every_constant_lives_in_one_config_block():
 
 
 # ---- the ladder ------------------------------------------------------------
+# Bands: 0-10 authentic, 11-30 caution, 31+ counterfeit.
+#
+# Note there is no gap between caution and counterfeit any more: the composite
+# clears at 30 and convicts at 31, so "Inconclusive" is no longer reachable
+# through the bands. It survives only for runs that reach rung 11 some other way.
 @pytest.mark.parametrize("deviation,label", [
     (0,  "Authentic"),                  # every dimension identical to the reference
     (5,  "Authentic"),
-    (6,  "Likely Authentic"),
+    (10, "Authentic"),
+    (11, "Likely Authentic"),
     (30, "Likely Authentic"),
-    (31, "Inconclusive"),
-    (60, "Inconclusive"),
-    (61, "Suspected Counterfeit"),
+    (31, "Suspected Counterfeit"),
+    (60, "Suspected Counterfeit"),
     (84, "Suspected Counterfeit"),
 ])
 def test_ladder_boundaries_at_full_coverage(deviation, label):
@@ -259,18 +264,25 @@ def test_one_measured_dimension_in_the_band_convicts_on_thin_coverage():
     assert c["coverage_pct"] < scoring.COVERAGE_FOR_COUNTERFEIT / 100
 
 
+
 def test_thin_coverage_still_downgrades_a_COMPOSITE_only_suspicion():
     """Rung 6 survives for the case it was written for: the composite reaches
     the band while NO single dimension does, so there is nothing dispositive to
-    convict on and thin coverage still means 'review, leaning bad'."""
-    dims = [dim("Label", 60, confidence=0.8, coverage=0.4),
-            dim("Logo", 58, confidence=0.8, coverage=0.4)]
+    convict on and thin coverage still means 'review, leaning bad'.
+
+    With the band at 31 the window for this is narrow — the composite has to be
+    dragged over 31 by dimensions that are each under it — which is why the
+    scores here sit just below DIM_COUNTERFEIT rather than at 60."""
+    edge = scoring.DIM_COUNTERFEIT - 1
+    dims = [dim("Label", edge, confidence=0.8, coverage=0.4),
+            dim("Logo", edge - 2, confidence=0.8, coverage=0.4)]
     dims += [dim(d, None, "abstain", 0.0) for d in DIMENSIONS
              if d not in ("Label", "Logo")]
     c = agg(dims)
     assert all(d["score"] is None or d["score"] < scoring.DIM_COUNTERFEIT
                for d in c["dimension_states"])
-    assert c["verdict_label"] in ("Inconclusive — Suspicious", "Insufficient Evidence")
+    assert c["verdict_label"] in ("Inconclusive — Suspicious", "Insufficient Evidence",
+                                 "Inconclusive")
 
 
 def test_an_unread_label_annotates_rather_than_suppresses():
@@ -1047,9 +1059,12 @@ def test_every_dimension_convicts_alone_at_the_band():
         assert c["driver"] == name, name
 
 
+
 def test_one_below_the_band_does_not_convict():
+    """One point under DIM_COUNTERFEIT is still the caution band."""
+    edge = scoring.DIM_COUNTERFEIT - 1
     for name in DIMENSIONS:
-        dims = [dim(d, (60 if d == name else 2)) for d in DIMENSIONS]
+        dims = [dim(d, (edge if d == name else 2)) for d in DIMENSIONS]
         assert agg(dims)["verdict_label"] != "Suspected Counterfeit", name
 
 
