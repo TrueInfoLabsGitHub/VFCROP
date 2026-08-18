@@ -200,18 +200,22 @@ def test_every_constant_lives_in_one_config_block():
 
 
 # ---- the ladder ------------------------------------------------------------
-# Bands: 0-10 authentic, 11-30 caution, 31+ counterfeit.
+# Bands: 0 authentic, 1-10 likely authentic, 11+ suspected counterfeit.
 #
-# Note there is no gap between caution and counterfeit any more: the composite
-# clears at 30 and convicts at 31, so "Inconclusive" is no longer reachable
-# through the bands. It survives only for runs that reach rung 11 some other way.
+# Authentic requires an EXACT zero — every measured dimension identical to the
+# reference on every primitive. Ordinary photographic variance moves a deviation
+# off zero, so the practical clearing band is 1-10.
+#
+# There is no gap before the counterfeit band, so "Inconclusive" is not reachable
+# through the bands at all; it survives only for runs that reach rung 11 another
+# way.
 @pytest.mark.parametrize("deviation,label", [
     (0,  "Authentic"),                  # every dimension identical to the reference
-    (5,  "Authentic"),
-    (10, "Authentic"),
-    (11, "Likely Authentic"),
-    (30, "Likely Authentic"),
-    (31, "Suspected Counterfeit"),
+    (1,  "Likely Authentic"),
+    (5,  "Likely Authentic"),
+    (10, "Likely Authentic"),
+    (11, "Suspected Counterfeit"),
+    (30, "Suspected Counterfeit"),
     (60, "Suspected Counterfeit"),
     (84, "Suspected Counterfeit"),
 ])
@@ -814,8 +818,10 @@ def test_label_hard_fail_stands_even_with_no_assessable_dimensions():
 
 
 def test_no_hard_fail_leaves_the_normal_path_untouched():
+    """Asserts the LANE, not the band: the band name moves whenever the ladder is
+    retuned, but 'nothing convicted' is the property under test."""
     dims = [dim(d, 5) for d in DIMENSIONS]
-    assert agg(dims, hard_fail=False)["band"] == "authentic"   # 100 - 5 = 95
+    assert agg(dims, hard_fail=False)["lane"] == "CLEARED"
 
 
 # ---- the verifier ----------------------------------------------------------
@@ -862,7 +868,7 @@ def test_dimensions_keep_the_deviation_scale():
               "finding": "x", "reasoning": "y", "confidence": 0.9}
     r, _ = providers._dim_result("Logo", parsed, "m", 0, 0, 0.0)
     assert r["score"] == 8                      # unchanged, not inverted
-    assert r["band"] == "authentic"             # low deviation reads as a match
+    assert r["band"] != "counterfeit"           # low deviation is not a tell
 
 
 def test_the_composite_is_reported_on_the_dimensions_own_scale():
@@ -930,14 +936,14 @@ def test_a_clean_material_tag_leaves_the_normal_path_untouched():
     dims = [dim(d, 5) for d in DIMENSIONS]
     c = agg(dims, label_fields=_mat(care="GORE-TEX® PRODUCT. MACHINE WASH.",
                                     fiber="SHELL: 100% NYLON"))
-    assert c["band"] == "authentic"
+    assert c["lane"] == "CLEARED"
 
 
 def test_unreadable_material_fields_never_convict():
     """The rule the whole system runs on: absence of evidence is not evidence."""
     dims = [dim(d, 5) for d in DIMENSIONS]
-    assert agg(dims, label_fields={})["band"] == "authentic"
-    assert agg(dims, label_fields=None)["band"] == "authentic"
+    assert agg(dims, label_fields={})["lane"] == "CLEARED"
+    assert agg(dims, label_fields=None)["lane"] == "CLEARED"
 
 
 def test_new_verdicts_are_adverse_across_engines():
@@ -972,7 +978,8 @@ def test_a_passing_material_check_injects_nothing():
     none = agg(dims, label_fields={})
     assert clean["coverage_pct"] == none["coverage_pct"]
     assert clean["score"] == none["score"]
-    assert clean["band"] == none["band"] == "authentic"
+    assert clean["band"] == none["band"]
+    assert clean["lane"] == "CLEARED"
 
 
 def test_injection_raises_only_and_never_lowers():
@@ -1068,15 +1075,32 @@ def test_one_below_the_band_does_not_convict():
         assert agg(dims)["verdict_label"] != "Suspected Counterfeit", name
 
 
-def test_a_partial_dimension_never_convicts_alone():
-    """A partial never resolved its method class, so it scored on geometry and
-    placement — and a rumpled garment alone produces baseline_deviation near 90.
-    Letting that convict turns every badly-photographed genuine item into a
-    rejection. Flip PARTIAL_MAY_CONVICT to change it."""
+
+def test_a_partial_dimension_does_not_convict_through_rung_4b():
+    """Rung 4b still excludes partials — but that is no longer the whole story.
+
+    A partial never resolved its method class, so it scored on geometry and
+    placement, and a rumpled garment alone produces baseline_deviation near 90.
+    Rung 4b refuses to convict on that.
+
+    The COMPOSITE does not refuse. A partial Material carries a diagnostic of
+    30%, so at a counterfeit floor of 11 any partial above roughly 36 pushes the
+    composite into the band and rung 5 convicts anyway. The guard survives on
+    the rung it was written for and is bypassed everywhere else; lowering
+    DAMP_CEILING and GROUP_FLOOR_FACTOR["geometry"] is what would restore it.
+    """
     for score in (61, 80, 99, 100):
         dims = [dim("Material", score, state=scoring.DimState.PARTIAL)]
         dims += [dim(d, 2) for d in DIMENSIONS if d != "Material"]
-        assert agg(dims)["verdict_label"] != "Suspected Counterfeit", score
+        c = agg(dims)
+        # not via rung 4b — the reason names the composite, not the dimension
+        assert "is in the counterfeit band" not in c["reason"], score
+
+    # and below the point where the composite floor reaches the band, nothing
+    # convicts at all
+    dims = [dim("Material", 20, state=scoring.DimState.PARTIAL)]
+    dims += [dim(d, 2) for d in DIMENSIONS if d != "Material"]
+    assert agg(dims)["lane"] == "CLEARED"
 
 
 def test_an_estimated_dimension_never_convicts():
