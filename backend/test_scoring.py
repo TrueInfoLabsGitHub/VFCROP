@@ -200,22 +200,22 @@ def test_every_constant_lives_in_one_config_block():
 
 
 # ---- the ladder ------------------------------------------------------------
-# Bands: 0 authentic, 1-10 likely authentic, 11+ suspected counterfeit.
+# Bands: 0-3 authentic, 4-30 likely authentic, 31+ suspected counterfeit.
 #
-# Authentic requires an EXACT zero — every measured dimension identical to the
-# reference on every primitive. Ordinary photographic variance moves a deviation
-# off zero, so the practical clearing band is 1-10.
+# Authentic additionally requires every applicable dimension to have been
+# MEASURED — these cases satisfy that, so only the bands decide here. The
+# all-measured requirement is exercised on its own further down.
 #
 # There is no gap before the counterfeit band, so "Inconclusive" is not reachable
 # through the bands at all; it survives only for runs that reach rung 11 another
 # way.
 @pytest.mark.parametrize("deviation,label", [
     (0,  "Authentic"),                  # every dimension identical to the reference
-    (1,  "Likely Authentic"),
-    (5,  "Likely Authentic"),
+    (3,  "Authentic"),                  # the top of the authentic band
+    (4,  "Likely Authentic"),
     (10, "Likely Authentic"),
-    (11, "Suspected Counterfeit"),
-    (30, "Suspected Counterfeit"),
+    (30, "Likely Authentic"),           # the top of the clearing band
+    (31, "Suspected Counterfeit"),      # DIM_COUNTERFEIT — one dimension is enough
     (60, "Suspected Counterfeit"),
     (84, "Suspected Counterfeit"),
 ])
@@ -742,10 +742,23 @@ def test_style_resolution_is_unknown_without_a_catalogue():
 
 
 # ---- ALWAYS_SCORE: every cell filled, audit trail preserved ----------------
-def test_always_score_fills_an_unassessable_dimension():
-    """Requested behaviour: a number in every cell. It must still be marked
-    'estimated' rather than 'scored', so nothing downstream mistakes the
-    model's impression for a measurement."""
+def test_an_unassessable_dimension_gets_no_number_by_default():
+    """ALWAYS_SCORE is OFF by default, so a dimension the model could not see
+    carries score None and NOT_ASSESSABLE — never a figure that an exporter can
+    print as though it were a reading."""
+    parsed = {"assessable": False, "insufficient_reason": "logo not visible",
+              "score": 0, "finding": "x", "reasoning": "y", "confidence": 0.9,
+              "best_estimate_deviation": 64}
+    result, _ = providers._dim_result("Logo", parsed, "test-model", 0, 0, 0.0)
+    assert result["score"] is None
+    assert result["state"] == scoring.DimState.NOT_ASSESSABLE
+    assert result["internal_coverage"] == 0.0
+
+
+def test_always_score_when_switched_on_still_marks_the_cell_as_an_estimate(monkeypatch):
+    """The demo path. Even switched on it must never produce 'scored', so the
+    coverage count, the export and the ladder can all still tell the two apart."""
+    monkeypatch.setattr(providers, "ALWAYS_SCORE", True)
     parsed = {"assessable": False, "insufficient_reason": "logo not visible",
               "score": 0, "finding": "x", "reasoning": "y", "confidence": 0.9,
               "best_estimate_deviation": 64}
@@ -792,8 +805,8 @@ def test_no_node_name_collides_with_a_state_key():
 
 def test_graph_has_every_expected_node():
     nodes = {n for n in graph.build_graph().get_graph().nodes if not n.startswith("__")}
-    expected = {"intake", "check_pairing", "label_identity", "upc", "aggregate",
-                "synthesize", "build_report"} | {f"dim_{d}" for d in DIMENSIONS}
+    expected = {"intake", "locate", "check_pairing", "label_identity", "upc",
+                "aggregate", "synthesize", "build_report"} | {f"dim_{d}" for d in DIMENSIONS}
     assert nodes == expected
 
 
@@ -1009,16 +1022,28 @@ def test_deterministic_measurement_cannot_satisfy_the_evidence_gate():
                       deterministic=True)
     ok, why = scoring.evidence_gate([label, det])
     assert ok is False
-    assert "no forensic dimension besides the label" in why
+    assert "forensic dimension" in why
+    assert "Material" not in why          # the deterministic one does not count
 
+    # Two rubric-measured forensic dimensions clear the gate; the deterministic
+    # one alongside them is neither required nor counted.
     rubric = scoring.Dim("Material", 5, scoring.DimState.MEASURED, 0.8, 1.0)
-    assert scoring.evidence_gate([label, rubric])[0] is True
+    rubric2 = scoring.Dim("Stitching", 5, scoring.DimState.MEASURED, 0.8, 1.0)
+    assert scoring.evidence_gate([label, rubric, rubric2])[0] is True
+    # ...and one of them on its own does not, which is the change.
+    assert scoring.evidence_gate([label, rubric])[0] is False
 
 
 def test_a_rubric_measured_dimension_does_satisfy_the_gate():
-    """The control for the test above — nothing else about the gate moved."""
-    dims = [dim("Label", 5, coverage=1.0), dim("Material", 5, coverage=1.0)] + [
-        dim(d, None, "abstain", 0.0) for d in DIMENSIONS if d not in ("Label", "Material")]
+    """The control for the test above — nothing else about the gate moved.
+
+    Two forensic dimensions besides the Label, because clearance now requires
+    MIN_FORENSIC_DIMS_FOR_CLEARANCE of them. One legible logo on a garment whose
+    stitching, hardware and material were never resolved is not an examination."""
+    dims = [dim("Label", 5, coverage=1.0), dim("Material", 5, coverage=1.0),
+            dim("Stitching", 5, coverage=1.0)] + [
+        dim(d, None, "abstain", 0.0) for d in DIMENSIONS
+        if d not in ("Label", "Material", "Stitching")]
     c = agg(dims, label_fields={})
     assert scoring.evidence_gate(
         [scoring.Dim.from_record(d["dimension"], d) for d in dims])[0] is True

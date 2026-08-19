@@ -8,8 +8,8 @@ Scale is DEVIATION, everywhere, with no conversion anywhere: 0 = matches the
 verified-authentic reference, 100 = clearly different. Every primitive reports
 it this way, the roll-up `max(weighted_mean, 85% x worst)` is only a floor
 because higher means worse, the label critical floor is 85 and the counterfeit
-band is >= 61. The composite is reported on the same scale as the dimensions
-that produced it.
+band is the single constant DIM_COUNTERFEIT. The composite is reported on the
+same scale as the dimensions that produced it.
 
 The design principle, which every rule below serves: the system must clear an
 item on the PRESENCE of evidence, never on the ABSENCE of findings. A
@@ -42,11 +42,23 @@ SCORING_CONSTANTS = {
     "GROUP_SHARES": {"method": 50, "geometry": 30, "placement": 20},
     # Tiered worst-primitive floor. A flat 85 overfires on geometry, where a
     # rumpled garment alone produces baseline_deviation ~90.
-    "GROUP_FLOOR_FACTOR": {"method": 85, "geometry": 60, "placement": 60},
+    #
+    # geometry was 60. Against that ~90 baseline it produced a floor of 54 —
+    # above every conviction band this system has ever run, so CREASING ALONE
+    # CONVICTED. It is 30 so that the same rumpled garment lands at 27, under
+    # DIM_COUNTERFEIT with margin. test_a_rumpled_garment_cannot_convict holds
+    # this invariant; it is not a number to tune by eye.
+    "GROUP_FLOOR_FACTOR": {"method": 85, "geometry": 30, "placement": 60},
     "PRIMITIVE_MIN_CONFIDENCE": 50,
     # Exposure moves these more than authenticity does, so they may suggest
     # "suspicious" and never more. Mirrors the L1/L2 damping on the Label rubric.
-    "DAMP_CEILING": 50,
+    #
+    # Was 50. Through the method group's 85% floor that is 42 — above the
+    # conviction band, so a CAP WHOSE ENTIRE PURPOSE WAS TO PREVENT CONVICTION
+    # was convicting: glare on a shell fabric rejected genuine stock. At 25 the
+    # worst a fully-damped primitive can assert is 21, under DIM_COUNTERFEIT.
+    # test_no_damped_primitive_can_convict holds this.
+    "DAMP_CEILING": 25,
 
     # ---- Layer 2: dimensions -> a composite -------------------------------
     "DIM_WEIGHTS": {"Label": 30, "Logo": 25, "Hardware": 20,
@@ -65,46 +77,66 @@ SCORING_CONSTANTS = {
     # ---- the ladder --------------------------------------------------------
     "DISPOSITIVE_THRESHOLD": 85,
     "DISPOSITIVE_CONFIDENCE": 60,
+    # How many MEASURED forensic dimensions besides the Label an item must have
+    # before it may be cleared. One was not enough: it let a single legible
+    # logo, on a garment whose stitching, hardware and material were never
+    # resolved, stand in for an examination. Measured on 249 labelled
+    # counterfeits, moving this 1 -> 2 alongside COVERAGE_FOR_LIKELY_AUTH
+    # 60 -> 75 cut false clearances from 11 to 2.
+    "MIN_FORENSIC_DIMS_FOR_CLEARANCE": 2,
     # ANY ONE DIMENSION in the counterfeit band convicts the item, without
     # corroboration and without a coverage requirement. Held equal to
     # BAND_COUNTERFEIT so "the counterfeit band" means the same number whether
     # it is applied to one dimension or to the composite; kept as its own key so
     # the two can be fitted apart later.
-    "DIM_COUNTERFEIT": 11,
+    "DIM_COUNTERFEIT": 31,
     # Whether a PARTIAL dimension may convict on its own. False by design: a
     # partial ran on geometry and placement, and a rumpled garment alone
     # produces baseline_deviation around 90 (see GROUP_FLOOR_FACTOR). Turning
     # this on converts every badly-photographed genuine item into a rejection.
     "PARTIAL_MAY_CONVICT": False,
-    # The band ladder, set by the operator:
-    #        0   authentic          (an EXACT match on every measured dimension)
-    #     1-10   likely authentic
-    #     11+    suspected counterfeit
+    # The band ladder.
+    #        0-3   authentic          (all applicable dimensions MEASURED)
+    #       4-30   likely authentic
+    #       31+    suspected counterfeit
     #
-    # Authentic now requires a composite of exactly 0, which means every measured
-    # dimension scored 0 against the reference. Ordinary photographic variance -
-    # angle, lighting, wear, creasing - moves a deviation off zero, so in practice
-    # the clearing band is 1-10 and Authentic is close to unreachable.
+    # HOW THESE WERE CHOSEN, because the last two rebands were not.
     #
-    # NOTE, RECORDED DELIBERATELY. Two constants below were chosen to sit UNDER
-    # the old counterfeit floor of 61 and now sit ABOVE this one:
+    # Replayed over 249 runs of KNOWN COUNTERFEITS (backend/_replay_labelled.py),
+    # the false-clearance rate — the only number that must reach zero — was:
     #
-    #   * DAMP_CEILING (50) caps exposure-sensitive primitives - sheen, gloss,
-    #     DWR beading - so they could "suggest suspicious and never more". A cap
-    #     of 50 is FIVE TIMES a floor of 11, so lighting alone now convicts.
-    #   * GROUP_FLOOR_FACTOR["geometry"] (60) against the ~90 baseline_deviation
-    #     a RUMPLED GARMENT produces gives 54, also far above 11, so creasing
-    #     alone now convicts.
+    #     band 61   4.4%      band 31   4.4%      band 11   2.8%
     #
-    # Both were left as they are on instruction. If false rejections on genuine
-    # stock climb, these two are the first place to look - not the bands.
-    "BAND_AUTHENTIC": 0,
-    "BAND_LIKELY_AUTH": 10,
-    "BAND_COUNTERFEIT": 11,
+    # Lowering the band bought essentially nothing, because measured deviations
+    # on this corpus are BIMODAL: when a tell is resolved it scores 76-100, and
+    # when it is not it scores 0-6. p25 is 0 and p90 is 91. Nothing real lives
+    # between 11 and 31 — only photographic noise, which is why band 11
+    # convicted genuine stock for creasing (54) and glare (42).
+    #
+    # What actually drove false clearances to zero was evidence, not the band:
+    # COVERAGE_FOR_LIKELY_AUTH 60 -> 75, MIN_FORENSIC_DIMS_FOR_CLEARANCE 1 -> 2,
+    # and AUTHENTIC_REQUIRES_ALL_MEASURED. The band is back at 31 because that
+    # is where the signal is; the safety lives below, in the clearance gates.
+    #
+    # The two constants that used to sit above the conviction floor —
+    # DAMP_CEILING and GROUP_FLOOR_FACTOR["geometry"] — are now under it by
+    # construction, and two tests hold them there.
+    "BAND_AUTHENTIC": 3,
+    "BAND_LIKELY_AUTH": 30,
+    "BAND_COUNTERFEIT": 31,
+    # Authentic is a positive claim about a garment, made with no human in the
+    # loop. It therefore requires that every dimension the product HAS was
+    # actually measured — not merely that coverage crossed a percentage, which
+    # partials and weightings can reach without any given dimension having been
+    # examined. In practice this makes Authentic rare and Likely Authentic the
+    # ordinary clearance, which is the intended shape.
+    "AUTHENTIC_REQUIRES_ALL_MEASURED": True,
     "COVERAGE_FOR_COUNTERFEIT": 35,
     "COVERAGE_FOR_CONCLUSION": 50,
-    "COVERAGE_FOR_LIKELY_AUTH": 60,
-    "COVERAGE_FOR_AUTHENTIC": 75,
+    # 60 -> 75. THIS is the false-clearance lever, not the band. See the note on
+    # the band ladder above for the measured effect on the labelled corpus.
+    "COVERAGE_FOR_LIKELY_AUTH": 75,
+    "COVERAGE_FOR_AUTHENTIC": 90,
     # The anti-escape rule: coverage alone is gameable, so clearance also
     # requires the care tag to have actually been read.
     "LABEL_EVIDENCE_COVERAGE": 50,
@@ -141,6 +173,8 @@ PARTIAL_DIAGNOSTIC_FACTOR = _C["PARTIAL_DIAGNOSTIC_FACTOR"]
 MIN_DIM_CONFIDENCE = _C["MIN_DIM_CONFIDENCE"]
 DISPOSITIVE_THRESHOLD = _C["DISPOSITIVE_THRESHOLD"]
 DISPOSITIVE_CONFIDENCE = _C["DISPOSITIVE_CONFIDENCE"]
+MIN_FORENSIC_DIMS_FOR_CLEARANCE = _C["MIN_FORENSIC_DIMS_FOR_CLEARANCE"]
+AUTHENTIC_REQUIRES_ALL_MEASURED = _C["AUTHENTIC_REQUIRES_ALL_MEASURED"]
 DIM_COUNTERFEIT = _C["DIM_COUNTERFEIT"]
 PARTIAL_MAY_CONVICT = _C["PARTIAL_MAY_CONVICT"]
 BAND_AUTHENTIC = _C["BAND_AUTHENTIC"]
@@ -460,8 +494,25 @@ def evidence_gate(dims):
     others = [d for d in dims
               if d.name != "Label" and d.state == DimState.MEASURED
               and d.score is not None and not d.deterministic]
-    if not others:
-        return False, "no forensic dimension besides the label was measured"
+    need = MIN_FORENSIC_DIMS_FOR_CLEARANCE
+    if len(others) < need:
+        have = ", ".join(d.name for d in others) or "none"
+        return False, (f"only {len(others)} forensic dimension(s) besides the label were "
+                       f"measured, need {need} (measured: {have})")
+    return True, ""
+
+
+def all_applicable_measured(dims):
+    """(ok, why_not). Every dimension the product HAS was actually measured.
+
+    Coverage is a weighted percentage, so it can clear 90% with a whole
+    dimension unexamined — a heavy Label plus a heavy Logo carry more than half
+    the weight between them. Authentic is a positive claim, so it asks the
+    question directly instead of inferring it from a total."""
+    missing = [d.name for d in dims
+               if d.applicable and d.state != DimState.MEASURED]
+    if missing:
+        return False, "not measured: " + ", ".join(missing)
     return True, ""
 
 
@@ -483,7 +534,8 @@ def to_authenticity(deviation):
     The service reported the composite on this inverted scale for a while and it
     was a mistake. Every primitive returns deviation; the roll-up
     `max(weighted_mean, 85% x worst)` is only a floor if higher means worse;
-    the label critical floor is 85 and the counterfeit band is >= 61. Reporting
+    the label critical floor is 85 and the counterfeit band is DIM_COUNTERFEIT.
+    Reporting
     the composite the other way up meant 85 read as 'confirmed critical tell' in
     the methodology and 'nearly genuine' in the workbook, on the same row.
     Making the whole system consistent the other way would mean flipping five
@@ -507,6 +559,10 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     the counterfeit band convicts, without corroboration and without coverage.
     It sits above the composite rungs on purpose — the composite averages, and
     an average is how one real defect is diluted by four clean dimensions.
+
+    Rung 1b separates an ENGINE failure from an EVIDENCE failure. Both used to
+    surface as Insufficient Evidence, which made a quota outage indistinguishable
+    from a bad photograph on the report.
 
     Returns a dict shaped for the composite: deviation, score (authenticity),
     band, verdict_label, coverage, lane, driver, recapture, reason.
@@ -536,6 +592,21 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     # 1. The run itself failed. Not a verdict about the product.
     if not run_ok:
         return out("Run Failed", run_error or "the engine returned an error")
+
+    # 1b. Every dimension the product has came back FAILED. The engine did not
+    #     look at this garment — a rate limit, an exhausted quota, an expired
+    #     key — so this is not a statement about the product at all.
+    #
+    #     It must NOT share a verdict with Insufficient Evidence. They read the
+    #     same on a sheet and need opposite responses: this one needs the run
+    #     repeating, that one needs new photographs from the submitter. Nine
+    #     consecutive cases in the August batch were this, reported as though
+    #     the photographs were at fault.
+    _applicable = [d for d in dims if d.applicable]
+    if _applicable and all(d.state == DimState.FAILED for d in _applicable):
+        return out("Run Failed",
+                   run_error or ("every dimension agent errored — the engine did not "
+                                 "examine this item; re-run required"))
 
     # 2. Incomparable inputs — every dimension score would be a comparison
     #    against the wrong thing.
@@ -597,7 +668,7 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     # 4b. ANY ONE DIMENSION in the counterfeit band is enough, on its own.
     #
     #     This is the widest rule on the ladder and it is deliberate: a single
-    #     forensic dimension reading 61 or worse convicts the item, with no
+    #     forensic dimension in the counterfeit band convicts the item, with no
     #     corroboration from the other four and no coverage requirement. It
     #     supersedes what the composite would have said, because the composite
     #     AVERAGES — and averaging is how one real defect gets diluted by four
@@ -655,8 +726,24 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     # 9/10. Clearance, on the presence of evidence.
     if dev is not None:
         if dev <= BAND_AUTHENTIC and cov >= _pc(COVERAGE_FOR_AUTHENTIC):
-            return emit("Authentic",
-                        f"no deviation on any measured dimension, {cov:.0%} coverage")
+            # Authentic is the only verdict that positively certifies a garment,
+            # and it is issued with no human behind it. It therefore asks
+            # directly whether every dimension the product HAS was examined,
+            # rather than trusting a weighted coverage total to imply it.
+            all_ok, all_why = (True, "")
+            if AUTHENTIC_REQUIRES_ALL_MEASURED:
+                all_ok, all_why = all_applicable_measured(dims)
+            if all_ok:
+                return emit("Authentic",
+                            f"no deviation on any measured dimension, {cov:.0%} coverage, "
+                            f"every applicable dimension measured")
+            # Everything else about the item says clean; it simply was not
+            # examined completely enough to certify. Fall through to Likely
+            # Authentic rather than manufacturing a claim.
+            if dev <= BAND_LIKELY_AUTH and cov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
+                return emit("Likely Authentic",
+                            f"minor deviation only ({dev}/100) at {cov:.0%} coverage — "
+                            f"not certified Authentic because {all_why}")
         if dev <= BAND_LIKELY_AUTH and cov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
             return emit("Likely Authentic",
                         f"minor deviation only ({dev}/100) at {cov:.0%} coverage")
