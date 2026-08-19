@@ -122,10 +122,17 @@ def test_the_score_colours_move_with_the_ladder(monkeypatch):
 
 # ---- the rule column --------------------------------------------------------
 def test_the_rule_that_fired_is_on_the_row():
-    ws = sheets([rec(rule="R4b")])["Results"]
+    """Why prints the case's OWN reason — the row that says 'only 38% of the
+    label checks could be run' is actionable where the rung's generic sentence
+    is not. The rung sentence is only the fallback for reason-less records."""
+    ws = sheets([rec(rule="R4b", reason="only 38% of the label checks could be run")])["Results"]
     row = [c for c in ws.iter_rows(min_row=5, max_row=5, values_only=True)][0]
     assert row[5] == "R4b"
-    assert "counterfeit band" in row[6]
+    assert row[6] == "only 38% of the label checks could be run"
+
+    ws = sheets([rec(rule="R4b", reason="")])["Results"]
+    row = [c for c in ws.iter_rows(min_row=5, max_row=5, values_only=True)][0]
+    assert "counterfeit band" in row[6]                    # the fallback
 
 
 def test_an_old_record_gets_an_inferred_rule_marked_as_such():
@@ -307,3 +314,32 @@ def test_the_dossier_names_the_photographs_that_would_resolve_it():
 def test_an_empty_export_does_not_explode():
     wb = sheets([])
     assert wb.sheetnames[:4] == ["Overview", "Results", "Re-run queue", "Case dossier"]
+
+
+# ---- the fields have to survive the whole pipeline -------------------------
+def test_the_rule_survives_the_composite_reshape():
+    """graph.aggregate_node hand-builds the composite dict, so a field the
+    ladder adds is invisible downstream until it is named there. `rule` was
+    added to decide() and persisted in app.py, and every exported row still
+    read '~R7' — dropped in transit between the two."""
+    import graph
+    src = open(graph.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
+    body = src[src.index("def aggregate_node"):src.index("def verdict_node")]
+    assert '"rule"' in body, "aggregate_node drops the rule id"
+
+
+def test_the_region_and_deterministic_flags_survive_persistence():
+    """A stored run must be re-scorable. `deterministic` in particular is
+    load-bearing: evidence_gate refuses to let a text check stand in for a
+    forensic examination, and it can only do that if the flag persists."""
+    import app
+    src = open(app.__file__.replace(".pyc", ".py"), encoding="utf-8").read()
+    body = src[src.index("dim_map = {"):src.index("upc = d.get(\"upc\")")]
+    for field in ('"region"', '"deterministic"'):
+        assert field in body, f"the stored dimension record drops {field}"
+
+
+def test_a_fresh_record_carries_a_rule_with_no_tilde():
+    """The '~' means inferred-from-the-verdict. On a new run it is a bug."""
+    assert rs.rule_of(rec(rule="R4b")) == "R4b"
+    assert not rs.rule_of(rec(rule="R4b")).startswith("~")

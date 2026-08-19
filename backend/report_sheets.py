@@ -350,7 +350,13 @@ def build_results(wb, runs, index=1):
         void = no_comparison(rec)
         vals = [n, rec.get("case_id") or "", rec.get("product") or "",
                 rec.get("engine") or "", rec.get("verdict") or "", rule,
-                scoring.RULES.get(rule.lstrip("~"), rec.get("reason") or ""),
+                # The case's OWN reason, not the rung's generic sentence: the
+                # binding constraint on the last real batch — "only 38% of the
+                # label checks could be run (need 50%)" — was invisible here,
+                # because every R7 row printed the same evidence-gate boilerplate
+                # and Coverage had been removed from this sheet. The rung
+                # sentence remains the fallback for records with no reason.
+                rec.get("reason") or scoring.RULES.get(rule.lstrip("~"), ""),
                 None if void else rec.get("score"),
                 "—" if void else
                 (f"{m} of {applicable_count(rec)}" + (f" (+{p} partial)" if p else "")),

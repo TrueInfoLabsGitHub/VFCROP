@@ -429,6 +429,12 @@ def aggregate_node(state: RunState) -> dict:
         "band": result["band"],
         "verdict_label": result["verdict_label"],
         "lane": result["lane"],
+        # WHICH RUNG FIRED. This dict is hand-shaped rather than passed through,
+        # so a field the ladder adds is invisible downstream until it is named
+        # here. `rule` was added to decide() and persisted in app.py, and every
+        # exported row still showed the '~' that means "inferred, not recorded",
+        # because it was dropped in transit at exactly this line.
+        "rule": result.get("rule", ""),
         "driver": result["driver"],
         "recapture": result["recapture"],
         "coverage": coverage,

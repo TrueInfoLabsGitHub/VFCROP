@@ -370,7 +370,22 @@ def _build_record(req: ExportSaveReq) -> dict:
                                     "status": x.get("status") or "",
                                     "state": x.get("state") or "",
                                     "confidence": x.get("confidence"),
-                                    "internal_coverage": x.get("internal_coverage", 0.0)}
+                                    "internal_coverage": x.get("internal_coverage", 0.0),
+                                    # WHY a dimension was or was not measurable:
+                                    # what the locator found, whether it could be
+                                    # cropped, whether it was legible. Without
+                                    # this the export's region columns are blank
+                                    # and every 'not visible' needs a database
+                                    # query to explain.
+                                    "region": x.get("region") or {},
+                                    # A deterministic injection must be re-read
+                                    # AS one. evidence_gate() refuses to let a
+                                    # text check stand in for a forensic
+                                    # examination, and it can only do that if the
+                                    # flag survives persistence — otherwise a
+                                    # re-scored run clears on 'the label, plus
+                                    # the label'.
+                                    "deterministic": bool(x.get("deterministic"))}
                for x in dims if x.get("dimension")}
     upc = d.get("upc") or {}
     # ALWAYS a dict. Read in two places below, and a malformed or legacy
