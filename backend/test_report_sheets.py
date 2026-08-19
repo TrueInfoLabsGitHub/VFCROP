@@ -204,7 +204,7 @@ def test_a_reference_mismatch_shows_no_scores():
             lane="REVIEW", score=69, dimensions={n: d(69, ESTIMATED) for n in rs.DIMS})
     ws = sheets([r])["Results"]
     row = [c for c in ws.iter_rows(min_row=5, max_row=5, values_only=True)][0]
-    assert row[8] is None                                  # deviation blanked
+    assert row[rs._RESULT_HEADERS.index("Deviation")] is None   # deviation blanked
     assert all(v == "not compared" for v in row[rs._DIM_COL0 - 1:rs._DIM_COL0 + 4])
     assert row[rs._ACTION_COL - 1] == "Re-check the product match"
 

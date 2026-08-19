@@ -313,14 +313,18 @@ def build_overview(wb, runs, index=0):
     return ws
 
 
+# Lane and Coverage were removed on request. The lane still exists on the
+# record and still picks the row's action — and the VERDICT cell now carries
+# the lane's red/green fill itself, so the one glance-signal the Lane column
+# provided survives the column it used to live in.
 _RESULT_HEADERS = ["#", "Case ID", "Product", "Engine", "Verdict", "Rule", "Why",
-                   "Lane", "Deviation", "Coverage", "Measured", "Driver"] + DIMS + \
+                   "Deviation", "Measured", "Driver"] + DIMS + \
                   [f"{d} — region" for d in DIMS] + ["What to do"]
-_RESULT_WIDTHS = [5, 20, 34, 16, 24, 7, 52, 10, 10, 10, 10, 12] + [11] * 5 + \
+_RESULT_WIDTHS = [5, 20, 34, 16, 24, 7, 52, 10, 10, 12] + [11] * 5 + \
                  [18] * 5 + [30]
-_DIM_COL0 = 13                      # first dimension column
-_REGION_COL0 = 18
-_ACTION_COL = 23
+_DIM_COL0 = 11                      # first dimension column
+_REGION_COL0 = 16
+_ACTION_COL = 21
 
 _ACTION = {"REJECTED": "Block · notify the seller",
            "CLEARED": "Release",
@@ -347,17 +351,17 @@ def build_results(wb, runs, index=1):
         vals = [n, rec.get("case_id") or "", rec.get("product") or "",
                 rec.get("engine") or "", rec.get("verdict") or "", rule,
                 scoring.RULES.get(rule.lstrip("~"), rec.get("reason") or ""),
-                lane, None if void else rec.get("score"),
-                "" if void else _as_pct(rec.get("coverage")),
+                None if void else rec.get("score"),
                 "—" if void else
                 (f"{m} of {applicable_count(rec)}" + (f" (+{p} partial)" if p else "")),
                 "" if void else (rec.get("driver") or "")]
         for c, v in enumerate(vals, start=1):
             cell = ws.cell(row=row, column=c, value=v)
             cell.alignment = _WRAP
-        ws.cell(row=row, column=8).fill = _LANE_FILL.get(lane)
-        ws.cell(row=row, column=8).font = _LANE_FONT
-        ws.cell(row=row, column=5).font = Font(bold=True, size=10)
+        # The verdict cell carries the lane's fill now that the Lane column is
+        # gone — red/green at a glance must survive the column it lived in.
+        ws.cell(row=row, column=5).fill = _LANE_FILL.get(lane)
+        ws.cell(row=row, column=5).font = _LANE_FONT
 
         for i, dim in enumerate(DIMS):
             state, score, _d = dim_state(rec, dim)
