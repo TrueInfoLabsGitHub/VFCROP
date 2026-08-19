@@ -403,6 +403,10 @@ def _build_record(req: ExportSaveReq) -> dict:
         # its own silent escape path. Run Failed routes to REVIEW.
         "lane": (comp.get("lane") or scoring.LANE_FOR_BAND.get(
             "error" if failed else comp.get("band", ""), "REVIEW")),
+        # WHICH LADDER RUNG FIRED. Persisted so the export can print it beside
+        # the verdict and anyone can check the call against one sentence in
+        # scoring.RULES, instead of inferring it from prose or a database query.
+        "rule": comp.get("rule") or "",
         "driver": comp.get("driver") or "",
         "recapture": comp.get("recapture") or [],
         # why a verdict was held back — the coverage column no longer shows it

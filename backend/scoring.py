@@ -230,6 +230,34 @@ LANE_FOR_BAND = {
     "insufficient": "REVIEW", "mismatch": "REVIEW", "error": "REVIEW",
 }
 
+# Every rung of the ladder, by id. decide() stamps the id that fired onto the
+# result, and the export prints it beside the verdict.
+#
+# This is the field whose absence made this system hard to argue with. A row
+# reading "COUNTERFEIT" next to a green 12 is indefensible; a row reading
+# "COUNTERFEIT · R4b" is a claim you can check against one sentence — and if
+# the sentence is wrong, you know exactly which constant to move.
+RULES = {
+    "R1":   "the engine returned an error — not a verdict about the product",
+    "R1b":  "every dimension agent errored — the engine never examined this item",
+    "R2":   "suspect and reference are different products — nothing was comparable",
+    "R3":   "a deterministic label check failed (no model judgement involved)",
+    "R3b":  "the item's own printed markings contradict each other",
+    "R3c":  "the item claims something that did not exist when it was made",
+    "R4":   "one measured dimension carried a dispositive defect (>= "
+            "DISPOSITIVE_THRESHOLD at high confidence)",
+    "R4b":  "one measured dimension sat in the counterfeit band (>= DIM_COUNTERFEIT) — "
+            "not averaged against the others",
+    "R5":   "the composite reached the counterfeit band over enough of the item",
+    "R6":   "deviation was significant but too little of the item was measured to convict",
+    "R7":   "cannot be cleared — the evidence gate was not satisfied",
+    "R8":   "cannot be concluded — effective coverage below COVERAGE_FOR_CONCLUSION",
+    "R9":   "cleared and certified — every applicable dimension measured, all near zero",
+    "R10":  "cleared with minor deviation at sufficient coverage",
+    "R10a": "cleared, but not certified Authentic — a dimension was never measured",
+    "R11":  "genuinely ambiguous",
+}
+
 # Converting an unknown into a known beats any threshold change, so an
 # Insufficient Evidence verdict names the exact photographs that would resolve it.
 RECAPTURE_SHOTS = {
@@ -456,7 +484,12 @@ def coverage(dims):
     total = sum(_pc(DIM_WEIGHTS.get(d.name, 0)) for d in applicable)
     if not total:
         return 0.0
-    return sum(d.effective_weight for d in applicable if d.contributes) / total
+    # Rounded before it is compared against a gate. The weights are percentages
+    # turned into fractions, so a run that covers exactly 90% of the item sums
+    # to 0.8999999999999999 and fails `>= 0.90` — the gate would be off by one
+    # float ulp in the strict direction, silently, forever. Four places is far
+    # finer than any threshold here and removes the whole class of problem.
+    return round(sum(d.effective_weight for d in applicable if d.contributes) / total, 4)
 
 
 def apply_upc(score, upc_status):
@@ -569,10 +602,15 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     """
     dims = list(dims)
 
-    def out(verdict, reason, *, score=None, driver=None, cov=0.0, contributing=(),
-            recapture=()):
+    def out(verdict, reason, *, rule="", score=None, driver=None, cov=0.0,
+            contributing=(), recapture=()):
         band = BAND_FOR_VERDICT[verdict]
         return {
+            # WHICH RUNG FIRED. The single most useful field on the whole
+            # record, and the one that was missing: a verdict nobody can trace
+            # to a rule is a verdict nobody can argue with or debug. Read
+            # RULES[rule] for the sentence.
+            "rule": rule,
             # ONE scale, end to end: 0 = matches the reference, 100 = clearly
             # different. `deviation` is an explicit alias of the same number so
             # a reader never has to work out which way up a column is.
@@ -591,7 +629,7 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
 
     # 1. The run itself failed. Not a verdict about the product.
     if not run_ok:
-        return out("Run Failed", run_error or "the engine returned an error")
+        return out("Run Failed", run_error or "the engine returned an error", rule="R1")
 
     # 1b. Every dimension the product has came back FAILED. The engine did not
     #     look at this garment — a rate limit, an exhausted quota, an expired
@@ -606,13 +644,14 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     if _applicable and all(d.state == DimState.FAILED for d in _applicable):
         return out("Run Failed",
                    run_error or ("every dimension agent errored — the engine did not "
-                                 "examine this item; re-run required"))
+                                 "examine this item; re-run required"), rule="R1b")
 
     # 2. Incomparable inputs — every dimension score would be a comparison
     #    against the wrong thing.
     if not pairing_ok:
         return out("Reference Mismatch — Cannot Compare",
-                   pairing_note or "suspect and reference are different product categories")
+                   pairing_note or "suspect and reference are different product categories",
+                   rule="R2")
 
     dims = mark_applicability(dims, category, runtime_not_applicable)
     dev, driver = composite_score(dims)
@@ -621,8 +660,8 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     live = [d.name for d in dims if d.contributes]
     shots = recapture_list(dims)
 
-    def emit(verdict, reason):
-        return out(verdict, reason, score=dev, driver=driver, cov=cov,
+    def emit(verdict, reason, rule=""):
+        return out(verdict, reason, rule=rule, score=dev, driver=driver, cov=cov,
                    contributing=live,
                    recapture=shots if verdict == "Insufficient Evidence" else ())
 
@@ -630,7 +669,7 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     #    it stands even when nothing else was assessable.
     if label_hard_fail:
         return emit("Counterfeit — Label Validation Failed",
-                    hard_fail_reason or "a deterministic label check failed")
+                    hard_fail_reason or "a deterministic label check failed", "R3")
 
     # 3b. The item's own printed text contradicts itself, or contradicts the
     #     specification its own markings claim. Both strings were read; the
@@ -639,7 +678,7 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     #     even when nothing else was assessable.
     if spec_hard_fail:
         return emit("Counterfeit — Specification Contradiction",
-                    spec_fail_reason or "the item's markings contradict each other")
+                    spec_fail_reason or "the item's markings contradict each other", "R3b")
 
     # 3c. The item claims a product, technology or era that did not exist
     #     when it was made. A dated trademark is a fact about the world, not
@@ -647,7 +686,8 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
     if provenance_hard_fail:
         return emit("Counterfeit — Impossible Product",
                     provenance_fail_reason
-                    or "the item claims something that did not exist when it was made")
+                    or "the item claims something that did not exist when it was made",
+                    "R3c")
 
     # 4. One confirmed dispositive defect is enough. Only a MEASURED dimension
     #    may trigger this — a PARTIAL one is running on geometry, which
@@ -661,7 +701,7 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
         res = emit("Suspected Counterfeit",
                    f"dispositive defect on {d.name} ({d.score:.0f}/100 deviation) at "
                    f"confidence {d.confidence:.2f}" +
-                   ("" if label_readable else " — label unverified"))
+                   ("" if label_readable else " — label unverified"), "R4")
         res["driver"] = d.name          # the defect drove it, whatever the mean said
         return res
 
@@ -694,7 +734,7 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
         res = emit("Suspected Counterfeit",
                    f"{d.name} is in the counterfeit band ({d.score:.0f}/100 deviation) "
                    f"at confidence {d.confidence:.2f}. One dimension in the band is "
-                   f"enough — it is not averaged against the others{note}.")
+                   f"enough — it is not averaged against the others{note}.", "R4b")
         res["driver"] = d.name          # the dimension that convicted, not the mean
         return res
 
@@ -704,24 +744,25 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
         if cov >= _pc(COVERAGE_FOR_COUNTERFEIT):
             note = "" if label_readable else " (label unverified)"
             return emit("Suspected Counterfeit",
-                        f"composite deviation {dev}/100 over {cov:.0%} of the item{note}")
+                        f"composite deviation {dev}/100 over {cov:.0%} of the item{note}",
+                        "R5")
         return emit("Inconclusive — Suspicious",
                     f"deviation is significant ({dev}/100) but only {cov:.0%} of the "
-                    f"item was measured")
+                    f"item was measured", "R6")
 
     # 7. The anti-escape rule, ahead of the coverage number.
     gate_ok, gate_why = evidence_gate(dims)
     if not gate_ok:
         return emit("Insufficient Evidence",
                     f"cannot clear this item — {gate_why}. Contributing: "
-                    f"{', '.join(live) or 'none'}.")
+                    f"{', '.join(live) or 'none'}.", "R7")
 
     # 8. Enough was measured to be sure it is the same item, but not enough to
     #    say anything about it.
     if cov < _pc(COVERAGE_FOR_CONCLUSION):
         return emit("Insufficient Evidence",
                     f"effective coverage {cov:.0%} (need {COVERAGE_FOR_CONCLUSION}%). "
-                    f"Contributing: {', '.join(live) or 'none'}.")
+                    f"Contributing: {', '.join(live) or 'none'}.", "R8")
 
     # 9/10. Clearance, on the presence of evidence.
     if dev is not None:
@@ -736,20 +777,20 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
             if all_ok:
                 return emit("Authentic",
                             f"no deviation on any measured dimension, {cov:.0%} coverage, "
-                            f"every applicable dimension measured")
+                            f"every applicable dimension measured", "R9")
             # Everything else about the item says clean; it simply was not
             # examined completely enough to certify. Fall through to Likely
             # Authentic rather than manufacturing a claim.
             if dev <= BAND_LIKELY_AUTH and cov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
                 return emit("Likely Authentic",
                             f"minor deviation only ({dev}/100) at {cov:.0%} coverage — "
-                            f"not certified Authentic because {all_why}")
+                            f"not certified Authentic because {all_why}", "R10a")
         if dev <= BAND_LIKELY_AUTH and cov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
             return emit("Likely Authentic",
-                        f"minor deviation only ({dev}/100) at {cov:.0%} coverage")
+                        f"minor deviation only ({dev}/100) at {cov:.0%} coverage", "R10")
 
     # 11. Genuinely ambiguous.
-    return emit("Inconclusive", "genuinely ambiguous — routed to human review")
+    return emit("Inconclusive", "genuinely ambiguous — routed to human review", "R11")
 
 
 # ---------------------------------------------------------------------------

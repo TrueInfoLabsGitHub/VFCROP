@@ -34,6 +34,7 @@ from openpyxl.utils import get_column_letter
 
 from openpyxl.utils.units import pixels_to_EMU
 
+import report_sheets
 import scoring
 
 
@@ -537,6 +538,18 @@ def build_workbook(runs):
     _build_comparison_sheet(wb, runs)
 
     _build_scorecard_sheet(wb, runs)
+
+
+
+    # The human-readable half, inserted AHEAD of the technical sheets so the
+
+    # first thing anyone opening the file sees is a report rather than a log.
+
+    # The technical sheets keep their shape and their tests; nothing above this
+
+    # line changed.
+
+    report_sheets.build_report_sheets(wb, runs)
 
 
 
