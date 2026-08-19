@@ -19,6 +19,7 @@ import os
 
 import logo_rules
 import material_rules
+import regions
 import scoring
 import spec_rules
 import supa
@@ -59,6 +60,8 @@ class RunState(TypedDict, total=False):
     references: dict
     fetched_refs: list
     fetched_meta: dict
+    regions: dict
+    region_meta: dict
     dimension_results: Annotated[list, operator.add]
     usage_log: Annotated[list, operator.add]
     upc_result: dict
@@ -124,7 +127,14 @@ _VERDICT_LABEL = {
 
 # ---- nodes ----------------------------------------------------------------
 def intake_node(state: RunState) -> dict:
-    out = {"references": select_references(state["brand"]), "started_at": time.time(),
+    # The category is passed so the stock reference crops are only used for a
+    # product they can legitimately stand in for. They are all of one puffer
+    # jacket; comparing a T-shirt's hardware against its zip pull produced a
+    # number that looked exactly like a measurement and meant nothing.
+    out = {"references": select_references(state["brand"],
+                                          scoring.normalise_category(
+                                              state.get("product_name", ""))),
+           "started_at": time.time(),
            "fetched_refs": [], "fetched_meta": {"used": False}}
     if state.get("ref_source") == "google":
         suspect = next((b for b in (state.get("suspect_images") or []) if b), None)
@@ -148,6 +158,26 @@ def _refs_for(state: RunState, dim: str) -> list:
         return fetched[:2]                           # Google-fetched authentic shots
     b = load_ref_b64((state.get("references") or {}).get(dim))   # local data/ ref
     return [b] if b else []
+
+
+def locate_node(state: RunState) -> dict:
+    """Find each forensic region once, so every dimension agent can be handed a
+    crop of its own instead of the whole garment.
+
+    One extra vision call per case. It pays for itself twice over: the five
+    dimension agents stop being asked to resolve a forty-pixel zip pull, and a
+    submission that cannot show a care tag or a logo is turned away here rather
+    than after five agents have each produced an estimate about it.
+    """
+    cfg = _cfg(state.get("provider", "openai"))
+    located, usage = regions.locate(cfg, state.get("suspect_images", []))
+    ok, missing = regions.capture_gate(located)
+    out = {"regions": located,
+           "region_meta": {"gate_ok": ok,
+                           "missing": [{"region": r, "why": w} for r, w in missing]}}
+    if usage:
+        out["usage_log"] = [usage]
+    return out
 
 
 def pairing_node(state: RunState) -> dict:
@@ -184,10 +214,35 @@ def dimension_node(dim: str, state: RunState) -> dict:
             "state": scoring.DimState.NOT_ASSESSABLE, "internal_coverage": 0.0,
             "insufficient_reason": "reference mismatch",
         }], "usage_log": []}
+    # The locator says this region is not in the photographs at all. The agent
+    # would spend a full vision call to tell us the same thing, and before
+    # ALWAYS_SCORE was turned off it would have invented a number while doing
+    # so. Abstain for free, and say which shot would fix it.
+    located = state.get("regions")
+    if regions.anything_locatable(located):
+        run_it, why_not = regions.worth_running(dim, located)
+        if not run_it:
+            return {"dimension_results": [{
+                "dimension": dim, "score": None, "band": "neutral",
+                "finding": f"NOT ASSESSED — {why_not}",
+                "reasoning": why_not, "box": None, "confidence": 0.0,
+                "status": "abstain", "state": scoring.DimState.NOT_ASSESSABLE,
+                "internal_coverage": 0.0, "insufficient_reason": why_not,
+                "region": {"region": regions.REGION_FOR_DIMENSION.get(dim),
+                           "cropped": False, "note": why_not},
+            }], "usage_log": []}
+
+    # The dimension's own region, cropped out of the ORIGINAL pixels and
+    # enlarged, ahead of the context frames. When the locator found nothing this
+    # returns the frames untouched, which is exactly the old behaviour — so a
+    # locator failure costs nothing that was not already being lost.
+    imgs, region_meta = regions.images_for(dim, located,
+                                           state.get("suspect_images", []))
     try:
         result, usage = run_dimension_agent(
-            dim, state["brand"], state["case_id"], state.get("suspect_images", []),
+            dim, state["brand"], state["case_id"], imgs,
             _refs_for(state, dim), state.get("provider", "openai"))
+        result["region"] = region_meta
     except Exception as e:
         # One agent failing must not destroy the run. Previously a single 429 on
         # any dimension propagated out and discarded the other four dimensions'
@@ -515,6 +570,7 @@ def _evals(state: RunState) -> dict:
 def build_graph():
     g = StateGraph(RunState)
     g.add_node("intake", intake_node)
+    g.add_node("locate", locate_node)              # node name must differ from state key
     g.add_node("check_pairing", pairing_node)      # node name must differ from state key
     for dim in DIMENSIONS:
         g.add_node(f"dim_{dim}", partial(dimension_node, dim))
@@ -527,7 +583,8 @@ def build_graph():
     # Pairing sits between intake and the fan-out so every dimension agent can
     # see its verdict and skip the call when the inputs are incomparable.
     g.add_edge(START, "intake")
-    g.add_edge("intake", "check_pairing")
+    g.add_edge("intake", "locate")
+    g.add_edge("locate", "check_pairing")
     for dim in DIMENSIONS:                 # fan-out
         g.add_edge("check_pairing", f"dim_{dim}")
         g.add_edge(f"dim_{dim}", "aggregate")  # fan-in

@@ -87,13 +87,28 @@ MIN_DIM_CONFIDENCE = float(os.environ.get("MIN_DIM_CONFIDENCE", "0.35"))
 
 # Fill every dimension cell with a number, even where the evidence does not
 # support one. The model supplies a low-confidence best estimate, the result is
-# marked status="estimated", and the run report still records how many
-# dimensions were actually evidence-backed — so the number is there for whoever
-# needs a populated grid, and the audit trail survives alongside it.
-# Set ALWAYS_SCORE=0 to restore honest abstention (n/a in the export).
-ALWAYS_SCORE = os.environ.get("ALWAYS_SCORE", "1").strip().lower() in ("1", "true", "yes", "on")
+# marked status="estimated", and Layer 2 correctly refuses to count it.
+#
+# DEFAULT IS NOW OFF, and it should stay off.
+#
+# The estimates were never wrong in the arithmetic — ESTIMATED has never
+# contributed to a composite. They were wrong on the PAGE. Over 249 archived
+# runs, 726 of 1,220 dimension cells (60%) were estimates and only 221 (18%)
+# were measurements, and the export printed both as plain numbers. That is how
+# a report came to read "None of the 4 checks could be completed" directly above
+# two green scores, and how a Stitching of 30 sat next to a verdict that a
+# Stitching of 17 had triggered elsewhere — the 30 was an estimate rung 4b never
+# saw. Every one of those contradictions is this flag.
+#
+# Set ALWAYS_SCORE=1 only for a demo that needs a fully populated grid, and
+# never for a run whose output anyone will act on.
+ALWAYS_SCORE = os.environ.get("ALWAYS_SCORE", "0").strip().lower() in ("1", "true", "yes", "on")
 
-_ESTIMATE_NOTE = (
+# Asking for this field at all pushes the model toward producing a number where
+# the honest answer is "I cannot see it", so with ALWAYS_SCORE off the prompt
+# does not mention it. Kept as a runtime-empty string rather than deleted, so
+# every call site that splices it in keeps working unchanged.
+_ESTIMATE_NOTE = "" if not ALWAYS_SCORE else (
     "\n\nADDITIONAL FIELD — best_estimate_deviation (0-100). Always provide it. "
     "When you CAN assess normally it should equal your assessed deviation. When "
     "you cannot — the region is not visible, the method is undetermined, the "

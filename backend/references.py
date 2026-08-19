@@ -14,6 +14,23 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # not a separate agent — see graph.py).
 DIMENSIONS = ["Logo", "Stitching", "Hardware", "Label", "Material"]
 
+# WHICH PRODUCT THESE REFERENCE CROPS ARE OF. Everything below is one item: a
+# TNF puffer jacket. That matters, because `select_references` used to return
+# these for every submission regardless of what was submitted — so a T-shirt's
+# Hardware dimension was compared against a jacket's zip pull, and a swimsuit's
+# Material against a quilted shell.
+#
+# A deviation measured against the wrong garment is not a weak measurement, it
+# is a meaningless one, and it entered the composite looking exactly like a
+# real one. 112 of the 726 estimates in the August archive carried the note
+# "NO_REFERENCE"; the ones that did NOT carry it are the worrying half.
+REFERENCE_CATEGORY = "jacket"
+
+# Categories the jacket crops can legitimately stand in for — same construction
+# family, same hardware and shell vocabulary. Anything outside this list gets no
+# reference rather than the wrong one.
+REFERENCE_CATEGORY_KIN = {"jacket", "vest", "fleece", "hoodie"}
+
 # brand -> { dimension: reference filename in ../data }
 REFERENCES = {
     "TNF": {
@@ -27,9 +44,26 @@ REFERENCES = {
 }
 
 
-def select_references(brand: str) -> dict:
-    """Return {dimension: filename} for the brand (falls back to TNF)."""
-    return REFERENCES.get(brand, REFERENCES["TNF"])
+def select_references(brand: str, category: str = "") -> dict:
+    """{dimension: filename} for the brand, or {} when the stock references are
+    of a different kind of product than the one submitted.
+
+    An empty mapping is the correct, honest outcome: every dimension then runs
+    with no reference and reports NOT_ASSESSABLE rather than returning a
+    deviation measured against an unrelated garment. It lowers the measurement
+    rate on paper and raises the truthfulness of the rate that remains.
+
+    The real fix is a per-SKU reference library — `ref_source="product"` already
+    loads one from Supabase and takes precedence over everything here. This
+    function is the fallback, and a fallback should decline rather than guess.
+    """
+    refs = REFERENCES.get(brand)
+    if refs is None:
+        return {}
+    cat = (category or "").strip().lower()
+    if cat and cat not in REFERENCE_CATEGORY_KIN:
+        return {}
+    return refs
 
 
 def reference_path(filename: str) -> str:
