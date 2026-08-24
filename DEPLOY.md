@@ -40,6 +40,59 @@ reference toggles, multi-image upload, UPC extraction, run report).
 - `data/` (authentic reference images) ships with the repo and is required.
 - Outbound internet is needed (OpenAI / OpenRouter / SerpAPI / catbox / unpkg).
 
+## Case queue (RabbitMQ)
+
+The "Case Queue" from the architecture diagram, wired into both entry points:
+
+- **The UI (existing workflow):** `/api/analyze` publishes the case to the
+  durable `case-queue`; `backend/worker.py` — a separate process — runs it and
+  sends the outcome back over `case-queue-results`, which `/api/job/{id}`
+  serves to the UI's polling. Frontend unchanged; the UI still persists via
+  `/api/export/save`. If the broker is unreachable, `/api/analyze` silently
+  falls back to the original inline background thread, so a laptop without
+  Docker running behaves exactly as before. `USE_QUEUE=0` disables the queue
+  path. Caution: a reachable broker with **no worker running** means queued
+  jobs sit forever — run the worker whenever the broker is up.
+- **External producers (UiPath later):** POST the same payload to
+  `/api/enqueue`; the worker persists the outcome itself (visible at
+  `/api/cases`).
+
+A case that fails twice is parked on `case-queue-failed` instead of retrying
+forever. `/api/queue/status` reports queue depth.
+
+**Broker.** Local dev:
+
+```
+docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
+```
+
+Management UI at http://localhost:15672 (guest/guest). Production: a managed
+broker such as CloudAMQP (free tier is plenty) — copy its `amqps://…` URL.
+
+**Env vars** (both the API service and the worker service):
+
+| Variable | Value |
+|---|---|
+| `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672/%2F` locally; the CloudAMQP URL in prod |
+| `CASE_QUEUE` | optional, defaults to `case-queue` |
+
+**Worker.** Run alongside the API — locally `python worker.py` from
+`backend/`; on Railway add a **second service** on the same repo and point its
+**Settings → Config-as-code** at `railway.worker.json` (a dashboard start
+command is NOT enough: `railway.json`'s `startCommand` is config-as-code and
+overrides it, so the worker would boot as a second uvicorn). Give it the same
+variables as the API. Scale by running more worker instances; RabbitMQ
+load-balances one case per worker.
+
+**Smoke test:**
+
+```
+curl -X POST localhost:8000/api/enqueue -H "Content-Type: application/json" \
+     -d "{\"case_id\":\"CM-TEST-1\",\"brand\":\"TNF\"}"
+```
+
+then watch the worker log pick it up, and `GET /api/queue/status` drain to 0.
+
 ## Local dev (unchanged)
 ```
 cd backend && python -m venv .venv && .venv\Scripts\activate

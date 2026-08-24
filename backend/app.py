@@ -7,6 +7,7 @@ set OPENAI_API_KEY to go live.
 
 Run:  uvicorn app:app --port 8000   (from the backend/ directory)
 """
+import json
 import os
 import threading
 import time
@@ -19,6 +20,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import case_queue
 import exporter
 import scoring
 import supa
@@ -45,16 +47,20 @@ _JOBS_LOCK = threading.Lock()
 RUN_DEADLINE = float(os.environ.get("RUN_DEADLINE", "420"))
 
 
-def _start_job(fn):
-    """fn(set_partial) runs in a background thread. It may call set_partial(obj)
-    to publish intermediate progress that GET /api/job returns while running."""
-    jid = uuid.uuid4().hex
+def _register_job(jid):
     with _JOBS_LOCK:
         _JOBS[jid] = {"status": "running", "ts": time.time()}
         if len(_JOBS) > 60:                       # bound memory: drop old finished jobs
             for k in sorted(_JOBS, key=lambda k: _JOBS[k]["ts"])[:20]:
                 if _JOBS[k]["status"] != "running":
                     _JOBS.pop(k, None)
+
+
+def _start_job(fn):
+    """fn(set_partial) runs in a background thread. It may call set_partial(obj)
+    to publish intermediate progress that GET /api/job returns while running."""
+    jid = uuid.uuid4().hex
+    _register_job(jid)
 
     def set_partial(obj):
         j = _JOBS.get(jid)
@@ -69,6 +75,56 @@ def _start_job(fn):
 
     threading.Thread(target=worker, daemon=True).start()
     return {"job_id": jid}
+
+
+# ---- queue-backed analyze (RabbitMQ) ----
+# /api/analyze publishes the case to the RabbitMQ case queue and worker.py runs
+# it; the result comes back on the results queue and lands in _JOBS, so the
+# UI's existing /api/job polling works unchanged. If the broker is unreachable
+# the endpoint falls back to the original inline background thread — a laptop
+# without Docker running, or a deploy without a broker, keeps working as before.
+# USE_QUEUE=0 disables the queue path outright.
+USE_QUEUE = os.environ.get("USE_QUEUE", "1").strip().lower() in ("1", "true", "yes", "on")
+_RESULTS_THREAD_LOCK = threading.Lock()
+_results_thread = None
+
+
+def _results_loop():
+    """Consume the results queue forever; each message resolves one job."""
+    import pika
+
+    def on_result(ch, method, _props, body):
+        try:
+            msg = json.loads(body)
+            jid = msg.get("job_id")
+            if jid and jid in _JOBS:               # unknown jid (API restarted) → drop
+                if msg.get("ok"):
+                    _JOBS[jid] = {"status": "done", "result": msg.get("result") or {},
+                                  "ts": time.time()}
+                else:
+                    _JOBS[jid] = {"status": "error",
+                                  "error": msg.get("error") or "run failed",
+                                  "ts": time.time()}
+        except Exception:
+            pass                                    # malformed result: ack and move on
+        ch.basic_ack(method.delivery_tag)
+
+    while True:
+        try:
+            conn, ch = case_queue.connect()
+            ch.basic_consume(queue=case_queue.RESULTS_QUEUE,
+                             on_message_callback=on_result)
+            ch.start_consuming()
+        except Exception:
+            time.sleep(5)                           # broker down — retry quietly
+
+
+def _ensure_results_consumer():
+    global _results_thread
+    with _RESULTS_THREAD_LOCK:
+        if _results_thread is None or not _results_thread.is_alive():
+            _results_thread = threading.Thread(target=_results_loop, daemon=True)
+            _results_thread.start()
 
 
 # One engine. Gemini and Kimi were removed on 2026-08-06; `provider` survives on
@@ -144,6 +200,16 @@ def _run_one(req: AnalyzeReq, provider: str) -> dict:
 def analyze(req: AnalyzeReq):
     provider = req.provider if req.provider in _PROVIDERS else "openai"
 
+    if USE_QUEUE:
+        try:
+            jid = uuid.uuid4().hex
+            _ensure_results_consumer()
+            case_queue.publish({**req.model_dump(), "job_id": jid})
+            _register_job(jid)
+            return {"job_id": jid, "queued": True}
+        except Exception:
+            pass                       # broker unreachable → inline, as before
+
     def work(_set_partial):
         with ThreadPoolExecutor(max_workers=1) as ex:
             fut = ex.submit(_run_one, req, provider)
@@ -154,6 +220,32 @@ def analyze(req: AnalyzeReq):
         return {"mode": mode(), **res}
 
     return _start_job(work)
+
+
+@app.post("/api/enqueue")
+def enqueue(req: AnalyzeReq):
+    """Drop a case onto the RabbitMQ case queue instead of running it inline.
+
+    This is the producer entry point for UiPath (standard HTTP Request
+    activity): the robot pulls a case from Casemates.io and POSTs the same
+    payload /api/analyze takes. worker.py picks it up, runs the analysis, and
+    saves the outcome to the runs store, where /api/cases shows it."""
+    if not req.case_id.strip():
+        raise HTTPException(400, "case_id is required")
+    try:
+        case_queue.publish(req.model_dump())
+    except Exception as e:
+        raise HTTPException(503, f"case queue unavailable: {e}")
+    return {"queued": True, "case_id": req.case_id, "queue": case_queue.QUEUE}
+
+
+@app.get("/api/queue/status")
+def queue_status():
+    """Queue depth + consumer count, for dashboards and smoke tests."""
+    try:
+        return {"available": True, **case_queue.depth()}
+    except Exception as e:
+        return {"available": False, "error": str(e)}
 
 
 @app.post("/api/compare")
