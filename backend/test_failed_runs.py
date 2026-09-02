@@ -72,8 +72,10 @@ def test_successful_record_is_untouched():
 
 
 # ---- how it surfaces in the workbook ---------------------------------------
+# These tests exercise the TECHNICAL sheets, which live in the full workbook
+# (the default download is the three-sheet report format).
 def _wb(runs):
-    return openpyxl.load_workbook(_io.BytesIO(exporter.build_workbook(runs)))
+    return openpyxl.load_workbook(_io.BytesIO(exporter.build_workbook(runs, full=True)))
 
 
 # Column positions shift whenever a metric is added or removed, so locate them by
@@ -417,7 +419,7 @@ def test_a_multi_engine_case_is_one_number_and_travels_together():
 def test_partial_export_builds_a_valid_workbook():
     import exporter as e
     sel = e.select_runs(_runs(6), first=3, last=4)
-    ws = openpyxl.load_workbook(_io.BytesIO(e.build_workbook(sel)))["VERITAS analyses"]
+    ws = openpyxl.load_workbook(_io.BytesIO(e.build_workbook(sel, full=True)))["VERITAS analyses"]
     assert [ws.cell(r, 2).value for r in (3, 4)] == ["C3", "C4"]
     assert ws.cell(5, 2).value in (None, "")        # nothing beyond the range
     assert [ws.cell(r, 1).value for r in (3, 4)] == [1, 2]   # renumbered from 1

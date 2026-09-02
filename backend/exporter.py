@@ -519,39 +519,41 @@ def select_runs(runs, first=None, last=None, cases=None):
     return keep
 
 
-def build_workbook(runs):
+def build_workbook(runs, full=False):
 
-    """runs: list of record dicts (oldest first). Returns .xlsx bytes."""
+    """runs: list of record dicts (oldest first). Returns .xlsx bytes.
+
+    The DEFAULT download is the approved three-sheet report format —
+    Overview · Results · Case dossier — exactly as signed off. full=True is
+    the engineering workbook: the same report sheets plus the Re-run queue
+    and the technical sheets (VERITAS analyses, Model comparison, Engine
+    scorecard), unchanged, for pipeline debugging and engine comparison.
+    /api/export.xlsx serves the default; add ?full=1 for the full workbook."""
 
     wb = Workbook()
 
-    ws = wb.active
+    if full:
 
-    ws.title = "VERITAS analyses"
+        ws = wb.active
 
+        ws.title = "VERITAS analyses"
 
+        _build_analyses_sheet(ws, runs)
 
-    _build_analyses_sheet(ws, runs)
+        _build_comparison_sheet(wb, runs)
 
+        _build_scorecard_sheet(wb, runs)
 
+        # The human-readable half, inserted AHEAD of the technical sheets so
+        # the first thing anyone opening the file sees is a report, not a log.
 
-    _build_comparison_sheet(wb, runs)
+        report_sheets.build_report_sheets(wb, runs, include_rerun=True)
 
-    _build_scorecard_sheet(wb, runs)
+    else:
 
+        wb.remove(wb.active)
 
-
-    # The human-readable half, inserted AHEAD of the technical sheets so the
-
-    # first thing anyone opening the file sees is a report rather than a log.
-
-    # The technical sheets keep their shape and their tests; nothing above this
-
-    # line changed.
-
-    report_sheets.build_report_sheets(wb, runs)
-
-
+        report_sheets.build_report_sheets(wb, runs, include_rerun=False)
 
     buf = io.BytesIO()
 

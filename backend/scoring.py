@@ -18,6 +18,8 @@ Insufficient Evidence and handed to a person.
 """
 from __future__ import annotations
 
+import os
+
 # ---------------------------------------------------------------------------
 # THE config block. Every threshold, weight and factor in the scoring spec is
 # here and nowhere else.
@@ -95,9 +97,23 @@ SCORING_CONSTANTS = {
     # produces baseline_deviation around 90 (see GROUP_FLOOR_FACTOR). Turning
     # this on converts every badly-photographed genuine item into a rejection.
     "PARTIAL_MAY_CONVICT": False,
+    # ...but distrust of partials is bounded by the size of the noise they can
+    # carry, and that size is known: the rumpled-garment ceiling is
+    # GROUP_FLOOR_FACTOR["geometry"] x baseline 90 = 27. Two escapes from that
+    # blanket distrust, both sitting strictly ABOVE the noise ceiling:
+    #
+    # A single PARTIAL at 2x the noise ceiling. Geometry and placement wrong by
+    # 55+ points is not a fold in the fabric — it is a different garment. The
+    # coherence suite asserts this stays >= 2x the ceiling.
+    "PARTIAL_DISPOSITIVE": 55,
+    # Or corroboration: this many PARTIALs, each independently in the
+    # counterfeit band. One elevated partial is a camera angle; the same story
+    # told by two different dimensions of the same garment is not.
+    "PARTIALS_FOR_CORROBORATION": 2,
     # The band ladder.
     #        0-3   authentic          (all applicable dimensions MEASURED)
-    #       4-30   likely authentic
+    #       4-25   likely authentic
+    #      26-30   inconclusive       (the photographic-noise range — a person looks)
     #       31+    suspected counterfeit
     #
     # HOW THESE WERE CHOSEN, because the last two rebands were not.
@@ -122,7 +138,13 @@ SCORING_CONSTANTS = {
     # DAMP_CEILING and GROUP_FLOOR_FACTOR["geometry"] — are now under it by
     # construction, and two tests hold them there.
     "BAND_AUTHENTIC": 3,
-    "BAND_LIKELY_AUTH": 30,
+    # 30 -> 25: the clearance band now ends BELOW the ~27 photographic-noise
+    # ceiling. A composite of 26-30 is exactly the range where creasing and
+    # glare live, and an item there used to clear; it now falls through to
+    # Inconclusive and a person looks at it. Costs review volume on badly
+    # photographed genuine stock, never a false rejection — which is the
+    # direction this ladder is instructed to be wrong in.
+    "BAND_LIKELY_AUTH": 25,
     "BAND_COUNTERFEIT": 31,
     # Authentic is a positive claim about a garment, made with no human in the
     # loop. It therefore requires that every dimension the product HAS was
@@ -131,7 +153,31 @@ SCORING_CONSTANTS = {
     # examined. In practice this makes Authentic rare and Likely Authentic the
     # ordinary clearance, which is the intended shape.
     "AUTHENTIC_REQUIRES_ALL_MEASURED": True,
-    "COVERAGE_FOR_COUNTERFEIT": 35,
+    # Authentic is a certification, and a certification should rest on at least
+    # one piece of evidence that is a LOOKUP rather than a judgement. The UPC
+    # is the only such input the intake collects, so full certification now
+    # requires it to have been provided AND to resolve to the right master
+    # record. Everything else about a clean item still clears — as Likely
+    # Authentic, which is the ordinary clearance by design.
+    "AUTHENTIC_REQUIRES_UPC_MATCH": True,
+    # The same lookup requirement extended to the ORDINARY clearance. Off by
+    # default: Likely Authentic is deliberately reachable on photographs alone.
+    # Turn it on (LIKELY_AUTH_REQUIRES_UPC_MATCH=1 in the environment, or here)
+    # when an escape audit shows counterfeits clearing R10 without a barcode —
+    # it is the one clearance gate no photography trick can satisfy. An item
+    # that would have cleared falls to Inconclusive (a person looks), never to
+    # a rejection, so its measured cost is review volume, not false convictions.
+    "LIKELY_AUTH_REQUIRES_UPC_MATCH": False,
+    # 35 -> 20. The asymmetry this ladder wants, stated as a number: suspicion
+    # needs less of the item than clearance does. A composite in the counterfeit
+    # band is a POSITIVE finding — the coverage requirement only expresses how
+    # much context that finding needs before it convicts rather than routes to
+    # review, and on the labelled corpus every R6 (thin-coverage review) case
+    # was a known counterfeit. Genuine items are protected by what the
+    # composite is made of, not by this gate: photographic noise is capped at
+    # ~27 per dimension (GROUP_FLOOR_FACTOR / DAMP_CEILING, tests hold it), so
+    # a composite of 31+ requires a real signal regardless of coverage.
+    "COVERAGE_FOR_COUNTERFEIT": 20,
     "COVERAGE_FOR_CONCLUSION": 50,
     # 60 -> 75. THIS is the false-clearance lever, not the band. See the note on
     # the band ladder above for the measured effect on the labelled corpus.
@@ -140,6 +186,32 @@ SCORING_CONSTANTS = {
     # The anti-escape rule: coverage alone is gameable, so clearance also
     # requires the care tag to have actually been read.
     "LABEL_EVIDENCE_COVERAGE": 50,
+
+    # ---- clearance is not cheaper than conviction ---------------------------
+    #
+    # The three constants below close an asymmetry that ran the wrong way for
+    # the whole life of this ladder: CONVICTING an item required
+    # DISPOSITIVE_CONFIDENCE (60) and a MEASURED state, while CLEARING one
+    # accepted anything over MIN_DIM_CONFIDENCE (35) and counted PARTIALs
+    # toward coverage. Certifying a garment genuine is the more dangerous of
+    # the two claims — it is the only verdict that releases goods with no human
+    # in the loop — so it must be the more expensive one to reach.
+    #
+    # Demonstrated before the change: five dimensions at confidence 0.35, all
+    # scoring 0, returned "Authentic" at R9.
+    "MIN_CONFIDENCE_FOR_CLEARANCE": 60,
+    # A dimension that resolved 5% of its own checks is a MEASURED state and
+    # nothing more. The Label half of the gate already demanded real internal
+    # coverage (LABEL_EVIDENCE_COVERAGE); the "two other forensic dimensions"
+    # half demanded only that the state string said `measured`.
+    "MIN_INTERNAL_COVERAGE_FOR_CLEARANCE": 50,
+    # The mirror of PARTIAL_MAY_CONVICT, and it must agree with it. A PARTIAL
+    # dimension lost its method group and ran on geometry and placement — the
+    # primitives a rumpled garment moves as much as a counterfeiter does. That
+    # is the stated reason it may not convict; it is exactly as good a reason
+    # that it may not clear. Before this, three clean dimensions plus a PARTIAL
+    # screaming 60/100 returned "Likely Authentic" at 93% coverage.
+    "PARTIAL_MAY_CLEAR": False,
 
     # ---- UPC ---------------------------------------------------------------
     "UPC_MISMATCH_FLOOR": 70,      # reads to a DIFFERENT product
@@ -175,8 +247,16 @@ DISPOSITIVE_THRESHOLD = _C["DISPOSITIVE_THRESHOLD"]
 DISPOSITIVE_CONFIDENCE = _C["DISPOSITIVE_CONFIDENCE"]
 MIN_FORENSIC_DIMS_FOR_CLEARANCE = _C["MIN_FORENSIC_DIMS_FOR_CLEARANCE"]
 AUTHENTIC_REQUIRES_ALL_MEASURED = _C["AUTHENTIC_REQUIRES_ALL_MEASURED"]
+AUTHENTIC_REQUIRES_UPC_MATCH = _C["AUTHENTIC_REQUIRES_UPC_MATCH"]
+# Environment override so the lever can be flipped on a deploy without an edit;
+# the config value stays the shipped default.
+LIKELY_AUTH_REQUIRES_UPC_MATCH = (
+    os.environ.get("LIKELY_AUTH_REQUIRES_UPC_MATCH", "").strip().lower() in ("1", "true", "yes", "on")
+    or _C["LIKELY_AUTH_REQUIRES_UPC_MATCH"])
 DIM_COUNTERFEIT = _C["DIM_COUNTERFEIT"]
 PARTIAL_MAY_CONVICT = _C["PARTIAL_MAY_CONVICT"]
+PARTIAL_DISPOSITIVE = _C["PARTIAL_DISPOSITIVE"]
+PARTIALS_FOR_CORROBORATION = _C["PARTIALS_FOR_CORROBORATION"]
 BAND_AUTHENTIC = _C["BAND_AUTHENTIC"]
 BAND_LIKELY_AUTH = _C["BAND_LIKELY_AUTH"]
 BAND_COUNTERFEIT = _C["BAND_COUNTERFEIT"]
@@ -185,6 +265,9 @@ COVERAGE_FOR_CONCLUSION = _C["COVERAGE_FOR_CONCLUSION"]
 COVERAGE_FOR_LIKELY_AUTH = _C["COVERAGE_FOR_LIKELY_AUTH"]
 COVERAGE_FOR_AUTHENTIC = _C["COVERAGE_FOR_AUTHENTIC"]
 LABEL_EVIDENCE_COVERAGE = _C["LABEL_EVIDENCE_COVERAGE"]
+MIN_CONFIDENCE_FOR_CLEARANCE = _C["MIN_CONFIDENCE_FOR_CLEARANCE"]
+MIN_INTERNAL_COVERAGE_FOR_CLEARANCE = _C["MIN_INTERNAL_COVERAGE_FOR_CLEARANCE"]
+PARTIAL_MAY_CLEAR = _C["PARTIAL_MAY_CLEAR"]
 UPC_MISMATCH_FLOOR = _C["UPC_MISMATCH_FLOOR"]
 UPC_NOMATCH_FLOOR = _C["UPC_NOMATCH_FLOOR"]
 ENGINE_SPREAD_FOR_REVIEW = _C["ENGINE_SPREAD_FOR_REVIEW"]
@@ -250,11 +333,20 @@ RULES = {
             "not averaged against the others",
     "R5":   "the composite reached the counterfeit band over enough of the item",
     "R6":   "deviation was significant but too little of the item was measured to convict",
+    "R3d":  "the UPC resolves to a different product — a lookup, not a judgement",
+    "R4c":  "one unresolved dimension deviates past PARTIAL_DISPOSITIVE — twice the "
+            "photographic-noise ceiling",
+    "R4d":  "multiple unresolved dimensions independently in the counterfeit band — "
+            "corroboration substitutes for method resolution",
     "R7":   "cannot be cleared — the evidence gate was not satisfied",
     "R8":   "cannot be concluded — effective coverage below COVERAGE_FOR_CONCLUSION",
+    "R8b":  "an unresolved (PARTIAL) dimension is in the counterfeit band — too "
+            "unreliable to convict on, and therefore too unreliable to clear past",
     "R9":   "cleared and certified — every applicable dimension measured, all near zero",
     "R10":  "cleared with minor deviation at sufficient coverage",
     "R10a": "cleared, but not certified Authentic — a dimension was never measured",
+    "R10b": "would have cleared, but clearance is configured to require a verified "
+            "UPC (LIKELY_AUTH_REQUIRES_UPC_MATCH) — routed to review instead",
     "R11":  "genuinely ambiguous",
 }
 
@@ -519,19 +611,36 @@ def evidence_gate(dims):
     if label.internal_coverage < _pc(LABEL_EVIDENCE_COVERAGE):
         return False, (f"only {label.internal_coverage:.0%} of the label checks could be "
                        f"run (need {LABEL_EVIDENCE_COVERAGE}%)")
+    # A tag the engine is 35% sure it read is not a tag that was read. This
+    # floor is DISPOSITIVE_CONFIDENCE, deliberately: the confidence needed to
+    # release an item is now the same as the confidence needed to reject one.
+    if label.confidence < _pc(MIN_CONFIDENCE_FOR_CLEARANCE):
+        return False, (f"the label was read at only {label.confidence:.0%} confidence "
+                       f"(need {MIN_CONFIDENCE_FOR_CLEARANCE}% to clear)")
     # `not d.deterministic` is load-bearing. The deterministic rules read the
     # CARE TAG — the same tag that satisfies the label half of this gate. If a
     # text check could also satisfy this half, one legible tag would clear
     # both conditions and the gate would be asserting "the label, plus the
     # label". It exists to require a genuinely separate forensic examination.
+    #
+    # The three trailing conditions are the same quality bar the Label half has
+    # always been held to. Without them `state == MEASURED` was the entire test,
+    # so a dimension that resolved 5% of its own checks at 0.35 confidence
+    # counted as a full forensic examination — and two of those, beside a
+    # legible tag, cleared the item.
     others = [d for d in dims
               if d.name != "Label" and d.state == DimState.MEASURED
-              and d.score is not None and not d.deterministic]
+              and d.score is not None and not d.deterministic
+              and d.confidence >= _pc(MIN_CONFIDENCE_FOR_CLEARANCE)
+              and d.internal_coverage >= _pc(MIN_INTERNAL_COVERAGE_FOR_CLEARANCE)]
     need = MIN_FORENSIC_DIMS_FOR_CLEARANCE
     if len(others) < need:
         have = ", ".join(d.name for d in others) or "none"
         return False, (f"only {len(others)} forensic dimension(s) besides the label were "
-                       f"measured, need {need} (measured: {have})")
+                       f"measured to clearance standard (need {need}; "
+                       f"≥{MIN_CONFIDENCE_FOR_CLEARANCE}% confidence and "
+                       f"≥{MIN_INTERNAL_COVERAGE_FOR_CLEARANCE}% of the dimension's own "
+                       f"checks). Qualifying: {have}")
     return True, ""
 
 
@@ -546,7 +655,36 @@ def all_applicable_measured(dims):
                if d.applicable and d.state != DimState.MEASURED]
     if missing:
         return False, "not measured: " + ", ".join(missing)
+    # ...and examined to the standard a positive certification requires, not
+    # merely carrying the string `measured`. R9 is the only rung that certifies,
+    # so it applies the clearance floors to EVERY dimension rather than to the
+    # three the evidence gate names.
+    thin = [d.name for d in dims
+            if d.applicable
+            and (d.confidence < _pc(MIN_CONFIDENCE_FOR_CLEARANCE)
+                 or d.internal_coverage < _pc(MIN_INTERNAL_COVERAGE_FOR_CLEARANCE))]
+    if thin:
+        return False, ("measured below certification standard: " + ", ".join(thin))
     return True, ""
+
+
+def clearance_coverage(dims):
+    """Coverage counting only what may legitimately CLEAR an item.
+
+    `coverage()` is the honest picture of how much was looked at, and the
+    conviction rungs use it — suspicion must never be suppressed for want of
+    evidence. Clearance is the opposite case: it is a claim, and a PARTIAL
+    dimension cannot support one for the same reason PARTIAL_MAY_CONVICT is
+    False. Anything under the clearance confidence floor drops out here too."""
+    applicable = [d for d in dims if d.applicable]
+    total = sum(_pc(DIM_WEIGHTS.get(d.name, 0)) for d in applicable)
+    if not total:
+        return 0.0
+    ok = [d for d in applicable
+          if d.contributes
+          and (d.state == DimState.MEASURED or PARTIAL_MAY_CLEAR)
+          and d.confidence >= _pc(MIN_CONFIDENCE_FOR_CLEARANCE)]
+    return round(sum(d.effective_weight for d in ok) / total, 4)
 
 
 def recapture_list(dims):
@@ -689,6 +827,18 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
                     or "the item claims something that did not exist when it was made",
                     "R3c")
 
+    # 3d. The barcode on the item resolves to a DIFFERENT product in the master
+    #     record. This is a database lookup, not a model judgement — the same
+    #     class of evidence as rungs 3-3c — so it convicts on its own, with no
+    #     coverage requirement. (nomatch — a code absent from the record — stays
+    #     a score floor via apply_upc rather than a conviction: master data has
+    #     gaps, and an absence is weaker evidence than a contradiction.)
+    if upc_status == "mismatch":
+        return emit("Suspected Counterfeit",
+                    "the item's UPC resolves to a different product in the master "
+                    "record — the barcode contradicts the garment it is sewn to",
+                    "R3d")
+
     # 4. One confirmed dispositive defect is enough. Only a MEASURED dimension
     #    may trigger this — a PARTIAL one is running on geometry, which
     #    photography moves as much as authenticity does.
@@ -738,6 +888,43 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
         res["driver"] = d.name          # the dimension that convicted, not the mean
         return res
 
+    # 4c/4d. PARTIAL dimensions, above the noise they were distrusted for.
+    #
+    #     PARTIAL_MAY_CONVICT is False because a partial runs on geometry and
+    #     placement, and photography moves those — but by a KNOWN amount: the
+    #     rumpled-garment ceiling is ~27 (GROUP_FLOOR_FACTOR, held by the
+    #     coherence tests). Distrust past that ceiling is not caution, it is
+    #     throwing evidence away. Two ways a partial signal exceeds it:
+    #
+    #     R4c — one partial at PARTIAL_DISPOSITIVE (2x the ceiling). Geometry
+    #     and placement off by 55+ points is not a fold in the fabric.
+    p_adverse = [d for d in dims
+                 if d.state == DimState.PARTIAL and d.contributes
+                 and d.score is not None]
+    strong = [d for d in p_adverse if d.score >= PARTIAL_DISPOSITIVE]
+    if strong:
+        d = max(strong, key=lambda x: x.score)
+        res = emit("Suspected Counterfeit",
+                   f"{d.name} deviates {d.score:.0f}/100 on geometry and placement "
+                   f"alone — {PARTIAL_DISPOSITIVE}+ is twice what photography can "
+                   f"produce on a genuine garment", "R4c")
+        res["driver"] = d.name
+        return res
+
+    #     R4d — corroboration: several partials, each independently in the
+    #     counterfeit band. One elevated partial is a camera angle; the same
+    #     story from different dimensions of the same garment is the garment.
+    corro = [d for d in p_adverse if d.score >= DIM_COUNTERFEIT]
+    if len(corro) >= PARTIALS_FOR_CORROBORATION:
+        worst = max(corro, key=lambda x: x.score)
+        res = emit("Suspected Counterfeit",
+                   f"{len(corro)} unresolved dimensions independently in the "
+                   f"counterfeit band ({', '.join(f'{d.name} {d.score:.0f}' for d in corro)}) "
+                   f"— corroboration across dimensions substitutes for method "
+                   f"resolution", "R4d")
+        res["driver"] = worst.name
+        return res
+
     # 5/6. Significant deviation. Suspicion is never suppressed for want of
     #      coverage; thin coverage only downgrades it to a review item.
     if dev is not None and dev >= BAND_COUNTERFEIT:
@@ -764,9 +951,38 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
                     f"effective coverage {cov:.0%} (need {COVERAGE_FOR_CONCLUSION}%). "
                     f"Contributing: {', '.join(live) or 'none'}.", "R8")
 
+    # 8b. AN UNRESOLVED DIMENSION IS IN THE ADVERSE RANGE.
+    #
+    #     PARTIAL_MAY_CONVICT is False, and rightly: a partial lost its method
+    #     group and scored on geometry, which a rumpled garment moves as much as
+    #     a counterfeiter does. But "not reliable enough to convict" was silently
+    #     read as "safe to ignore", and the dimension then went on to be averaged
+    #     into a clearance. Three clean dimensions beside a PARTIAL reporting
+    #     60/100 returned Likely Authentic.
+    #
+    #     A reading the ladder distrusts in one direction it must distrust in
+    #     both. It cannot convict, so it does not; it cannot clear either, so
+    #     the item goes to a person.
+    unresolved_adverse = [d for d in dims
+                          if d.state == DimState.PARTIAL and d.contributes
+                          and d.score is not None and d.score >= DIM_COUNTERFEIT]
+    if unresolved_adverse:
+        d = max(unresolved_adverse, key=lambda x: x.score)
+        return emit("Inconclusive — Suspicious",
+                    f"{d.name} reads {d.score:.0f}/100 but was never resolved past "
+                    f"geometry, so it can neither convict nor clear — re-shoot "
+                    f"{d.name.lower()} and re-run", "R8b")
+
     # 9/10. Clearance, on the presence of evidence.
+    #
+    # `ccov`, not `cov`. Rungs 5 and 6 above are allowed to convict on the full
+    # picture, PARTIALs included, because suppressing suspicion for want of
+    # evidence is the one failure this ladder must never have. Clearance is the
+    # opposite claim and gets the stricter number: MEASURED dimensions, at
+    # clearance confidence, only.
+    ccov = clearance_coverage(dims)
     if dev is not None:
-        if dev <= BAND_AUTHENTIC and cov >= _pc(COVERAGE_FOR_AUTHENTIC):
+        if dev <= BAND_AUTHENTIC and ccov >= _pc(COVERAGE_FOR_AUTHENTIC):
             # Authentic is the only verdict that positively certifies a garment,
             # and it is issued with no human behind it. It therefore asks
             # directly whether every dimension the product HAS was examined,
@@ -774,20 +990,44 @@ def decide(dims, *, category="", upc_status="not_provided", label_hard_fail=Fals
             all_ok, all_why = (True, "")
             if AUTHENTIC_REQUIRES_ALL_MEASURED:
                 all_ok, all_why = all_applicable_measured(dims)
+            # A certification should rest on at least one lookup, not on
+            # judgements alone. The UPC is the only lookup intake collects.
+            if all_ok and AUTHENTIC_REQUIRES_UPC_MATCH and upc_status != "match":
+                all_ok, all_why = False, ("the UPC was not verified against the "
+                                          "master record (status: "
+                                          f"{upc_status or 'not_provided'})")
             if all_ok:
                 return emit("Authentic",
-                            f"no deviation on any measured dimension, {cov:.0%} coverage, "
-                            f"every applicable dimension measured", "R9")
+                            f"no deviation on any measured dimension, {ccov:.0%} clearance "
+                            f"coverage, every applicable dimension measured", "R9")
             # Everything else about the item says clean; it simply was not
             # examined completely enough to certify. Fall through to Likely
             # Authentic rather than manufacturing a claim.
-            if dev <= BAND_LIKELY_AUTH and cov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
+            if dev <= BAND_LIKELY_AUTH and ccov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
+                if LIKELY_AUTH_REQUIRES_UPC_MATCH and upc_status != "match":
+                    return emit("Inconclusive",
+                                f"clean at {ccov:.0%} coverage, but clearance is "
+                                f"configured to require a verified UPC (status: "
+                                f"{upc_status or 'not_provided'}) — routed to review",
+                                "R10b")
                 return emit("Likely Authentic",
-                            f"minor deviation only ({dev}/100) at {cov:.0%} coverage — "
-                            f"not certified Authentic because {all_why}", "R10a")
-        if dev <= BAND_LIKELY_AUTH and cov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
+                            f"minor deviation only ({dev}/100) at {ccov:.0%} clearance "
+                            f"coverage — not certified Authentic because {all_why}", "R10a")
+        if dev <= BAND_LIKELY_AUTH and ccov >= _pc(COVERAGE_FOR_LIKELY_AUTH):
+            # The optional lookup gate on the ORDINARY clearance. When enabled,
+            # an item that would have cleared on photographs alone goes to a
+            # person instead — never to a rejection, so the cost is review
+            # volume, which is the direction this ladder is instructed to be
+            # wrong in.
+            if LIKELY_AUTH_REQUIRES_UPC_MATCH and upc_status != "match":
+                return emit("Inconclusive",
+                            f"clean at {ccov:.0%} coverage, but clearance is "
+                            f"configured to require a verified UPC (status: "
+                            f"{upc_status or 'not_provided'}) — routed to review",
+                            "R10b")
             return emit("Likely Authentic",
-                        f"minor deviation only ({dev}/100) at {cov:.0%} coverage", "R10")
+                        f"minor deviation only ({dev}/100) at {ccov:.0%} clearance "
+                        f"coverage", "R10")
 
     # 11. Genuinely ambiguous.
     return emit("Inconclusive", "genuinely ambiguous — routed to human review", "R11")

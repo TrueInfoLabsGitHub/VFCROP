@@ -14,14 +14,28 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout, as_completed
 
+# On Windows behind TLS-inspecting proxies (or with a stale CA bundle), Python's
+# bundled certificates cannot validate hosts the operating system trusts, and
+# every Supabase call dies with CERTIFICATE_VERIFY_FAILED. truststore delegates
+# verification to the OS certificate store. Optional: without the package,
+# behaviour is exactly as before. Must run before any TLS context is created.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import audit as audit_log
 import case_queue
 import exporter
+import intake
+import preflight
 import scoring
 import supa
 from graph import DIMENSIONS, build_graph
@@ -196,9 +210,83 @@ def _run_one(req: AnalyzeReq, provider: str) -> dict:
     }
 
 
+class PreflightReq(BaseModel):
+    case_id: str = ""
+    suspect_images: list[str] | None = None
+
+
+@app.post("/api/preflight")
+def preflight_check(req: PreflightReq):
+    """Stage 0. The UI calls this before /api/analyze so an unusable batch is
+    bounced in milliseconds — no engine run, nothing stored beyond one log row."""
+    res = preflight.check(req.suspect_images or [])
+    if not res["ok"]:
+        preflight.log_rejection(req.case_id, res)
+    return res
+
+
+class IntakeReq(BaseModel):
+    case_id: str
+    brand: str = "TNF"
+    origin: str = ""
+    note: str = ""
+    submitter_id: str = ""
+
+
+@app.post("/api/intake")
+def intake_create(req: IntakeReq):
+    """Open a case in the register. Idempotent by case_id — a run starting
+    twice, or an external feed retrying, never duplicates the case."""
+    try:
+        return intake.create(req.case_id, req.brand, req.origin, req.note, req.submitter_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/intake")
+def intake_list(status: str = ""):
+    return {"cases": intake.list_cases(status)}
+
+
+class AuditReq(BaseModel):
+    action: str
+    detail: str = ""
+    user: str = ""
+
+
+@app.post("/api/audit")
+def audit_record(req: AuditReq):
+    """Append-only. There is no update or delete route on purpose."""
+    try:
+        return audit_log.record(req.action, req.detail, req.user)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/audit")
+def audit_recent(limit: int = 50):
+    return {"entries": audit_log.recent(limit)}
+
+
+def _preflight_or_422(req: AnalyzeReq):
+    """Defence in depth: the same gate inside /api/analyze, for clients that
+    skip the preflight endpoint. Raises 422 with a readable reason."""
+    if not preflight.ENABLED:
+        return
+    imgs = req.suspect_images if req.suspect_images else ([req.suspect_image] if req.suspect_image else [])
+    res = preflight.check(imgs)
+    if not res["ok"]:
+        preflight.log_rejection(req.case_id, res)
+        why = "; ".join(f"photo {p['image']}: {p['issue']}" if p.get("image") else p["issue"]
+                        for p in res["problems"]) or "no usable photos"
+        raise HTTPException(422, f"pre-flight rejected — {why}. Retake and resubmit; "
+                                 f"the run was not started and nothing was stored.")
+
+
 @app.post("/api/analyze")
 def analyze(req: AnalyzeReq):
     provider = req.provider if req.provider in _PROVIDERS else "openai"
+    _preflight_or_422(req)
 
     if USE_QUEUE:
         try:
@@ -315,9 +403,16 @@ def job_status(jid: str):
 @app.get("/api/cases")
 def cases():
     """Case dashboard: KPIs + recent cases, derived from the saved-runs store."""
+    queued = intake.list_cases("queued")
     if not supa.available():
-        return {"available": False, "cases": [], "kpis": {}}
-    runs = supa.list_runs()                       # oldest first
+        return {"available": False, "cases": [], "kpis": {}, "queued": queued}
+    try:
+        runs = supa.list_runs()                   # oldest first
+    except Exception as e:
+        # A configured-but-unreachable store (network, SSL, outage) must not
+        # 500 the whole cases page — the register still has the queue.
+        return {"available": False, "cases": [], "kpis": {}, "queued": queued,
+                "store_error": str(e)[:200]}
     num = lambda v: v if isinstance(v, (int, float)) else None
     scores = [r["score"] for r in runs if num(r.get("score")) is not None]
     lats = [r["latency_ms"] for r in runs if num(r.get("latency_ms")) is not None]
@@ -349,7 +444,8 @@ def cases():
             "score": r.get("score"), "upc": (r.get("upc") or {}).get("status", ""),
             "summary": top[0], "created_at": r.get("created_at", ""),
         })
-    return {"available": True, "count": len(runs), "kpis": kpis, "cases": out}
+    return {"available": True, "count": len(runs), "kpis": kpis, "cases": out,
+            "queued": queued}
 
 
 @app.get("/api/cases/{rid}")
@@ -357,7 +453,10 @@ def case_detail(rid: str):
     """Full saved run for the case dashboard — clicking a row opens this."""
     if not supa.available():
         raise HTTPException(503, "Supabase not configured")
-    rec = supa.get_run(rid)
+    try:
+        rec = supa.get_run(rid)
+    except Exception as e:
+        raise HTTPException(503, f"case store unreachable: {str(e)[:160]}")
     if not rec:
         raise HTTPException(404, "run not found")
     return rec
@@ -374,7 +473,11 @@ class ProductReq(BaseModel):
 def products_list():
     if not supa.available():
         return {"available": False, "products": []}
-    return {"available": True, "products": supa.list_products()}
+    try:
+        return {"available": True, "products": supa.list_products()}
+    except Exception as e:
+        # configured-but-unreachable store: degrade like unconfigured, say why
+        return {"available": False, "products": [], "store_error": str(e)[:200]}
 
 
 @app.post("/api/products")
@@ -592,7 +695,10 @@ def _build_record(req: ExportSaveReq) -> dict:
 def export_count():
     if not supa.available():
         return {"available": False, "count": 0}
-    return {"available": True, "count": supa.runs_count()}
+    try:
+        return {"available": True, "count": supa.runs_count()}
+    except Exception as e:
+        return {"available": False, "count": 0, "store_error": str(e)[:200]}
 
 
 @app.post("/api/export/save")
@@ -603,6 +709,7 @@ def export_save(req: ExportSaveReq):
         raise HTTPException(400, "no analysis data to save")
     rec = _build_record(req)
     supa.save_run(rec)
+    intake.mark_analyzed(rec.get("case_id") or "")   # the register follows the store
     return {"ok": True, "id": rec["id"], "count": supa.runs_count()}
 
 
@@ -622,7 +729,7 @@ def _export_name(first, last, ids):
 
 @app.get("/api/export.xlsx")
 def export_xlsx(first: int | None = None, last: int | None = None,
-               cases: str | None = None):
+               cases: str | None = None, full: int = 0):
     """Download the workbook, optionally limited to a slice of the history.
 
     first/last are inclusive case numbers matching the '#' column on the sheet;
@@ -634,7 +741,7 @@ def export_xlsx(first: int | None = None, last: int | None = None,
     runs = exporter.select_runs(supa.list_runs(), first=first, last=last, cases=ids)
     if not runs:
         raise HTTPException(404, "no saved runs match that selection")
-    data = exporter.build_workbook(runs)
+    data = exporter.build_workbook(runs, full=bool(full))
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

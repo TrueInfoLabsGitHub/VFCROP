@@ -317,14 +317,14 @@ def build_overview(wb, runs, index=0):
 # record and still picks the row's action — and the VERDICT cell now carries
 # the lane's red/green fill itself, so the one glance-signal the Lane column
 # provided survives the column it used to live in.
-_RESULT_HEADERS = ["#", "Case ID", "Product", "Engine", "Verdict", "Rule", "Why",
-                   "Deviation", "Measured", "Driver"] + DIMS + \
-                  [f"{d} — region" for d in DIMS] + ["What to do"]
-_RESULT_WIDTHS = [5, 20, 34, 16, 24, 7, 52, 10, 10, 12] + [11] * 5 + \
-                 [18] * 5 + [30]
-_DIM_COL0 = 11                      # first dimension column
-_REGION_COL0 = 16
-_ACTION_COL = 21
+# The locked Results format (per the approved sample): fourteen columns ending
+# at Material. Engine, the per-dimension region provenance and the "What to do"
+# action all still exist — on the Case dossier, where the per-case story lives;
+# this sheet is the scan-across-cases view and carries only what scans.
+_RESULT_HEADERS = ["#", "Case ID", "Product", "Verdict", "Rule", "Why",
+                   "Overall Difference", "Measured", "Driver"] + DIMS
+_RESULT_WIDTHS = [5, 20, 34, 24, 7, 52, 11, 10, 12] + [11] * 5
+_DIM_COL0 = 10                      # first dimension column
 
 _ACTION = {"REJECTED": "Block · notify the seller",
            "CLEARED": "Release",
@@ -337,7 +337,8 @@ def build_results(wb, runs, index=1):
     ws["A1"] = "Results — every case the engine actually examined"
     ws["A1"].font = _TITLE
     ws["A2"] = ("A number appears only where that check was MEASURED. A word means "
-                "it was not — and says which kind of not.")
+                "it was not — and says which kind of not. A trailing ~ marks a "
+                "partial measurement.")
     ws["A2"].font = _MUTED_I
     _header(ws, 4, _RESULT_HEADERS, _RESULT_WIDTHS)
 
@@ -349,7 +350,7 @@ def build_results(wb, runs, index=1):
         rule = rule_of(rec)
         void = no_comparison(rec)
         vals = [n, rec.get("case_id") or "", rec.get("product") or "",
-                rec.get("engine") or "", rec.get("verdict") or "", rule,
+                rec.get("verdict") or "", rule,
                 # The case's OWN reason, not the rung's generic sentence: the
                 # binding constraint on the last real batch — "only 38% of the
                 # label checks could be run (need 50%)" — was invisible here,
@@ -366,8 +367,8 @@ def build_results(wb, runs, index=1):
             cell.alignment = _WRAP
         # The verdict cell carries the lane's fill now that the Lane column is
         # gone — red/green at a glance must survive the column it lived in.
-        ws.cell(row=row, column=5).fill = _LANE_FILL.get(lane)
-        ws.cell(row=row, column=5).font = _LANE_FONT
+        ws.cell(row=row, column=4).fill = _LANE_FILL.get(lane)
+        ws.cell(row=row, column=4).font = _LANE_FONT
 
         for i, dim in enumerate(DIMS):
             state, score, _d = dim_state(rec, dim)
@@ -389,12 +390,6 @@ def build_results(wb, runs, index=1):
                 cell.value = _WORD_FOR_STATE.get(state, "not run")
                 cell.fill = _UNMEASURED_FILL
                 cell.font = _MUTED_I
-            rcell = ws.cell(row=row, column=_REGION_COL0 + i, value=region_note(rec, dim))
-            rcell.font = _MUTED
-            rcell.alignment = _WRAP
-
-        action = "Re-check the product match" if void else _ACTION.get(lane, "Hold")
-        ws.cell(row=row, column=_ACTION_COL, value=action).alignment = _WRAP
     return ws
 
 
@@ -581,7 +576,7 @@ def _card(ws, rec, n, total, row):
         headline = [
             ("Overall difference", "—  (the engine did not examine this item)"),
             ("Why", f"every check errored — {cls or 'engine failure'}"),
-            ("What to do", "Re-run. See the Re-run queue sheet."),
+            ("What to do", "Re-run this case — the engine failed; this is not a result."),
             ("Checks completed", f"0 of {applicable} — {lost} errored"),
         ]
     elif void:
@@ -706,9 +701,15 @@ def _as_pct(v):
         return ""
 
 
-def build_report_sheets(wb, runs):
-    """All four, ahead of the technical sheets in tab order."""
+def build_report_sheets(wb, runs, include_rerun=True):
+    """The report half of the workbook. The default download is exactly three
+    sheets — Overview · Results · Case dossier — the approved format; the full
+    workbook (include_rerun=True, exporter's full=1) also carries the Re-run
+    queue ahead of the technical sheets."""
     build_overview(wb, runs, 0)
     build_results(wb, runs, 1)
-    build_rerun_queue(wb, runs, 2)
-    build_case_dossier(wb, runs, 3)
+    if include_rerun:
+        build_rerun_queue(wb, runs, 2)
+        build_case_dossier(wb, runs, 3)
+    else:
+        build_case_dossier(wb, runs, 2)

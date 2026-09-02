@@ -47,8 +47,8 @@ def _tiny_jpeg():
     return _b64.b64encode(buf.getvalue()).decode()
 
 
-def sheets(runs):
-    wb = openpyxl.load_workbook(io.BytesIO(exporter.build_workbook(runs)))
+def sheets(runs, full=False):
+    wb = openpyxl.load_workbook(io.BytesIO(exporter.build_workbook(runs, full=full)))
     return wb
 
 
@@ -61,15 +61,29 @@ def flat(ws):
 
 
 # ---- the report sheets exist and lead --------------------------------------
-def test_the_report_sheets_come_first():
-    """A reader opening the file should land on a report, not an engineering log."""
+def test_the_default_download_is_exactly_the_approved_three_sheets():
+    """The signed-off format: Overview · Results · Case dossier, nothing else."""
     wb = sheets([rec()])
+    assert wb.sheetnames == ["Overview", "Results", "Case dossier"]
+
+
+def test_the_full_workbook_keeps_the_report_sheets_first():
+    wb = sheets([rec()], full=True)
     assert wb.sheetnames[:4] == ["Overview", "Results", "Re-run queue", "Case dossier"]
 
 
-def test_the_technical_sheets_survive():
-    wb = sheets([rec()])
+def test_the_technical_sheets_survive_in_the_full_workbook():
+    wb = sheets([rec()], full=True)
     assert "VERITAS analyses" in wb.sheetnames
+
+
+def test_results_headers_match_the_approved_sample():
+    ws = sheets([rec()])["Results"]
+    hdr = [c for c in next(ws.iter_rows(min_row=4, max_row=4, values_only=True))
+           if c is not None]
+    assert hdr == ["#", "Case ID", "Product", "Verdict", "Rule", "Why",
+                   "Overall Difference", "Measured", "Driver",
+                   "Logo", "Stitching", "Hardware", "Label", "Material"]
 
 
 # ---- a number means a measurement ------------------------------------------
@@ -125,14 +139,16 @@ def test_the_rule_that_fired_is_on_the_row():
     """Why prints the case's OWN reason — the row that says 'only 38% of the
     label checks could be run' is actionable where the rung's generic sentence
     is not. The rung sentence is only the fallback for reason-less records."""
+    _RULE = rs._RESULT_HEADERS.index("Rule")
+    _WHY = rs._RESULT_HEADERS.index("Why")
     ws = sheets([rec(rule="R4b", reason="only 38% of the label checks could be run")])["Results"]
     row = [c for c in ws.iter_rows(min_row=5, max_row=5, values_only=True)][0]
-    assert row[5] == "R4b"
-    assert row[6] == "only 38% of the label checks could be run"
+    assert row[_RULE] == "R4b"
+    assert row[_WHY] == "only 38% of the label checks could be run"
 
     ws = sheets([rec(rule="R4b", reason="")])["Results"]
     row = [c for c in ws.iter_rows(min_row=5, max_row=5, values_only=True)][0]
-    assert "counterfeit band" in row[6]                    # the fallback
+    assert "counterfeit band" in row[_WHY]                 # the fallback
 
 
 def test_an_old_record_gets_an_inferred_rule_marked_as_such():
@@ -166,7 +182,7 @@ def test_an_all_errored_legacy_run_is_recognised_as_a_run_failure():
             dimensions={n: d(None, FAILED, "AGENT FAILED — 402 Payment Required")
                         for n in rs.DIMS})
     assert rs.is_run_failure(r) is True
-    assert "Payment" in " ".join(flat(sheets([r])["Re-run queue"]))
+    assert "Payment" in " ".join(flat(sheets([r], full=True)["Re-run queue"]))
 
 
 def test_thin_evidence_is_not_mistaken_for_an_engine_failure():
@@ -199,7 +215,7 @@ def test_payment_and_ratelimit_get_different_advice():
 
 
 def test_the_rerun_queue_is_empty_when_nothing_failed():
-    txt = " ".join(flat(sheets([rec()])["Re-run queue"]))
+    txt = " ".join(flat(sheets([rec()], full=True)["Re-run queue"]))
     assert "Nothing to re-run" in txt
 
 
@@ -211,23 +227,20 @@ def test_a_reference_mismatch_shows_no_scores():
             lane="REVIEW", score=69, dimensions={n: d(69, ESTIMATED) for n in rs.DIMS})
     ws = sheets([r])["Results"]
     row = [c for c in ws.iter_rows(min_row=5, max_row=5, values_only=True)][0]
-    assert row[rs._RESULT_HEADERS.index("Deviation")] is None   # deviation blanked
+    assert row[rs._RESULT_HEADERS.index("Overall Difference")] is None   # blanked
     assert all(v == "not compared" for v in row[rs._DIM_COL0 - 1:rs._DIM_COL0 + 4])
-    assert row[rs._ACTION_COL - 1] == "Re-check the product match"
 
 
-# ---- the region column ------------------------------------------------------
-def test_the_region_column_says_why_a_dimension_was_not_measured():
+# ---- region provenance (lives on the dossier now; the helper is the contract)
+def test_region_note_says_why_a_dimension_was_not_measured():
     """Without this, every 'not visible' needs a database query to explain."""
     r = rec(dimensions={"Logo": d(5, MEASURED, region={"cropped": True, "legible": True}),
                         "Hardware": d(None, NOT_SEEN,
                                       region={"cropped": False,
                                               "note": "product has no hardware"}),
                         **{n: d(5) for n in ("Stitching", "Label", "Material")}})
-    ws = sheets([r])["Results"]
-    row = [c for c in ws.iter_rows(min_row=5, max_row=5, values_only=True)][0]
-    assert row[rs._REGION_COL0 - 1] == "cropped"
-    assert "no hardware" in row[rs._REGION_COL0 + 1]
+    assert rs.region_note(r, "Logo") == "cropped"
+    assert "no hardware" in rs.region_note(r, "Hardware")
 
 
 def test_a_soft_crop_is_flagged_as_soft():
@@ -313,7 +326,7 @@ def test_the_dossier_names_the_photographs_that_would_resolve_it():
 
 def test_an_empty_export_does_not_explode():
     wb = sheets([])
-    assert wb.sheetnames[:4] == ["Overview", "Results", "Re-run queue", "Case dossier"]
+    assert wb.sheetnames == ["Overview", "Results", "Case dossier"]
 
 
 # ---- the fields have to survive the whole pipeline -------------------------

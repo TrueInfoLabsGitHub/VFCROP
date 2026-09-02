@@ -1,0 +1,111 @@
+/* ============================================================
+   VERITAS — Theme token system (final, locked design)
+   Apply the theme by setting data-theme on <html> (or <body>):
+     <html data-theme="royal-navy">
+   Themes: royal-navy (default) · oled-ice · satin-gold ·
+           half-white-purple · emerald-night · teal-compare
+   Every component must consume ONLY these variables — never
+   hardcoded colors. rgba() accents use var(--acc-rgb).
+   ============================================================ */
+
+:root, [data-theme="royal-navy"] {
+  --bg:#0b1322; --rad:#1a2742; --top:#0e1729;
+  --glass:rgba(18,28,48,.92);
+  --bord:rgba(150,182,230,.35); --bordl:rgba(150,182,230,.22);
+  --inp:rgba(7,12,22,.8);
+  --text:#f5f8fd; --mut:#c9d5e8; --mut2:#a8b8d0; --dim:#8a9ab6; --faint:#3d4d6c;
+  --acc:#5b9dff; --acc2:#3b7ae8; --accl:#9cc4ff; --acc-rgb:91,157,255;
+  --warn:#e9c46a; --bad:#f28b82; --sus:#5b9dff;
+  --shadow-card: inset 0 1px 0 rgba(255,255,255,.08), 0 22px 50px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.35);
+  --sheen: linear-gradient(165deg, rgba(255,255,255,.09), rgba(255,255,255,0) 38%);
+  --app-bg-extra: none; /* extra background-image layers per theme */
+  color-scheme: dark;
+}
+
+[data-theme="oled-ice"] {
+  --bg:#000000; --rad:#0e1622; --top:#050608;
+  --glass:rgba(8,10,14,.94);
+  --bord:rgba(190,212,242,.3); --bordl:rgba(190,212,242,.16);
+  --inp:rgba(2,3,5,.85);
+  --text:#ffffff; --mut:#d2dcea; --mut2:#aab8ca; --dim:#8492a5; --faint:#39434f;
+  --acc:#8fb8ff; --acc2:#5d92e8; --accl:#d7e5ff; --acc-rgb:143,184,255;
+  --warn:#e9c46a; --bad:#f28b82; --sus:#8fb8ff;
+  --shadow-card: inset 0 1px 0 rgba(255,255,255,.12), 0 18px 44px rgba(0,0,0,.8), 0 0 0 .5px rgba(190,212,242,.12);
+  --sheen: linear-gradient(165deg, rgba(255,255,255,.07), rgba(255,255,255,0) 38%);
+  /* hairline micro-grid, 56px cells */
+  --app-bg-extra: linear-gradient(rgba(190,212,242,.03) 1px, transparent 1px),
+                  linear-gradient(90deg, rgba(190,212,242,.03) 1px, transparent 1px);
+  color-scheme: dark;
+}
+
+[data-theme="satin-gold"] {
+  --bg:#0b0a08; --rad:#232012; --top:#100f0c;
+  --glass:rgba(23,21,15,.93);
+  --bord:rgba(212,175,55,.34); --bordl:rgba(212,175,55,.2);
+  --inp:rgba(10,9,6,.8);
+  --text:#f6f3ea; --mut:#d8cfba; --mut2:#b6ac92; --dim:#948c74; --faint:#4a4432;
+  --acc:#e6c34a; --acc2:#c9a227; --accl:#f2dd9a; --acc-rgb:230,195,74;
+  --warn:#e9c46a; --bad:#f28b82; --sus:#e6c34a;
+  --shadow-card: inset 0 1px 0 rgba(255,255,255,.08), 0 22px 50px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.35);
+  --sheen: linear-gradient(165deg, rgba(255,255,255,.09), rgba(255,255,255,0) 38%);
+  /* satin diagonal sheen + gold corner glow */
+  --app-bg-extra: linear-gradient(115deg, transparent 32%, rgba(255,255,255,.028) 46%, transparent 60%),
+                  radial-gradient(ellipse 700px 420px at 92% 100%, rgba(212,175,55,.1), transparent 70%);
+  color-scheme: dark;
+}
+
+[data-theme="half-white-purple"] {
+  --bg:#f4f2f8; --rad:#e3dcf2; --top:#ffffff;
+  --glass:rgba(255,255,255,.94);
+  --bord:rgba(124,58,237,.3); --bordl:rgba(124,58,237,.16);
+  --inp:rgba(124,58,237,.05);
+  --text:#221a35; --mut:#453a63; --mut2:#655a85; --dim:#877ca4; --faint:#cfc7e2;
+  --acc:#7c3aed; --acc2:#6d28d9; --accl:#8b5cf6; --acc-rgb:124,58,237;
+  --warn:#b8860b; --bad:#dc2626; --sus:#7c3aed;
+  --shadow-card: inset 0 1px 0 rgba(255,255,255,.9), 0 12px 32px rgba(60,40,120,.14), 0 3px 10px rgba(60,40,120,.08);
+  --sheen: none;
+  --app-bg-extra: radial-gradient(ellipse 700px 420px at 92% 100%, rgba(124,58,237,.09), transparent 70%);
+  color-scheme: light;
+}
+
+[data-theme="emerald-night"] {
+  --bg:#05130c; --rad:#12432a; --top:#081b12;
+  --glass:rgba(10,26,18,.92);
+  --bord:rgba(120,200,160,.32); --bordl:rgba(120,200,160,.18);
+  --inp:rgba(4,12,8,.8);
+  --text:#eef7f1; --mut:#c2dcce; --mut2:#9dbfae; --dim:#7da28f; --faint:#33553f;
+  --acc:#34d399; --acc2:#10b981; --accl:#86efc9; --acc-rgb:52,211,153;
+  --warn:#e9c46a; --bad:#f28b82; --sus:#34d399;
+  --shadow-card: inset 0 1px 0 rgba(255,255,255,.08), 0 22px 50px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.35);
+  --sheen: linear-gradient(165deg, rgba(255,255,255,.09), rgba(255,255,255,0) 38%);
+  --app-bg-extra: radial-gradient(ellipse 640px 400px at 8% 100%, rgba(52,211,153,.08), transparent 70%);
+  color-scheme: dark;
+}
+
+[data-theme="teal-compare"] {
+  --bg:#0d1420; --rad:#182338; --top:#101827;
+  --glass:rgba(20,26,40,.82);
+  --bord:rgba(120,140,180,.22); --bordl:rgba(120,140,180,.15);
+  --inp:rgba(13,20,32,.7);
+  --text:#eef2fa; --mut:#aeb9d0; --mut2:#93a0ba; --dim:#7a88a4; --faint:#3a4560;
+  --acc:#38c8d8; --acc2:#2bb3e8; --accl:#6fdce8; --acc-rgb:56,200,216;
+  --warn:#fbbf24; --bad:#f87171; --sus:#ff8a5e; /* coral marks the suspect twin in this theme */
+  --shadow-card: inset 0 1px 0 rgba(255,255,255,.08), 0 22px 50px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.35);
+  --sheen: linear-gradient(165deg, rgba(255,255,255,.09), rgba(255,255,255,0) 38%);
+  --app-bg-extra: none;
+  color-scheme: dark;
+}
+
+/* ---------- app shell ground (every theme) ---------- */
+.app-root {
+  background: var(--bg);
+  background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), var(--app-bg-extra);
+  background-size: auto, 56px 56px, 56px 56px; /* sizes beyond the first layer only matter for oled-ice's grid */
+  color: var(--text);
+  min-height: 100vh;
+}
+
+/* ---------- light-theme component corrections ---------- */
+[data-theme="half-white-purple"] .track { background: rgba(34,26,53,.1); }           /* progress-bar troughs */
+[data-theme="half-white-purple"] .ring-track { stroke: rgba(34,26,53,.12); }          /* score-ring background circles */
+[data-theme="half-white-purple"] .overlay-scrim { background: rgba(30,20,55,.45); }   /* run-overlay backdrop */

@@ -138,7 +138,13 @@ def test_authentic_is_reachable():
     while, which required a pixel-identical match on every primitive and
     produced zero Authentic verdicts across 249 runs."""
     dims = [_measured(n, scoring.BAND_AUTHENTIC) for n in scoring.DIMENSION_NAMES]
-    assert decide(dims, category="jacket")["verdict_label"] == "Authentic"
+    assert decide(dims, category="jacket",
+                  upc_status="match")["verdict_label"] == "Authentic"
+    # Without the UPC lookup the same evidence still CLEARS — it is simply not
+    # CERTIFIED. Judgements alone may release an item; they may not certify it.
+    without = decide(dims, category="jacket")
+    assert without["verdict_label"] == "Likely Authentic"
+    assert without["lane"] == "CLEARED"
 
 
 def test_authentic_requires_every_applicable_dimension_measured():
@@ -181,3 +187,86 @@ def test_a_partial_engine_failure_is_still_a_verdict_about_the_product():
         Dim(n, None, DimState.FAILED, 0.0, 0.0)
         for n in ("Stitching", "Hardware", "Label", "Material")]
     assert decide(dims, category="jacket")["lane"] == "REJECTED"
+
+
+# ---- the asymmetric ladder: conviction loosened only above the noise --------
+def test_partial_dispositive_sits_above_what_photography_can_produce():
+    """R4c convicts on a single PARTIAL. The entire safety argument is that its
+    threshold clears the rumpled-garment ceiling with 2x margin — the same
+    ceiling the geometry floor was sized against. If either constant moves,
+    this is the test that says which failure comes back: creasing convicting
+    genuine stock."""
+    noise_ceiling = _pc(scoring.GROUP_FLOOR_FACTOR["geometry"]) * RUMPLED_GARMENT_BASELINE
+    assert scoring.PARTIAL_DISPOSITIVE >= 2 * noise_ceiling
+    # ...and corroboration (R4d) requires each partial to clear the band, which
+    # itself sits above the ceiling.
+    assert scoring.DIM_COUNTERFEIT > noise_ceiling
+    assert scoring.PARTIALS_FOR_CORROBORATION >= 2
+
+
+def test_a_rumpled_garment_survives_the_partial_rungs():
+    """The scenario that created PARTIAL_MAY_CONVICT=False, run against the
+    rungs that partially supersede it: every dimension PARTIAL at the noise
+    ceiling — the worst a badly photographed genuine garment produces."""
+    ceiling = _pc(scoring.GROUP_FLOOR_FACTOR["geometry"]) * RUMPLED_GARMENT_BASELINE
+    dims = [Dim(n, ceiling, DimState.PARTIAL, 0.8, 1.0)
+            for n in scoring.DIMENSION_NAMES]
+    out = decide(dims, category="jacket")
+    assert out["lane"] != "REJECTED"
+    assert out["lane"] != "CLEARED"           # ...nor does creasing certify anything
+
+
+def test_the_clearing_band_ends_below_the_noise_ceiling():
+    """An item whose composite sits IN the photographic-noise range (26-30) is
+    exactly as consistent with a creased genuine garment as with a counterfeit
+    whose tells never resolved. It must go to a person — in either direction,
+    deciding it automatically is a guess."""
+    noise_ceiling = _pc(scoring.GROUP_FLOOR_FACTOR["geometry"]) * RUMPLED_GARMENT_BASELINE
+    assert scoring.BAND_LIKELY_AUTH < noise_ceiling
+    dims = [_measured(n, 27) for n in scoring.DIMENSION_NAMES]
+    out = decide(dims, category="jacket", upc_status="match")
+    assert out["lane"] == "REVIEW"
+
+
+def test_upc_mismatch_convicts_with_no_coverage_at_all():
+    """R3d. The barcode resolving to a DIFFERENT product is a lookup — the same
+    class of evidence as the deterministic label rungs — and it must convict
+    even when nothing else was assessable."""
+    dims = [Dim(n, None, DimState.NOT_ASSESSABLE, 0.0, 0.0)
+            for n in scoring.DIMENSION_NAMES]
+    out = decide(dims, category="jacket", upc_status="mismatch")
+    assert out["verdict_label"] == "Suspected Counterfeit"
+    assert out["rule"] == "R3d"
+    # nomatch is weaker evidence (master data has gaps) and stays a floor, not
+    # an unconditional conviction.
+    assert decide(dims, category="jacket", upc_status="nomatch")["rule"] != "R3d"
+
+
+def test_corroborated_partials_convict_where_one_goes_to_review():
+    """R4d. One partial in the band is a camera angle; two dimensions telling
+    the same story is the garment."""
+    base = [_measured("Label", 2), _measured("Logo", 2)]
+    one = base + [Dim("Stitching", scoring.DIM_COUNTERFEIT + 5, DimState.PARTIAL, 0.8, 1.0),
+                  Dim("Material", 5, DimState.PARTIAL, 0.8, 1.0),
+                  Dim("Hardware", 2, DimState.MEASURED, 0.8, 1.0)]
+    two = base + [Dim("Stitching", scoring.DIM_COUNTERFEIT + 5, DimState.PARTIAL, 0.8, 1.0),
+                  Dim("Material", scoring.DIM_COUNTERFEIT + 2, DimState.PARTIAL, 0.8, 1.0),
+                  Dim("Hardware", 2, DimState.MEASURED, 0.8, 1.0)]
+    assert decide(one, category="jacket")["lane"] == "REVIEW"
+    out = decide(two, category="jacket")
+    assert out["verdict_label"] == "Suspected Counterfeit"
+    assert out["rule"] == "R4d"
+
+
+def test_certification_requires_a_lookup_not_judgements_alone():
+    """Authentic is the one verdict that releases goods with a certification
+    attached. Vision judgements alone may clear (Likely Authentic); the
+    certificate additionally requires the UPC to have resolved to the right
+    master record."""
+    dims = [_measured(n, 0) for n in scoring.DIMENSION_NAMES]
+    for status in ("not_provided", "unreadable", None):
+        out = decide(dims, category="jacket", upc_status=status)
+        assert out["verdict_label"] == "Likely Authentic", status
+        assert "UPC" in out["reason"]
+    assert decide(dims, category="jacket",
+                  upc_status="match")["verdict_label"] == "Authentic"

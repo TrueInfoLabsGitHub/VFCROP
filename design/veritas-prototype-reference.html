@@ -1,0 +1,938 @@
+<title>Veritas Prototype</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg:#0b1322; --rad:#1a2742; --top:#0e1729; --glass:rgba(18,28,48,.92); --bord:rgba(150,182,230,.35);
+    --bordl:rgba(150,182,230,.22); --inp:rgba(7,12,22,.8); --text:#f5f8fd; --mut:#c9d5e8; --mut2:#a8b8d0;
+    --dim:#8a9ab6; --faint:#3d4d6c; --acc:#5b9dff; --acc2:#3b7ae8; --accl:#9cc4ff; --acc-rgb:91,157,255;
+    --warn:#e9c46a; --bad:#f28b82; --sus:#5b9dff;
+  }
+  body { margin: 0; font-family: 'Space Grotesk', 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  body.theme-scan {
+    --bg:#0b1322; --rad:#1a2742; --top:#0e1729; --glass:rgba(18,28,48,.92); --bord:rgba(150,182,230,.35);
+    --bordl:rgba(150,182,230,.22); --inp:rgba(7,12,22,.8); --text:#f5f8fd; --mut:#c9d5e8; --mut2:#a8b8d0;
+    --dim:#8a9ab6; --faint:#3d4d6c; --acc:#5b9dff; --acc2:#3b7ae8; --accl:#9cc4ff; --acc-rgb:91,157,255;
+    --warn:#e9c46a; --bad:#f28b82; --sus:#5b9dff;
+  }
+  body.theme-compare {
+    --bg:#0d1420; --rad:#182338; --top:#101827; --glass:rgba(20,26,40,.82); --bord:rgba(120,140,180,.22);
+    --bordl:rgba(120,140,180,.15); --inp:rgba(13,20,32,.7); --text:#eef2fa; --mut:#aeb9d0; --mut2:#93a0ba;
+    --dim:#7a88a4; --faint:#3a4560; --acc:#38c8d8; --acc2:#2bb3e8; --accl:#6fdce8; --acc-rgb:56,200,216;
+    --warn:#fbbf24; --bad:#f87171; --sus:#ff8a5e;
+  }
+  /* background options — override whichever theme is active */
+  body[data-bg="mono"]    { --bg:#070707; --rad:#262626; --top:#0d0d0d; }
+  body[data-bg="emerald"] { --bg:#05130c; --rad:#12432a; --top:#081b12; }
+  body[data-bg="wine"]    { --bg:#160910; --rad:#4a1830; --top:#1c0d15; }
+  body[data-bg="amber"]   { --bg:#140e06; --rad:#46310f; --top:#1a130a; }
+  body[data-bg="sunset"]  { --bg:#130a15; --rad:#3c1440; --top:#180d18; }
+  body[data-bg="gold"] { --bg:#0b0a08; --rad:#232012; --top:#100f0c; --glass:rgba(23,21,15,.93); --bord:rgba(212,175,55,.34);
+    --bordl:rgba(212,175,55,.2); --inp:rgba(10,9,6,.8); --text:#f6f3ea; --mut:#d8cfba; --mut2:#b6ac92;
+    --dim:#948c74; --faint:#4a4432; --acc:#e6c34a; --acc2:#c9a227; --accl:#f2dd9a; --acc-rgb:230,195,74; --sus:#e6c34a; }
+  body[data-bg="mono"] .app { background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), radial-gradient(ellipse 640px 400px at 90% 100%, rgba(255,255,255,.05), transparent 70%); }
+  body[data-bg="emerald"] .app { background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), radial-gradient(ellipse 640px 400px at 8% 100%, rgba(52,211,153,.08), transparent 70%); }
+  body[data-bg="wine"] .app { background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), radial-gradient(ellipse 700px 420px at 92% 100%, rgba(225,29,72,.1), transparent 70%); }
+  body[data-bg="amber"] .app { background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), radial-gradient(ellipse 700px 420px at 90% 100%, rgba(245,158,11,.1), transparent 70%); }
+  body[data-bg="sunset"] .app { background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), radial-gradient(ellipse 760px 460px at 94% 92%, rgba(255,120,60,.14), transparent 70%), radial-gradient(ellipse 560px 380px at 2% 55%, rgba(236,72,153,.11), transparent 70%); }
+  body[data-bg="lilac"] { --bg:#f4f2f8; --rad:#e3dcf2; --top:#ffffff; --glass:rgba(255,255,255,.94); --bord:rgba(124,58,237,.3);
+    --bordl:rgba(124,58,237,.16); --inp:rgba(124,58,237,.05); --text:#221a35; --mut:#453a63; --mut2:#655a85;
+    --dim:#877ca4; --faint:#cfc7e2; --acc:#7c3aed; --acc2:#6d28d9; --accl:#8b5cf6; --acc-rgb:124,58,237; --sus:#7c3aed; }
+  body[data-bg="lilac"] .app { background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), radial-gradient(ellipse 700px 420px at 92% 100%, rgba(124,58,237,.09), transparent 70%); }
+  body[data-bg="lilac"] .glass, body[data-bg="lilac"] .card3d, body[data-bg="lilac"] .callout { box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 12px 32px rgba(60,40,120,.14), 0 3px 10px rgba(60,40,120,.08); }
+  body[data-bg="lilac"] .bar { background: rgba(34,26,53,.1); }
+  body[data-bg="lilac"] svg circle[stroke="rgba(255,255,255,0.08)"] { stroke: rgba(34,26,53,.12); }
+  body[data-bg="lilac"] .overlay { background: rgba(30,20,55,.45); }
+  body[data-bg="oled"] { --bg:#000000; --rad:#0e1622; --top:#050608; --glass:rgba(8,10,14,.94); --bord:rgba(190,212,242,.3);
+    --bordl:rgba(190,212,242,.16); --inp:rgba(2,3,5,.85); --text:#ffffff; --mut:#d2dcea; --mut2:#aab8ca;
+    --dim:#8492a5; --faint:#39434f; --acc:#8fb8ff; --acc2:#5d92e8; --accl:#d7e5ff; --acc-rgb:143,184,255; --sus:#8fb8ff; }
+  body[data-bg="oled"] .app { background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), linear-gradient(rgba(190,212,242,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(190,212,242,.03) 1px, transparent 1px); background-size: auto, 56px 56px, 56px 56px; }
+  body[data-bg="oled"] .glass, body[data-bg="oled"] .card3d, body[data-bg="oled"] .callout { box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 18px 44px rgba(0,0,0,.8), 0 0 0 .5px rgba(190,212,242,.12); }
+  body[data-bg="oled"] .kpiglow { text-shadow: 0 0 18px rgba(var(--acc-rgb),.7); }
+  body[data-bg="gold"] .app { background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%), linear-gradient(115deg, transparent 32%, rgba(255,255,255,.028) 46%, transparent 60%), radial-gradient(ellipse 700px 420px at 92% 100%, rgba(212,175,55,.1), transparent 70%); }
+  .statusbar { flex: none; display: flex; align-items: center; gap: 20px; height: 36px; padding: 0 22px; border-top: 1px solid var(--bordl); background: var(--top); font-family: 'IBM Plex Mono'; font-size: 11px; letter-spacing: .06em; color: var(--dim); position: relative; z-index: 5; }
+  .statusbar .sep { width: 1px; height: 14px; background: var(--bordl); }
+  .cmdk { display: inline-flex; align-items: center; gap: 9px; padding: 7px 13px; border-radius: 9px; background: var(--inp); border: 1px solid var(--bord); color: var(--dim); font-size: 13px; cursor: pointer; }
+  .cmdk kbd { font-family: 'IBM Plex Mono'; font-size: 10.5px; border: 1px solid var(--bordl); border-radius: 4px; padding: 1px 5px; color: var(--mut2); }
+  .bell { position: relative; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--bord); background: none; display: flex; align-items: center; justify-content: center; color: var(--mut2); cursor: pointer; }
+  .bell i { position: absolute; top: -4px; right: -4px; width: 16px; height: 16px; border-radius: 50%; background: var(--bad); color: #fff; font-style: normal; font-size: 10px; font-family: 'IBM Plex Mono'; display: flex; align-items: center; justify-content: center; }
+  .cbox { width: 17px; height: 17px; border-radius: 4px; border: 1.5px solid var(--faint); flex: none; cursor: pointer; }
+  .cbox.on { background: var(--acc); border-color: var(--acc); }
+  .sortlab { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .custody { display: flex; align-items: center; gap: 12px; padding: 9px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--bordl); font-family: 'IBM Plex Mono'; font-size: 10.5px; letter-spacing: .08em; color: var(--mut2); }
+  .bgpicker { position: fixed; left: 22px; bottom: 50px; z-index: 80; display: flex; align-items: center; gap: 10px; padding: 10px 15px; border-radius: 999px; background: var(--glass); border: 1px solid var(--bord); box-shadow: 0 14px 36px rgba(0,0,0,.5); }
+  .bgpicker span { font-family: 'IBM Plex Mono'; font-size: 10.5px; letter-spacing: .12em; color: var(--mut2); }
+  .bgdot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+  .bgdot.on { border-color: var(--accl); box-shadow: 0 0 12px rgba(var(--acc-rgb),.6); }
+  a { color: var(--acc); }
+  .app { display: flex; flex-direction: column; min-height: 100vh; background: var(--bg); background-image: radial-gradient(ellipse 900px 480px at 50% 0%, var(--rad), transparent 75%); }
+  /* ---------- top bar ---------- */
+  .topbar { height: 58px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 22px; background: var(--top); border-bottom: 1px solid var(--bordl); position: sticky; top: 0; z-index: 40; }
+  .logo { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--acc2), var(--acc)); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: var(--bg); cursor: pointer; }
+  .brand { display: flex; flex-direction: column; cursor: pointer; }
+  .brand b { font-size: 15.5px; } .brand b i { color: var(--acc); font-style: normal; }
+  .brand small { font-family: 'IBM Plex Mono'; font-size: 11px; letter-spacing: .12em; color: var(--dim); }
+  nav { display: flex; gap: 4px; margin-left: 20px; }
+  nav button { background: none; border: none; font: inherit; font-size: 15px; font-weight: 500; color: var(--mut2); padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
+  nav button:hover { color: var(--text); }
+  nav button.on { color: var(--text); border-bottom-color: var(--acc); }
+  nav button:focus-visible, .btn:focus-visible, .chiptab:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border-radius: 999px; font-family: 'IBM Plex Mono'; font-size: 12px; letter-spacing: .06em; border: 1px solid var(--bord); color: var(--mut); }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); }
+  .chip.live { background: rgba(var(--acc-rgb), .1); border-color: rgba(var(--acc-rgb), .35); color: var(--accl); }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, var(--acc2), var(--acc)); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; }
+  .themeswap { display: inline-flex; border: 1px solid var(--bord); border-radius: 999px; overflow: hidden; }
+  .themeswap button { background: none; border: none; font-family: 'IBM Plex Mono'; font-size: 11.5px; letter-spacing: .06em; color: var(--mut2); padding: 7px 12px; cursor: pointer; }
+  .themeswap button.on { background: rgba(var(--acc-rgb), .15); color: var(--accl); }
+  /* ---------- shared ---------- */
+  .page { display: none; flex: 1; min-height: 0; }
+  .page.on { display: flex; }
+  .glass { background: linear-gradient(170deg, rgba(255,255,255,.05), rgba(255,255,255,0) 45%), var(--glass); border: 1px solid var(--bord); backdrop-filter: blur(14px); border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,.35); }
+  .lab { font-family: 'IBM Plex Mono'; font-size: 12px; letter-spacing: .16em; color: var(--dim); text-transform: uppercase; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; border-radius: 11px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
+  .btn.primary { background: linear-gradient(135deg, var(--acc2), var(--acc)); color: var(--bg); padding: 11px 18px; box-shadow: 0 8px 26px rgba(var(--acc-rgb), .3); }
+  .btn.primary:disabled { filter: grayscale(.7); opacity: .45; cursor: not-allowed; box-shadow: none; }
+  .btn.ghost { border-color: var(--bord); color: var(--mut); background: none; padding: 11px 18px; }
+  .btn.ghost:hover { color: var(--text); }
+  .h1 { font-size: 27px; font-weight: 700; }
+  .wrap { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 18px 26px 20px; min-height: 0; max-width: 1560px; margin: 0 auto; width: 100%; }
+  .row { display: flex; gap: 14px; }
+  .sample { font-family: 'IBM Plex Mono'; font-size: 12.5px; color: var(--dim); }
+  .statuschip { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 13px; border-radius: 999px; font-family: 'IBM Plex Mono'; font-size: 12px; }
+  .st-ok   { background: rgba(var(--acc-rgb), .1); border: 1px solid rgba(var(--acc-rgb), .35); color: var(--accl); }
+  .st-bad  { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.4); color: var(--bad); }
+  .st-warn { background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.4); color: var(--warn); }
+  .st-dim  { background: rgba(255,255,255,.04); border: 1px solid var(--bord); color: var(--mut2); }
+  .bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 3px; }
+  .mono { font-family: 'IBM Plex Mono'; }
+  /* ---------- dashboard ---------- */
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
+  .kpi { padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; }
+  .kpi b { font-size: 33px; font-weight: 700; }
+  .tablecard { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+  .thead, .trow { display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--bordl); }
+  .trow { font-size: 15.5px; color: var(--mut); cursor: pointer; }
+  .trow:hover { background: rgba(var(--acc-rgb), .05); }
+  .c-no { width: 128px; font-family: 'IBM Plex Mono'; font-size: 13.5px; color: var(--accl); }
+  .c-brand { width: 138px; color: var(--text); font-weight: 600; }
+  .c-item { flex: 1; }
+  .c-date { width: 92px; font-family: 'IBM Plex Mono'; font-size: 13px; color: var(--mut2); }
+  .c-match { width: 122px; display: flex; align-items: center; gap: 8px; }
+  .c-match span { font-family: 'IBM Plex Mono'; font-size: 11.5px; color: var(--mut); }
+  .c-verdict { width: 118px; display: flex; justify-content: center; }
+  .vbars { display: flex; flex-direction: column; gap: 12px; }
+  .vbars .vrow { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--mut); }
+  .vbars .vrow em { width: 104px; font-style: normal; }
+  .vbars .bar { flex: 1; height: 9px; border-radius: 5px; }
+  .vbars .vrow span { font-family: 'IBM Plex Mono'; font-size: 12px; }
+  /* ---------- cases ---------- */
+  .search { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-radius: 11px; background: var(--inp); border: 1px solid var(--bord); width: 300px; color: var(--dim); font-size: 14px; }
+  .chiptab { border: 1px solid var(--bord); background: none; color: var(--mut2); border-radius: 999px; padding: 8px 16px; font-family: 'IBM Plex Mono'; font-size: 12px; cursor: pointer; }
+  .chiptab.on { background: rgba(var(--acc-rgb), .12); border-color: rgba(var(--acc-rgb), .4); color: var(--accl); }
+  /* ---------- analysis ---------- */
+  .viewport { flex: 1; position: relative; min-height: 0; display: flex; }
+  .stage { flex: 1; position: relative; min-width: 0; }
+  .floor { position: absolute; left: 0; right: 0; bottom: 0; height: 42%; pointer-events: none; }
+  .toolrail { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 6px; padding: 10px 8px; z-index: 2; }
+  .tool { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: var(--mut2); }
+  .tool.on { background: linear-gradient(135deg, var(--acc2), var(--acc)); color: var(--bg); box-shadow: 0 4px 16px rgba(var(--acc-rgb), .4); }
+  .centerpiece { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 14px; z-index: 1; text-align: center; }
+  .chamber { position: relative; cursor: pointer; }
+  .scanline { position: absolute; left: -8%; right: -8%; height: 2.5px; background: linear-gradient(90deg, transparent, rgba(var(--acc-rgb), .9), transparent); box-shadow: 0 0 18px rgba(var(--acc-rgb), .7); animation: scanv 5s ease-in-out infinite; z-index: 2; }
+  @keyframes scanv { 0% { top: 6%; } 50% { top: 88%; } 100% { top: 6%; } }
+  @media (prefers-reduced-motion: reduce) { .scanline { animation: none; top: 45%; } }
+  .dropline { font-size: 16.5px; font-weight: 600; cursor: pointer; }
+  .dropline i { color: var(--acc); font-style: normal; }
+  .subline { font-family: 'IBM Plex Mono'; font-size: 12.5px; letter-spacing: .14em; color: var(--dim); }
+  .thumbrow { display: flex; gap: 8px; justify-content: center; min-height: 46px; }
+  .thumb { width: 46px; height: 46px; border-radius: 8px; border: 1px solid var(--bord); }
+  .bottombar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 12px 18px; z-index: 2; }
+  .caseinput { font-family: 'IBM Plex Mono'; font-size: 14px; color: var(--text); background: var(--inp); border: 1px solid var(--bord); border-radius: 8px; padding: 9px 13px; width: 150px; }
+  .caseinput::placeholder { color: var(--dim); }
+  .caseinput:focus { outline: 1.5px solid var(--acc); }
+  .upcbtn { display: inline-flex; align-items: center; gap: 9px; background: none; border: none; font: inherit; font-size: 13.5px; color: var(--mut); cursor: pointer; }
+  .sidepanel { width: 340px; flex: none; margin: 14px 14px 14px 0; display: flex; flex-direction: column; padding: 18px; gap: 13px; z-index: 2; }
+  .enginebox { display: flex; align-items: center; gap: 11px; padding: 12px 13px; border-radius: 10px; background: var(--inp); border: 1px solid rgba(var(--acc-rgb), .4); }
+  .refbox { display: flex; align-items: center; gap: 11px; padding: 11px 13px; border-radius: 10px; background: var(--inp); border: 1px solid var(--bord); }
+  .swatch { width: 38px; height: 38px; border-radius: 8px; background: linear-gradient(160deg, #3a3a52 0%, #23233a 55%, #c9b394 55%, #b39b7a 100%); flex: none; }
+  .ready { display: flex; align-items: center; gap: 11px; font-size: 15.5px; color: var(--mut); }
+  .ready.done { color: var(--accl); }
+  .ring { stroke: var(--faint); } .ring.done { stroke: var(--acc); }
+  .vsjacket { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .only-scan, .only-compare { display: none; }
+  body.theme-scan .only-scan { display: flex; }
+  body.theme-compare .only-compare { display: flex; }
+  /* ---------- run overlay ---------- */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.72); backdrop-filter: blur(6px); z-index: 90; display: none; align-items: center; justify-content: center; }
+  .overlay.on { display: flex; }
+  .runcard { width: 460px; padding: 30px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+  .runlog { align-self: stretch; font-family: 'IBM Plex Mono'; font-size: 13px; color: var(--mut2); display: flex; flex-direction: column; gap: 7px; min-height: 96px; }
+  .runlog div b { color: var(--accl); font-weight: 500; }
+  .progress { align-self: stretch; height: 7px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--acc2), var(--acc)); transition: width .35s ease; }
+  /* ---------- results ---------- */
+  .hotspot { position: absolute; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono'; font-size: 12px; cursor: default; }
+  .hs-bad { background: rgba(248,113,113,.15); border: 1.5px solid var(--bad); color: var(--bad); }
+  .hs-warn { background: rgba(251,191,36,.15); border: 1.5px solid var(--warn); color: var(--warn); }
+  .finding { display: flex; gap: 11px; align-items: flex-start; font-size: 15px; color: var(--mut); }
+  .sev { font-family: 'IBM Plex Mono'; font-size: 11px; border-radius: 6px; padding: 2px 7px; flex: none; }
+  /* ---------- reports / models ---------- */
+  .reprow { display: flex; align-items: center; gap: 16px; padding: 15px 22px; border-bottom: 1px solid var(--bordl); }
+  .reprow .t { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  .reprow .t b { font-size: 15px; color: var(--text); }
+  .reprow .t small { font-family: 'IBM Plex Mono'; font-size: 11.5px; color: var(--dim); }
+  .dl { background: none; border: none; color: var(--mut2); cursor: pointer; padding: 6px; }
+  .dl:hover { color: var(--accl); }
+  .modelcard { flex: 1; display: flex; flex-direction: column; padding: 22px; gap: 14px; }
+  .metric b { font-size: 22px; font-weight: 700; display: block; }
+  /* ---------- toast ---------- */
+  .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px); background: var(--glass); border: 1px solid rgba(var(--acc-rgb), .45); color: var(--text); padding: 13px 22px; border-radius: 12px; font-size: 14.5px; opacity: 0; pointer-events: none; transition: all .25s ease; z-index: 99; box-shadow: 0 14px 40px rgba(0,0,0,.5); }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .card3d { background: linear-gradient(165deg, rgba(255,255,255,.09), rgba(255,255,255,0) 38%), linear-gradient(320deg, rgba(var(--acc-rgb),.07), transparent 50%), var(--glass); border: 1px solid var(--bord); border-radius: 16px; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 22px 50px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.35); transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease; }
+  .card3d:hover { transform: translateY(-3px); border-color: rgba(var(--acc-rgb),.5); box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 28px 60px rgba(0,0,0,.55), 0 0 34px rgba(var(--acc-rgb),.14); }
+  .kpiglow { text-shadow: 0 0 28px rgba(var(--acc-rgb),.45); }
+  .dashbg { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .dashbg .glow1 { position: absolute; width: 780px; height: 420px; left: -180px; top: -120px; background: radial-gradient(ellipse, rgba(var(--acc-rgb),.13), transparent 70%); }
+  .dashbg .glow2 { position: absolute; width: 700px; height: 420px; right: -160px; bottom: -140px; background: radial-gradient(ellipse, rgba(var(--acc-rgb),.09), transparent 70%); }
+  .minichamber { position: relative; width: 158px; height: 158px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .g3d { perspective: 700px; position: relative; }
+  .gspin { animation: spinY 8s linear infinite; transform-style: preserve-3d; }
+  @keyframes spinY { from { transform: rotateY(0); } to { transform: rotateY(360deg); } }
+  .assembling .garment path { stroke-dasharray: 1 9; stroke-linecap: round; animation: flow 2.6s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -40; } }
+  .radarwrap { position: relative; width: 172px; height: 172px; border-radius: 50%; border: 1px solid var(--bordl); flex: none; overflow: hidden; }
+  .radarwrap::before { content: ''; position: absolute; inset: 24px; border-radius: 50%; border: 1px dashed var(--bordl); }
+  .rsweep { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, rgba(var(--acc-rgb),.45), transparent 70deg, transparent); animation: rot 4s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .rblip { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 10px var(--warn); animation: hpulse 2s ease-in-out infinite; }
+  .heat { position: absolute; border-radius: 50%; filter: blur(2px); animation: hpulse 2.6s ease-in-out infinite; pointer-events: none; }
+  @keyframes hpulse { 0%,100% { opacity: .3; } 50% { opacity: .9; } }
+  .runviz { position: relative; width: 200px; height: 168px; display: flex; align-items: center; justify-content: center; }
+  .vbeam { position: absolute; top: 4%; bottom: 4%; width: 2.5px; background: linear-gradient(180deg, transparent, rgba(var(--acc-rgb),.95), transparent); box-shadow: 0 0 18px rgba(var(--acc-rgb),.8); animation: sweepx 2.4s ease-in-out infinite; }
+  @keyframes sweepx { 0% { left: 12%; } 50% { left: 86%; } 100% { left: 12%; } }
+  .examscene { position: absolute; left: 50%; top: 51%; transform: translate(-50%, -50%); width: 820px; height: 470px; }
+  .podium { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); width: 360px; height: 56px; border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(var(--acc-rgb),.22), rgba(var(--acc-rgb),.05) 55%, transparent 72%); filter: blur(1px); }
+  .podium::after { content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 240px; height: 34px; border-radius: 50%; border: 1px solid rgba(var(--acc-rgb),.35); }
+  .shaft { position: absolute; top: -30px; bottom: 70px; width: 120px; background: linear-gradient(180deg, rgba(var(--acc-rgb),.1), transparent 80%);
+    clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%); pointer-events: none; }
+  .callout { position: absolute; width: 212px; padding: 12px 14px; border-radius: 12px; background: var(--glass); border: 1px solid var(--bord);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 16px 36px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 6px; animation: bob 4.5s ease-in-out infinite alternate; }
+  .callout b { font-size: 13.5px; letter-spacing: .02em; }
+  .callout small { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--mut2); line-height: 1.5; }
+  .callout .sevtag { align-self: flex-start; font-family: 'IBM Plex Mono'; font-size: 10.5px; padding: 2px 8px; border-radius: 5px; }
+  .swpair { display: flex; gap: 6px; margin-top: 2px; }
+  .sw { flex: 1; height: 26px; border-radius: 5px; border: 1px solid var(--bordl); position: relative; overflow: hidden; }
+  .sw i { position: absolute; left: 4px; bottom: 1px; font-style: normal; font-family: 'IBM Plex Mono'; font-size: 8px; color: var(--dim); }
+  @keyframes bob { from { transform: translateY(-4px); } to { transform: translateY(5px); } }
+  .leaderlines { position: absolute; inset: 0; pointer-events: none; }
+  @media (prefers-reduced-motion: reduce) { .gspin, .rsweep, .vbeam, .heat, .rblip, .callout, .assembling .garment path { animation: none !important; } }
+  @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(2, minmax(0,1fr)); } .row { flex-wrap: wrap; } .sidepanel { width: 300px; } }
+</style>
+
+<div class="app">
+  <!-- ============ TOP BAR ============ -->
+  <div class="topbar">
+    <div class="logo" onclick="go('dashboard')">VF</div>
+    <div class="brand" onclick="go('dashboard')">
+      <b>Veritas <i>Studio</i></b><small id="scene">OPERATIONS.OVERVIEW</small>
+    </div>
+    <nav>
+      <button data-nav="dashboard" class="on" onclick="go('dashboard')">Dashboard</button>
+      <button data-nav="cases" onclick="go('cases')">Cases</button>
+      <button data-nav="analysis" onclick="go('analysis')">Analysis</button>
+      <button data-nav="reports" onclick="go('reports')">Reports</button>
+      <button data-nav="models" onclick="go('models')">Models</button>
+    </nav>
+    <div style="flex:1"></div>
+    <div class="themeswap" title="Switch theme">
+      <button id="tbScan" class="on" onclick="setTheme('scan')">SCAN · ROYAL</button>
+      <button id="tbCompare" onclick="setTheme('compare')">COMPARE · TEAL</button>
+    </div>
+    <button class="cmdk" onclick="toast('Global search is simulated in this prototype')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>Search<kbd>⌘K</kbd></button>
+    <button class="bell" onclick="toast('3 alerts — 2 counterfeit listings found, 1 case awaiting review (sample)')" title="Notifications"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15 18 9"></path><path d="M10 20a2.2 2.2 0 0 0 4 0"></path></svg><i>3</i></button>
+    <span class="chip live"><span class="dot"></span>LIVE · GPT-5.5</span>
+    <span class="chip" style="font-family:'Space Grotesk';font-size:13px;font-weight:600;letter-spacing:0;color:var(--text)">The North Face</span>
+    <div class="avatar">AM</div>
+  </div>
+
+  <!-- ============ DASHBOARD ============ -->
+  <div class="page on" id="page-dashboard" style="position:relative">
+    <div class="dashbg">
+      <div class="glow1"></div><div class="glow2"></div>
+      <svg style="position:absolute;left:0;right:0;bottom:0" width="100%" height="34%" viewBox="0 0 1440 300" preserveAspectRatio="none" fill="none">
+        <path d="M60 0 L-260 300 M300 0 L60 300 M540 0 L400 300 M720 0 L720 300 M900 0 L1040 300 M1140 0 L1380 300 M1380 0 L1700 300" stroke="rgba(var(--acc-rgb),0.07)" stroke-width="1.5"></path>
+        <path d="M0 50 L1440 50 M0 130 L1440 130 M0 225 L1440 225" stroke="rgba(var(--acc-rgb),0.05)" stroke-width="1.5"></path>
+      </svg>
+    </div>
+    <div class="wrap" style="position:relative;z-index:1">
+      <div class="row" style="align-items:center">
+        <span class="h1">Operations overview</span>
+        <span class="sample">SAMPLE DATA</span>
+        <div style="flex:1"></div>
+        <span class="chip" onclick="toast('Date-range filter is simulated in this prototype')" style="cursor:pointer">LAST 30 DAYS <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M7 10l5 5 5-5"></path></svg></span>
+        <span class="sample">REFRESHED 2 MIN AGO</span>
+        <button class="btn primary" onclick="go('analysis')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>New case</button>
+      </div>
+      <div class="kpis">
+        <div class="card3d kpi"><span class="lab">Open cases</span><b class="kpiglow">24</b><svg width="100%" height="34" viewBox="0 0 120 34" preserveAspectRatio="none" fill="none"><polyline points="0,26 18,22 36,24 54,16 72,18 90,10 108,12 120,6" stroke="var(--acc)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline><circle cx="120" cy="6" r="3" fill="var(--acc)"></circle></svg><span class="sample">+3 THIS WEEK</span></div>
+        <div class="card3d kpi"><span class="lab">In review</span><b class="kpiglow">7</b><svg width="100%" height="34" viewBox="0 0 120 34" preserveAspectRatio="none" fill="none"><polyline points="0,14 18,18 36,12 54,20 72,16 90,22 108,18 120,20" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline><circle cx="120" cy="20" r="3" fill="var(--warn)"></circle></svg><span class="sample">2 AWAITING PHOTOS</span></div>
+        <div class="card3d kpi"><span class="lab">Confirmed counterfeits</span><b style="text-shadow:0 0 28px rgba(248,113,113,.4)">11</b><svg width="100%" height="34" viewBox="0 0 120 34" preserveAspectRatio="none" fill="none"><polyline points="0,28 18,24 36,26 54,20 72,22 90,14 108,16 120,10" stroke="var(--bad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline><circle cx="120" cy="10" r="3" fill="var(--bad)"></circle></svg><span class="sample">THIS QUARTER</span></div>
+        <div class="card3d kpi" style="align-items:flex-start">
+          <span class="lab">Avg match score</span>
+          <div style="display:flex;align-items:center;gap:16px;flex:1">
+            <div style="position:relative;width:86px;height:86px;flex:none">
+              <svg width="86" height="86" viewBox="0 0 86 86" fill="none">
+                <circle cx="43" cy="43" r="35" stroke="rgba(255,255,255,.08)" stroke-width="8"></circle>
+                <circle cx="43" cy="43" r="35" stroke="var(--acc)" stroke-width="8" stroke-linecap="round" stroke-dasharray="136 220" transform="rotate(-90 43 43)" style="filter:drop-shadow(0 0 8px rgba(var(--acc-rgb),.6))"></circle>
+              </svg>
+              <b class="kpiglow" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:24px">62</b>
+            </div>
+            <span class="sample" style="line-height:1.6">ACROSS<br>OPEN CASES</span>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="flex:1;min-height:0">
+        <div class="card3d tablecard" style="flex:1.55">
+          <div class="thead" style="border-bottom:1px solid var(--bordl)">
+            <span style="font-size:16.5px;font-weight:700">Recent cases</span>
+            <div style="flex:1"></div>
+            <a href="#" onclick="go('cases');return false" style="font-family:'IBM Plex Mono';font-size:12px;text-decoration:none">VIEW ALL</a>
+          </div>
+          <div class="thead">
+            <span class="lab c-no">Case</span><span class="lab c-brand">Brand</span><span class="lab c-item">Item</span><span class="lab c-match">Match</span><span class="lab c-verdict">Verdict</span>
+          </div>
+          <div class="trow" onclick="go('analysis')"><span class="c-no">VF-2026-0412</span><span class="c-brand">The North Face</span><span class="c-item">Retro Denali Jacket</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:34%;background:var(--bad)"></i></span><span>34</span></span><span class="c-verdict"><span class="statuschip st-ok">SCANNING</span></span></div>
+          <div class="trow" onclick="go('results')"><span class="c-no">VF-2026-0411</span><span class="c-brand">The North Face</span><span class="c-item">Nuptse Vest</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:28%;background:var(--bad)"></i></span><span>28</span></span><span class="c-verdict"><span class="statuschip st-bad">COUNTERFEIT</span></span></div>
+          <div class="trow" onclick="go('results')"><span class="c-no">VF-2026-0409</span><span class="c-brand">The North Face</span><span class="c-item">Base Camp Duffel</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:96%;background:var(--acc)"></i></span><span>96</span></span><span class="c-verdict"><span class="statuschip st-ok">AUTHENTIC</span></span></div>
+          <div class="trow" onclick="go('results')"><span class="c-no">VF-2026-0407</span><span class="c-brand">The North Face</span><span class="c-item">ThermoBall Hoodie</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:61%;background:var(--warn)"></i></span><span>61</span></span><span class="c-verdict"><span class="statuschip st-warn">IN REVIEW</span></span></div>
+          <div class="trow" onclick="go('results')"><span class="c-no">VF-2026-0405</span><span class="c-brand">The North Face</span><span class="c-item">Retro Denali Jacket</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:93%;background:var(--acc)"></i></span><span>93</span></span><span class="c-verdict"><span class="statuschip st-ok">AUTHENTIC</span></span></div>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:12px;padding:14px 22px;border-top:1px solid var(--bordl)">
+            <span class="sample">VERDICT MIX ·</span>
+            <div class="bar" style="flex:1;height:8px;display:flex;overflow:hidden;background:rgba(255,255,255,.06)">
+              <i style="width:46%;background:var(--acc);border-radius:0"></i><i style="width:32%;background:var(--bad);border-radius:0"></i><i style="width:22%;background:var(--warn);border-radius:0"></i>
+            </div>
+            <span class="sample">46% AUTH · 32% FAKE · 22% OPEN</span>
+          </div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:14px;min-height:0">
+          <div class="card3d" style="padding:18px 22px;display:flex;gap:18px;align-items:center;cursor:pointer" onclick="go('analysis')">
+            <div class="radarwrap"><div class="rsweep"></div><div class="rblip" style="left:30%;top:24%"></div><div class="rblip" style="left:64%;top:62%;animation-delay:1s"></div><svg class="garment" width="88" height="97" viewBox="0 0 200 220" fill="none" stroke="rgba(var(--acc-rgb),.85)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)"><path d="M64 52 L38 62 Q30 66 28 76 L18 158 Q17 166 25 167 L46 170 Q52 170 53 164 L62 112"></path><path d="M136 52 L162 62 Q170 66 172 76 L182 158 Q183 166 175 167 L154 170 Q148 170 147 164 L138 112"></path><path d="M64 52 Q60 54 60 62 L60 192 Q60 198 66 198 L134 198 Q140 198 140 192 L140 62 Q140 54 136 52 L122 40 Q100 52 78 40 Z"></path><path d="M78 40 L74 24 Q100 12 126 24 L122 40 Q100 52 78 40 Z"></path><path d="M100 52 L100 196" stroke-dasharray="2 6"></path></svg></div>
+            <div style="display:flex;flex-direction:column;gap:7px;flex:1">
+              <span class="lab" style="color:var(--accl)">Live radar · scanning</span>
+              <span style="font-size:17px;font-weight:700">Retro Denali Jacket</span>
+              <span class="mono" style="font-size:12.5px;color:var(--mut2)">VF-2026-0412 · 4 OF 7 PHOTOS</span>
+              <div class="bar" style="height:6px"><i style="width:57%;background:linear-gradient(90deg,var(--acc2),var(--acc));box-shadow:0 0 12px rgba(var(--acc-rgb),.5)"></i></div>
+              <span class="sample">TAP TO OPEN THE CHAMBER</span>
+            </div>
+          </div>
+          <div class="card3d" style="flex:1;padding:18px 22px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:11px">
+              <span style="font-size:16.5px;font-weight:700">Engine</span>
+              <div style="flex:1"></div>
+              <span class="statuschip st-ok">HEALTHY</span>
+            </div>
+            <div style="display:flex;flex-direction:column">
+              <span style="font-size:14.5px;font-weight:600">OpenAI · GPT-5.5</span>
+              <span class="sample">VISION FORENSICS · DEFAULT</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px"><span style="font-size:13.5px;color:var(--mut2);width:104px">Month quota</span><span class="bar" style="flex:1;height:7px"><i style="width:62%;background:linear-gradient(90deg,var(--acc2),var(--acc))"></i></span><span class="mono" style="font-size:12.5px;color:var(--mut)">62%</span></div>
+            <div style="flex:1"></div>
+            <button class="btn ghost" style="padding:10px" onclick="event.stopPropagation();go('models')">Manage engines</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CASES ============ -->
+  <div class="page" id="page-cases">
+    <div class="wrap">
+      <div class="row" style="align-items:center">
+        <span class="h1">Cases</span><span class="sample">24 OPEN · SAMPLE DATA</span>
+        <div style="flex:1"></div>
+        <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg>Search case, brand, SKU…</div>
+        <button class="btn ghost" onclick="toast('CSV export is simulated in this prototype')" style="padding:11px 15px">Export CSV</button>
+        <button class="btn primary" onclick="go('analysis')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>New case</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="chiptab on" onclick="filterCases('all',this)">ALL · 7</button>
+        <button class="chiptab" onclick="filterCases('scan',this)">SCANNING</button>
+        <button class="chiptab" onclick="filterCases('review',this)">IN REVIEW</button>
+        <button class="chiptab" onclick="filterCases('done',this)">CLOSED</button>
+      </div>
+      <div class="glass tablecard" style="flex:1">
+        <div class="thead">
+          <span class="cbox" onclick="toast('Bulk selection is simulated in this prototype')"></span><span class="lab c-no sortlab" onclick="toast('Sorting is simulated in this prototype')">Case Nº <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M7 10l5 5 5-5"></path></svg></span><span class="lab c-brand">Brand</span><span class="lab c-item">Item</span><span class="lab c-date sortlab" onclick="toast('Sorting is simulated in this prototype')">Submitted <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M7 10l5 5 5-5"></path></svg></span><span class="lab c-match">Match</span><span class="lab c-verdict">Verdict</span>
+        </div>
+        <div id="caserows">
+          <div class="trow" data-f="scan" onclick="go('analysis')"><span class="cbox" onclick="event.stopPropagation();this.classList.toggle(\'on\')"></span><span class="c-no">VF-2026-0412</span><span class="c-brand">The North Face</span><span class="c-item">Retro Denali Jacket</span><span class="c-date">SEP 02</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:34%;background:var(--bad)"></i></span><span>34</span></span><span class="c-verdict"><span class="statuschip st-ok">SCANNING</span></span></div>
+          <div class="trow" data-f="done" onclick="go('results')"><span class="cbox" onclick="event.stopPropagation();this.classList.toggle(\'on\')"></span><span class="c-no">VF-2026-0411</span><span class="c-brand">The North Face</span><span class="c-item">Nuptse Vest</span><span class="c-date">SEP 01</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:28%;background:var(--bad)"></i></span><span>28</span></span><span class="c-verdict"><span class="statuschip st-bad">COUNTERFEIT</span></span></div>
+          <div class="trow" data-f="done" onclick="go('results')"><span class="cbox" onclick="event.stopPropagation();this.classList.toggle(\'on\')"></span><span class="c-no">VF-2026-0409</span><span class="c-brand">The North Face</span><span class="c-item">Base Camp Duffel</span><span class="c-date">AUG 30</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:96%;background:var(--acc)"></i></span><span>96</span></span><span class="c-verdict"><span class="statuschip st-ok">AUTHENTIC</span></span></div>
+          <div class="trow" data-f="review" onclick="go('results')"><span class="cbox" onclick="event.stopPropagation();this.classList.toggle(\'on\')"></span><span class="c-no">VF-2026-0407</span><span class="c-brand">The North Face</span><span class="c-item">ThermoBall Hoodie</span><span class="c-date">AUG 28</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:61%;background:var(--warn)"></i></span><span>61</span></span><span class="c-verdict"><span class="statuschip st-warn">IN REVIEW</span></span></div>
+          <div class="trow" data-f="done" onclick="go('results')"><span class="cbox" onclick="event.stopPropagation();this.classList.toggle(\'on\')"></span><span class="c-no">VF-2026-0405</span><span class="c-brand">The North Face</span><span class="c-item">Retro Denali Jacket</span><span class="c-date">AUG 27</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:93%;background:var(--acc)"></i></span><span>93</span></span><span class="c-verdict"><span class="statuschip st-ok">AUTHENTIC</span></span></div>
+          <div class="trow" data-f="done" onclick="go('results')"><span class="cbox" onclick="event.stopPropagation();this.classList.toggle(\'on\')"></span><span class="c-no">VF-2026-0403</span><span class="c-brand">The North Face</span><span class="c-item">Summit Series Parka</span><span class="c-date">AUG 25</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:42%;background:var(--bad)"></i></span><span>42</span></span><span class="c-verdict"><span class="statuschip st-bad">COUNTERFEIT</span></span></div>
+          <div class="trow" data-f="review" onclick="go('results')"><span class="cbox" onclick="event.stopPropagation();this.classList.toggle(\'on\')"></span><span class="c-no">VF-2026-0401</span><span class="c-brand">The North Face</span><span class="c-item">Etip Gloves</span><span class="c-date">AUG 24</span><span class="c-match"><span class="bar" style="flex:1"><i style="width:58%;background:var(--warn)"></i></span><span>58</span></span><span class="c-verdict"><span class="statuschip st-warn">IN REVIEW</span></span></div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="display:flex;align-items:center;padding:13px 22px;border-top:1px solid var(--bordl)">
+          <span class="sample">CLICK A ROW — SCANNING OPENS ANALYSIS · OTHERS OPEN RESULTS</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ANALYSIS ============ -->
+  <div class="page" id="page-analysis">
+    <div class="viewport">
+      <div class="stage">
+        <svg class="floor" viewBox="0 0 1440 380" preserveAspectRatio="none" fill="none">
+          <path d="M60 0 L-260 380 M300 0 L60 380 M540 0 L400 380 M720 0 L720 380 M900 0 L1040 380 M1140 0 L1380 380 M1380 0 L1700 380" stroke="rgba(128,148,128,0.14)" stroke-width="1.5"></path>
+          <path d="M0 60 L1440 60 M0 160 L1440 160 M0 280 L1440 280" stroke="rgba(128,148,128,0.1)" stroke-width="1.5"></path>
+        </svg>
+        <div class="glass toolrail">
+          <div class="tool on"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20 M2 12h20 M8 5l4-3 4 3 M8 19l4 3 4-3 M5 8l-3 4 3 4 M19 8l3 4-3 4"></path></svg></div>
+          <div class="tool"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-3-6.2 M20 4v5h-5"></path></svg></div>
+          <div class="tool"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M15 3h6v6 M9 21H3v-6 M21 3l-8 8 M3 21l8-8"></path></svg></div>
+          <div class="tool"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line></svg></div>
+        </div>
+
+        <!-- scan-theme centerpiece -->
+        <div class="centerpiece only-scan" style="flex-direction:column">
+          <div class="chamber" id="chamberBox" onclick="addPhoto()" title="Click to simulate adding photos">
+            <svg style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)" width="480" height="418" viewBox="0 0 380 330" fill="none">
+              <ellipse cx="190" cy="60" rx="150" ry="26" stroke="rgba(var(--acc-rgb),0.35)" stroke-width="1.5" stroke-dasharray="6 6"></ellipse>
+              <ellipse cx="190" cy="165" rx="172" ry="30" stroke="rgba(var(--acc-rgb),0.5)" stroke-width="1.5"></ellipse>
+              <ellipse cx="190" cy="270" rx="150" ry="26" stroke="rgba(var(--acc-rgb),0.35)" stroke-width="1.5" stroke-dasharray="6 6"></ellipse>
+            </svg>
+            <div class="scanline"></div>
+            <div class="g3d"><div class="gspin" id="chamberSpin"><svg class="garment" width="300" height="330" viewBox="0 0 200 220" fill="none" stroke="var(--acc)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="position:relative;filter:drop-shadow(0 0 24px rgba(var(--acc-rgb),0.35))">
+              <path d="M64 52 L38 62 Q30 66 28 76 L18 158 Q17 166 25 167 L46 170 Q52 170 53 164 L62 112"></path>
+              <path d="M136 52 L162 62 Q170 66 172 76 L182 158 Q183 166 175 167 L154 170 Q148 170 147 164 L138 112"></path>
+              <path d="M64 52 Q60 54 60 62 L60 192 Q60 198 66 198 L134 198 Q140 198 140 192 L140 62 Q140 54 136 52 L122 40 Q100 52 78 40 Z"></path>
+              <path d="M78 40 L74 24 Q100 12 126 24 L122 40 Q100 52 78 40 Z"></path>
+              <path d="M100 52 L100 196" stroke-dasharray="2 6"></path>
+              <path d="M60 184 L140 184 M68 150 L88 158 M132 150 L112 158"></path>
+            </svg></div></div>
+          </div>
+          <div class="dropline" onclick="addPhoto()">Drop suspect photos into the chamber — or <i>browse</i></div>
+          <div class="subline">SEVERAL ANGLES · FRONT / BACK / TAGS / STITCHING · CLICK TO SIMULATE</div>
+          <div class="thumbrow" id="thumbsScan"></div>
+        </div>
+
+        <!-- compare-theme centerpiece -->
+        <div class="centerpiece only-compare" style="flex-direction:row;align-items:center;gap:64px">
+          <div class="vsjacket" id="compareSuspect" onclick="addPhoto()" style="cursor:pointer">
+            <svg class="garment" width="244" height="268" viewBox="0 0 200 220" fill="none" stroke="var(--sus)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 6" opacity="0.85">
+              <path d="M64 52 L38 62 Q30 66 28 76 L18 158 Q17 166 25 167 L46 170 Q52 170 53 164 L62 112"></path>
+              <path d="M136 52 L162 62 Q170 66 172 76 L182 158 Q183 166 175 167 L154 170 Q148 170 147 164 L138 112"></path>
+              <path d="M64 52 Q60 54 60 62 L60 192 Q60 198 66 198 L134 198 Q140 198 140 192 L140 62 Q140 54 136 52 L122 40 Q100 52 78 40 Z"></path>
+              <path d="M78 40 L74 24 Q100 12 126 24 L122 40 Q100 52 78 40 Z"></path>
+              <path d="M100 52 L100 196"></path>
+            </svg>
+            <span class="subline" style="color:var(--sus)">SUSPECT · AWAITING PHOTOS</span>
+            <span class="dropline" style="font-size:15px">Drop photos or <i style="color:var(--sus)">browse</i></span>
+            <div class="thumbrow" id="thumbsCompare"></div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+            <div style="width:1.5px;height:100px;background:linear-gradient(180deg,transparent,var(--bord))"></div>
+            <div style="width:52px;height:52px;border-radius:50%;border:1px solid var(--bord);background:var(--glass);display:flex;align-items:center;justify-content:center" class="mono">VS</div>
+            <div style="width:1.5px;height:100px;background:linear-gradient(0deg,transparent,var(--bord))"></div>
+          </div>
+          <div class="vsjacket">
+            <svg width="244" height="268" viewBox="0 0 200 220" fill="none" stroke="var(--acc)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 24px rgba(var(--acc-rgb),0.35))">
+              <path d="M64 52 L38 62 Q30 66 28 76 L18 158 Q17 166 25 167 L46 170 Q52 170 53 164 L62 112"></path>
+              <path d="M136 52 L162 62 Q170 66 172 76 L182 158 Q183 166 175 167 L154 170 Q148 170 147 164 L138 112"></path>
+              <path d="M64 52 Q60 54 60 62 L60 192 Q60 198 66 198 L134 198 Q140 198 140 192 L140 62 Q140 54 136 52 L122 40 Q100 52 78 40 Z"></path>
+              <path d="M78 40 L74 24 Q100 12 126 24 L122 40 Q100 52 78 40 Z"></path>
+              <path d="M100 52 L100 196" stroke-dasharray="2 6"></path>
+              <path d="M60 96 L140 88 M60 130 L140 122 M60 164 L140 156" stroke="rgba(var(--acc-rgb),0.35)" stroke-width="1"></path>
+            </svg>
+            <span class="subline" style="color:var(--accl)">REFERENCE · NF0A88XH</span>
+            <span style="font-size:15px;color:var(--mut)">Retro Denali Jacket — locked</span>
+          </div>
+        </div>
+
+        <div class="glass bottombar">
+          <span class="lab">Case Nº</span>
+          <input class="caseinput" id="caseNo" placeholder="VF-2026-____" oninput="caseChanged()" />
+          <div style="width:1px;height:26px;background:var(--bordl)"></div>
+          <button class="upcbtn" id="upcBtn" onclick="addUpc()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 8V5a1 1 0 0 1 1-1h3"></path><path d="M16 4h3a1 1 0 0 1 1 1v3"></path><path d="M20 16v3a1 1 0 0 1-1 1h-3"></path><path d="M8 20H5a1 1 0 0 1-1-1v-3"></path><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+            <span id="upcLabel">UPC photo · optional</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="glass sidepanel">
+        <span style="font-size:16.5px;font-weight:700">Analysis</span>
+        <span class="lab">Engine</span>
+        <div class="enginebox">
+          <div style="display:flex;flex-direction:column">
+            <span style="font-size:14.5px;font-weight:600">OpenAI · GPT-5.5</span>
+            <span style="font-size:12px;color:var(--mut2)">Vision forensics</span>
+          </div>
+          <div style="flex:1"></div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--dim)" stroke-width="2" stroke-linecap="round"><path d="M7 10l5 5 5-5"></path></svg>
+        </div>
+        <span class="lab">Reference</span>
+        <div class="refbox">
+          <div class="swatch"></div>
+          <div style="display:flex;flex-direction:column">
+            <span style="font-size:13.5px;font-weight:600">Retro Denali Jacket</span>
+            <span class="mono" style="font-size:11px;color:var(--accl)">NF0A88XH</span>
+          </div>
+          <div style="flex:1"></div>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8.5 12.5l2.5 2.5 4.5-5"></path></svg>
+        </div>
+        <div style="display:flex;gap:8px">
+          <span class="chip" style="flex:1;justify-content:space-between;cursor:pointer" onclick="toast('Assignee picker is simulated in this prototype')">ASSIGNEE <b style="color:var(--text);font-family:'Space Grotesk';letter-spacing:0">A. Morgan</b></span>
+          <span class="chip" style="flex:1;justify-content:space-between;cursor:pointer" onclick="toast('Priority picker is simulated in this prototype')">PRIORITY <b style="color:var(--warn);font-family:'Space Grotesk';letter-spacing:0">High</b></span>
+        </div>
+        <span class="lab">Readiness</span>
+        <div class="ready" id="rdCase"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><circle class="ring" cx="12" cy="12" r="9"></circle><path class="tick" d="M8.5 12.5l2.5 2.5 4.5-5" stroke="var(--acc)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="display:none"></path></svg>Enter a case number</div>
+        <div class="ready" id="rdPhotos"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><circle class="ring" cx="12" cy="12" r="9"></circle><path class="tick" d="M8.5 12.5l2.5 2.5 4.5-5" stroke="var(--acc)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="display:none"></path></svg>Add suspect photos <span class="mono" id="photoCount" style="font-size:11px;color:var(--dim)"></span></div>
+        <div class="ready done" id="rdRef"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2"><circle class="ring done" cx="12" cy="12" r="9"></circle><path d="M8.5 12.5l2.5 2.5 4.5-5" stroke="var(--acc)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>Reference selected</div>
+        <div class="ready" id="rdUpc"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="1.8"><circle class="ring" cx="12" cy="12" r="9" stroke-dasharray="3 3"></circle><path class="tick" d="M8.5 12.5l2.5 2.5 4.5-5" stroke="var(--acc)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="display:none"></path></svg>UPC image <span style="color:var(--dim)">(optional)</span></div>
+        <div style="flex:1"></div>
+        <button class="btn primary" id="runBtn" disabled onclick="runAnalysis()"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.8v14.4a1 1 0 0 0 1.53.85l11.3-7.2a1 1 0 0 0 0-1.7L8.53 3.95A1 1 0 0 0 7 4.8z"></path></svg>Run analysis</button>
+        <span class="mono" id="stepsLeft" style="font-size:10.5px;letter-spacing:.1em;color:var(--dim);text-align:center">2 OF 3 REQUIRED STEPS REMAINING</span>
+        <span class="mono" style="font-size:9.5px;letter-spacing:.08em;color:var(--faint);text-align:center">ALL ACTIONS ARE AUDIT-LOGGED</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RESULTS ============ -->
+  <div class="page" id="page-results">
+    <div class="viewport">
+      <div class="stage">
+        <div class="glass" style="position:absolute;left:50%;top:24px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:9px 18px;border-radius:999px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8.5 12.5l2.5 2.5 4.5-5"></path></svg>
+          <span class="mono" style="font-size:11.5px;letter-spacing:.14em;color:var(--accl)" id="resultCase">ANALYSIS COMPLETE · CASE VF-2026-0412</span>
+        </div>
+        <div class="custody" style="position:absolute;left:24px;top:24px">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+          CHAIN OF CUSTODY · SHA-256 9F3A…E2C1 · EVIDENCE LOCKED
+        </div>
+        <div class="examscene">
+          <div class="shaft" style="left:290px"></div>
+          <div class="shaft" style="left:410px;opacity:.7"></div>
+          <div class="podium"></div>
+          <svg width="268" height="295" viewBox="0 0 200 220" fill="none" stroke="var(--acc)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.32" style="position:absolute;left:296px;top:56px">
+            <path d="M64 52 L38 62 Q30 66 28 76 L18 158 Q17 166 25 167 L46 170 Q52 170 53 164 L62 112"></path>
+            <path d="M136 52 L162 62 Q170 66 172 76 L182 158 Q183 166 175 167 L154 170 Q148 170 147 164 L138 112"></path>
+            <path d="M64 52 Q60 54 60 62 L60 192 Q60 198 66 198 L134 198 Q140 198 140 192 L140 62 Q140 54 136 52 L122 40 Q100 52 78 40 Z"></path>
+            <path d="M78 40 L74 24 Q100 12 126 24 L122 40 Q100 52 78 40 Z"></path>
+            <path d="M100 52 L100 196" stroke-dasharray="2 6"></path>
+          </svg>
+          <div style="position:absolute;left:280px;top:66px;width:260px;height:286px">
+            <svg width="260" height="286" viewBox="0 0 200 220" fill="none" stroke="var(--bad)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="filter:drop-shadow(0 0 30px rgba(242,139,130,0.3))">
+              <path d="M64 52 L38 62 Q30 66 28 76 L18 158 Q17 166 25 167 L46 170 Q52 170 53 164 L62 112"></path>
+              <path d="M136 52 L162 62 Q170 66 172 76 L182 158 Q183 166 175 167 L154 170 Q148 170 147 164 L138 112"></path>
+              <path d="M64 52 Q60 54 60 62 L60 192 Q60 198 66 198 L134 198 Q140 198 140 192 L140 62 Q140 54 136 52 L122 40 Q100 52 78 40 Z"></path>
+              <path d="M78 40 L74 24 Q100 12 126 24 L122 40 Q100 52 78 40 Z"></path>
+              <path d="M100 52 L100 196" stroke-dasharray="2 6"></path>
+              <path d="M60 184 L140 184 M68 150 L88 158 M132 150 L112 158"></path>
+            </svg>
+            <div class="heat" style="left:26%;top:8%;width:46px;height:46px;background:radial-gradient(circle,rgba(242,139,130,.85),transparent 70%)"></div>
+            <div class="heat" style="left:44%;top:42%;width:54px;height:54px;background:radial-gradient(circle,rgba(242,139,130,.7),transparent 70%);animation-delay:.9s"></div>
+            <div class="heat" style="left:26%;top:64%;width:42px;height:42px;background:radial-gradient(circle,rgba(233,196,106,.75),transparent 70%);animation-delay:1.6s"></div>
+            <span class="hotspot hs-bad" style="left:28%;top:11%">1</span>
+            <span class="hotspot hs-bad" style="left:47%;top:46%">2</span>
+            <span class="hotspot hs-warn" style="left:28%;top:67%">3</span>
+          </div>
+          <svg class="leaderlines" viewBox="0 0 820 470" fill="none" stroke-width="1.4">
+            <path d="M252 128 L308 128 L358 106" stroke="rgba(242,139,130,.6)"></path><circle cx="252" cy="128" r="2.5" fill="var(--bad)" stroke="none"></circle>
+            <path d="M584 218 L470 218 L410 204" stroke="rgba(242,139,130,.6)"></path><circle cx="584" cy="218" r="2.5" fill="var(--bad)" stroke="none"></circle>
+            <path d="M246 348 L312 348 L358 262" stroke="rgba(233,196,106,.6)"></path><circle cx="246" cy="348" r="2.5" fill="var(--warn)" stroke="none"></circle>
+          </svg>
+          <div class="callout" style="left:30px;top:84px">
+            <span class="sevtag" style="color:var(--bad);border:1px solid rgba(248,113,113,.45)">01 · HIGH</span>
+            <b>Logo embroidery</b>
+            <small>Stitch density 38% below the reference standard</small>
+            <div class="swpair">
+              <div class="sw" style="background:repeating-linear-gradient(90deg,rgba(var(--acc-rgb),.5) 0 2px,transparent 2px 4px)"><i>REF</i></div>
+              <div class="sw" style="background:repeating-linear-gradient(90deg,rgba(242,139,130,.55) 0 2px,transparent 2px 9px)"><i>SUSPECT</i></div>
+            </div>
+          </div>
+          <div class="callout" style="left:588px;top:172px;animation-delay:1.2s">
+            <span class="sevtag" style="color:var(--bad);border:1px solid rgba(248,113,113,.45)">02 · HIGH</span>
+            <b>Zipper pull</b>
+            <small>Engraving uses the wrong typeface and depth</small>
+            <div class="swpair">
+              <div class="sw" style="display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono';font-size:11px;color:var(--accl)">VF·88<i>REF</i></div>
+              <div class="sw" style="display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk';font-size:11px;font-style:italic;color:var(--bad)">VF-88<i>SUSPECT</i></div>
+            </div>
+          </div>
+          <div class="callout" style="left:22px;top:300px;animation-delay:.6s">
+            <span class="sevtag" style="color:var(--warn);border:1px solid rgba(251,191,36,.45)">03 · MED</span>
+            <b>Care label</b>
+            <small>Letter spacing 12% outside brand tolerance</small>
+            <div class="swpair">
+              <div class="sw" style="display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono';font-size:9px;letter-spacing:.05em;color:var(--accl)">MADE IN VN<i>REF</i></div>
+              <div class="sw" style="display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono';font-size:9px;letter-spacing:.28em;color:var(--warn)">MADE IN<i>SUSPECT</i></div>
+            </div>
+          </div>
+          <div style="position:absolute;left:560px;top:352px;display:flex;align-items:center;gap:8px;padding:7px 13px;border-radius:999px;background:var(--glass);border:1px solid var(--bordl)">
+            <span style="width:7px;height:7px;border-radius:50%;background:var(--acc)"></span>
+            <span class="mono" style="font-size:11px;letter-spacing:.1em;color:var(--mut2)">GHOST OVERLAY · REFERENCE NF0A88XH</span>
+          </div>
+          <span class="subline" style="position:absolute;left:280px;top:368px;width:260px;text-align:center;color:var(--bad)">SUSPECT · 3 ANOMALIES FLAGGED</span>
+        </div>
+        <div class="glass bottombar" style="gap:18px">
+          <span class="lab">Evidence</span>
+          <div style="display:flex;gap:8px" id="resultThumbs"></div>
+          <div style="width:1px;height:30px;background:var(--bordl)"></div>
+          <span class="mono" style="font-size:11.5px;color:var(--mut2)" id="resultMeta">7 PHOTOS · ANALYZED IN 42S · SAMPLE</span>
+        </div>
+      </div>
+      <div class="glass sidepanel" style="width:372px">
+        <span style="font-size:16.5px;font-weight:700">Verdict</span>
+        <div style="display:flex;align-items:center;gap:18px">
+          <div style="position:relative;width:118px;height:118px;flex:none">
+            <svg width="118" height="118" viewBox="0 0 118 118" fill="none">
+              <circle cx="59" cy="59" r="50" stroke="rgba(255,255,255,0.08)" stroke-width="9"></circle>
+              <circle id="scoreArc" cx="59" cy="59" r="50" stroke="var(--bad)" stroke-width="9" stroke-linecap="round" stroke-dasharray="0 314" transform="rotate(-90 59 59)" style="transition:stroke-dasharray 1.2s ease"></circle>
+            </svg>
+            <div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center">
+              <span style="font-size:27px;font-weight:700;color:var(--bad)" id="scoreNum">0</span>
+              <span class="mono" style="font-size:10px;color:var(--dim)">/ 100 MATCH</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span class="statuschip st-bad" style="font-size:12px;padding:7px 13px">LIKELY COUNTERFEIT</span>
+            <span class="mono" style="font-size:11.5px;color:var(--mut2)">CONFIDENCE 91%</span>
+            <span class="mono" style="font-size:11.5px;color:var(--dim)">GPT-5.5 · VISION FORENSICS</span>
+          </div>
+        </div>
+        <div style="height:1px;background:var(--bordl)"></div>
+        <span class="lab">Findings</span>
+        <div class="finding"><span class="sev" style="color:var(--bad);border:1px solid rgba(248,113,113,.45)">1 · HIGH</span><span>Logo embroidery density 38% below reference standard</span></div>
+        <div class="finding"><span class="sev" style="color:var(--bad);border:1px solid rgba(248,113,113,.45)">2 · HIGH</span><span>Zipper pull engraving mismatch — wrong typeface</span></div>
+        <div class="finding"><span class="sev" style="color:var(--warn);border:1px solid rgba(251,191,36,.45)">3 · MED</span><span>Care label font spacing outside tolerance</span></div>
+        <div class="finding"><span class="sev" style="color:var(--accl);border:1px solid rgba(var(--acc-rgb),.45)">4 · PASS</span><span>Stitch count per inch within reference range</span></div>
+        <div style="flex:1"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn ghost" style="flex:1;padding:10px;font-size:13.5px;border-color:rgba(var(--acc-rgb),.45);color:var(--accl)" onclick="toast('Verdict confirmed — recorded to the audit trail (sample)')">Confirm verdict</button>
+          <button class="btn ghost" style="flex:1;padding:10px;font-size:13.5px" onclick="toast('Escalated to legal review (sample)')">Escalate to legal</button>
+        </div>
+        <button class="btn primary" onclick="exportReport()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 21h16"></path></svg>Export findings report
+        </button>
+        <button class="btn ghost" onclick="go('cases')">Open case file</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ REPORTS ============ -->
+  <div class="page" id="page-reports">
+    <div class="wrap">
+      <div class="row" style="align-items:center">
+        <span class="h1">Reports</span><span class="sample">SAMPLE DATA</span>
+        <div style="flex:1"></div>
+        <button class="btn primary" onclick="toast('Report generation is simulated in this prototype')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Generate report</button>
+      </div>
+      <div class="row" style="flex:1;min-height:0">
+        <div class="glass tablecard" style="flex:1.45" id="reportList">
+          <div class="reprow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line></svg><div class="t"><b>Findings report — Nuptse Vest</b><small>VF-2026-0411 · SEP 01 2026</small></div><span class="statuschip st-bad">COUNTERFEIT</span><button class="dl" onclick="toast('Sample PDF — downloads are simulated in this prototype')" title="Download"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 21h16"></path></svg></button></div>
+          <div class="reprow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line></svg><div class="t"><b>Findings report — Base Camp Duffel</b><small>VF-2026-0409 · AUG 30 2026</small></div><span class="statuschip st-ok">AUTHENTIC</span><button class="dl" onclick="toast('Sample PDF — downloads are simulated in this prototype')" title="Download"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 21h16"></path></svg></button></div>
+          <div class="reprow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line></svg><div class="t"><b>Weekly enforcement summary</b><small>12 CASES · AUG 29 2026</small></div><span class="statuschip st-ok">FINAL</span><button class="dl" onclick="toast('Sample PDF — downloads are simulated in this prototype')" title="Download"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 21h16"></path></svg></button></div>
+          <div class="reprow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line></svg><div class="t"><b>Findings report — ThermoBall Hoodie</b><small>VF-2026-0407 · AUG 28 2026</small></div><span class="statuschip st-warn">DRAFT</span><button class="dl" onclick="toast('Sample PDF — downloads are simulated in this prototype')" title="Download"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 21h16"></path></svg></button></div>
+          <div class="reprow"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line></svg><div class="t"><b>Marketplace takedown pack — Q3</b><small>8 LISTINGS · AUG 22 2026</small></div><span class="statuschip st-ok">FINAL</span><button class="dl" onclick="toast('Sample PDF — downloads are simulated in this prototype')" title="Download"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 21h16"></path></svg></button></div>
+          <div style="flex:1"></div>
+        </div>
+        <div class="glass" style="flex:1;display:flex;flex-direction:column;padding:22px;gap:14px;min-height:0">
+          <span style="font-size:16.5px;font-weight:700">Preview — Findings report</span>
+          <div style="flex:1;border-radius:10px;background:var(--inp);border:1px solid var(--bord);display:flex;flex-direction:column;padding:24px 26px;gap:12px;min-height:0">
+            <span class="mono" style="font-size:10.5px;letter-spacing:.2em;color:var(--dim)">VERITAS · CONFIDENTIAL</span>
+            <span style="font-size:20px;font-weight:700">Counterfeit findings report</span>
+            <span class="mono" style="font-size:12px;color:var(--accl)">CASE VF-2026-0411 · NUPTSE VEST</span>
+            <div style="height:1px;background:var(--bordl)"></div>
+            <div style="display:flex;font-size:13.5px;color:var(--mut2)"><span style="width:120px;color:var(--dim)">Verdict</span><span style="color:var(--bad);font-weight:600">Likely counterfeit</span></div>
+            <div style="display:flex;font-size:13.5px;color:var(--mut2)"><span style="width:120px;color:var(--dim)">Match score</span><span>28 / 100</span></div>
+            <div style="display:flex;font-size:13.5px;color:var(--mut2)"><span style="width:120px;color:var(--dim)">Confidence</span><span>94%</span></div>
+            <div style="display:flex;font-size:13.5px;color:var(--mut2)"><span style="width:120px;color:var(--dim)">Engine</span><span>OpenAI · GPT-5.5</span></div>
+            <div style="display:flex;font-size:13.5px;color:var(--mut2)"><span style="width:120px;color:var(--dim)">Analyst</span><span>A. Morgan</span></div>
+            <div style="flex:1"></div>
+            <div style="height:6px;border-radius:3px;background:rgba(255,255,255,.06)"></div>
+            <div style="height:6px;border-radius:3px;background:rgba(255,255,255,.06);width:78%"></div>
+          </div>
+          <button class="btn ghost" style="border-color:rgba(var(--acc-rgb),.45);color:var(--accl)" onclick="toast('Sample PDF — downloads are simulated in this prototype')">Download PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODELS ============ -->
+  <div class="page" id="page-models">
+    <div class="wrap">
+      <div class="row" style="align-items:center">
+        <span class="h1">Engines &amp; models</span><span class="sample">BENCHMARKS ARE SAMPLE DATA</span>
+      </div>
+      <div class="row">
+        <div class="glass modelcard">
+          <div style="display:flex;align-items:center;gap:11px"><div style="display:flex;flex-direction:column"><b style="font-size:16px">OpenAI · GPT-5.5</b><span class="sample">VISION FORENSICS · CLOUD</span></div><div style="flex:1"></div><span class="statuschip st-ok modelstatus">ACTIVE</span></div>
+          <div style="height:1px;background:var(--bordl)"></div>
+          <div style="display:flex;gap:22px"><div class="metric"><span class="lab" style="font-size:10px">Benchmark acc.</span><b>94.2%</b></div><div class="metric"><span class="lab" style="font-size:10px">Avg run</span><b>42s</b></div></div>
+          <div style="flex:1"></div>
+          <button class="btn primary modelbtn" onclick="setDefault(this)" disabled style="opacity:.9">Default engine</button>
+        </div>
+        <div class="glass modelcard">
+          <div style="display:flex;align-items:center;gap:11px"><div style="display:flex;flex-direction:column"><b style="font-size:16px">OpenAI · GPT-5</b><span class="sample">VISION FORENSICS · CLOUD</span></div><div style="flex:1"></div><span class="statuschip st-dim modelstatus">AVAILABLE</span></div>
+          <div style="height:1px;background:var(--bordl)"></div>
+          <div style="display:flex;gap:22px"><div class="metric"><span class="lab" style="font-size:10px">Benchmark acc.</span><b>91.7%</b></div><div class="metric"><span class="lab" style="font-size:10px">Avg run</span><b>35s</b></div></div>
+          <div style="flex:1"></div>
+          <button class="btn ghost modelbtn" onclick="setDefault(this)">Set as default</button>
+        </div>
+        <div class="glass modelcard">
+          <div style="display:flex;align-items:center;gap:11px"><div style="display:flex;flex-direction:column"><b style="font-size:16px">Veritas · In-house v2</b><span class="sample">TRAINED ON BRAND ARCHIVE</span></div><div style="flex:1"></div><span class="statuschip st-warn modelstatus">BETA</span></div>
+          <div style="height:1px;background:var(--bordl)"></div>
+          <div style="display:flex;gap:22px"><div class="metric"><span class="lab" style="font-size:10px">Benchmark acc.</span><b>88.9%</b></div><div class="metric"><span class="lab" style="font-size:10px">Avg run</span><b>21s</b></div></div>
+          <div style="flex:1"></div>
+          <button class="btn ghost modelbtn" onclick="setDefault(this)">Set as default</button>
+        </div>
+      </div>
+      <div class="row" style="flex:1;min-height:0">
+        <div class="glass" style="flex:1.4;padding:22px;display:flex;flex-direction:column;gap:16px">
+          <span style="font-size:16.5px;font-weight:700">Usage this month</span>
+          <div style="display:flex;align-items:center;gap:14px"><span class="bar" style="flex:1;height:10px"><i style="width:62%;background:linear-gradient(90deg,var(--acc2),var(--acc))"></i></span><span class="mono" style="font-size:12.5px;color:var(--mut)">1,860 / 3,000 RUNS</span></div>
+          <div style="display:flex;gap:26px">
+            <div class="metric"><span class="lab" style="font-size:10px">Runs this week</span><b style="font-size:21px">214</b></div>
+            <div class="metric"><span class="lab" style="font-size:10px">Avg per case</span><b style="font-size:21px">2.3</b></div>
+            <div class="metric"><span class="lab" style="font-size:10px">Failed runs</span><b style="font-size:21px;color:var(--warn)">4</b></div>
+          </div>
+          <div style="flex:1"></div>
+          <span class="sample">QUOTA RESETS OCT 01 · PLAN: ENTERPRISE</span>
+        </div>
+        <div class="glass" style="flex:1;padding:22px;display:flex;flex-direction:column;gap:13px">
+          <span style="font-size:16.5px;font-weight:700">Calibration</span>
+          <div style="display:flex;align-items:center;gap:11px;font-size:14px;color:var(--mut)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8.5 12.5l2.5 2.5 4.5-5"></path></svg>Reference library synced — 1,412 SKUs</div>
+          <div style="display:flex;align-items:center;gap:11px;font-size:14px;color:var(--mut)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--acc)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M8.5 12.5l2.5 2.5 4.5-5"></path></svg>Counterfeit exemplar set updated AUG 26</div>
+          <div style="display:flex;align-items:center;gap:11px;font-size:14px;color:var(--mut)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5"></path></svg>3 SKUs missing reference photos</div>
+          <div style="flex:1"></div>
+          <button class="btn ghost" onclick="toast('Reference library is simulated in this prototype')">Open reference library</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RUN OVERLAY / TOAST ============ -->
+  <div class="overlay" id="overlay">
+    <div class="glass runcard">
+      <span style="font-size:17px;font-weight:700">Running analysis</span>
+      <span class="mono" style="font-size:11.5px;color:var(--dim)" id="runCase">CASE VF-2026-____</span>
+      <div class="runviz"><div class="vbeam"></div><svg class="garment" width="150" height="160" viewBox="0 0 200 220" fill="none" stroke="var(--acc)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M64 52 L38 62 Q30 66 28 76 L18 158 Q17 166 25 167 L46 170 Q52 170 53 164 L62 112"></path><path d="M136 52 L162 62 Q170 66 172 76 L182 158 Q183 166 175 167 L154 170 Q148 170 147 164 L138 112"></path><path d="M64 52 Q60 54 60 62 L60 192 Q60 198 66 198 L134 198 Q140 198 140 192 L140 62 Q140 54 136 52 L122 40 Q100 52 78 40 Z"></path><path d="M78 40 L74 24 Q100 12 126 24 L122 40 Q100 52 78 40 Z"></path><path d="M60 62 L100 92 L140 62 M60 96 L100 126 L140 88 M60 130 L100 160 L140 130" stroke="rgba(var(--acc-rgb),.3)" stroke-width="1"></path></svg></div>
+      <div class="progress"><i id="progFill"></i></div>
+      <div class="runlog" id="runLog"></div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <span>VERITAS ENTERPRISE v2.4.1</span><span class="sep"></span>
+    <span>TENANT: VF CORPORATION · BRAND PROTECTION</span><span class="sep"></span>
+    <span>DATA REGION: EU-WEST</span><span class="sep"></span>
+    <span>SOC 2 TYPE II · ISO 27001</span>
+    <div style="flex:1"></div>
+    <span style="display:inline-flex;align-items:center;gap:7px"><span style="width:6px;height:6px;border-radius:50%;background:var(--acc)"></span>ALL SYSTEMS OPERATIONAL · LAST SYNC 2 MIN AGO</span>
+  </div>
+  <div class="bgpicker">
+    <span>BACKGROUND</span>
+    <button class="bgdot on" data-bg="royal" title="Royal Navy — final version" style="background:linear-gradient(135deg,#0b1322,#1a2742,#5b9dff)" onclick="setBg('royal',this)"></button>
+    <button class="bgdot" data-bg="mono" title="Black &amp; White" style="background:linear-gradient(135deg,#070707 50%,#e8e8e8 50%)" onclick="setBg('mono',this)"></button>
+    <button class="bgdot" data-bg="emerald" title="Emerald Night" style="background:linear-gradient(135deg,#05130c,#12432a)" onclick="setBg('emerald',this)"></button>
+    <button class="bgdot" data-bg="wine" title="Royal Wine" style="background:linear-gradient(135deg,#160910,#4a1830)" onclick="setBg('wine',this)"></button>
+    <button class="bgdot" data-bg="amber" title="Amber Bronze" style="background:linear-gradient(135deg,#140e06,#46310f)" onclick="setBg('amber',this)"></button>
+    <button class="bgdot" data-bg="sunset" title="Sunset Glow" style="background:linear-gradient(135deg,#130a15,#3c1440,#b3487a)" onclick="setBg('sunset',this)"></button>
+    <button class="bgdot" data-bg="gold" title="Satin Black &amp; Gold" style="background:linear-gradient(135deg,#0b0a08 40%,#c9a227 75%,#f2dd9a)" onclick="setBg('gold',this)"></button>
+    <button class="bgdot" data-bg="lilac" title="Half-White &amp; Purple" style="background:linear-gradient(135deg,#f4f2f8 45%,#7c3aed 55%)" onclick="setBg('lilac',this)"></button>
+    <button class="bgdot" data-bg="oled" title="OLED Ice — recommended" style="background:linear-gradient(135deg,#000 55%,#8fb8ff 85%,#fff)" onclick="setBg('oled',this)"></button>
+  </div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+  document.body.classList.add('theme-scan');
+  var state = { photos: 0, upc: false, caseOk: false, theme: 'scan' };
+  var scenes = { dashboard:'OPERATIONS.OVERVIEW', cases:'CASE.REGISTER', analysis:'CASE-ANALYSIS.SCENE', results:'CASE-0412.VERDICT', reports:'FINDINGS.ARCHIVE', models:'ENGINE.ROSTER' };
+
+  function go(page) {
+    var pages = document.querySelectorAll('.page');
+    for (var i = 0; i < pages.length; i++) pages[i].classList.remove('on');
+    document.getElementById('page-' + page).classList.add('on');
+    var navs = document.querySelectorAll('nav button');
+    for (var j = 0; j < navs.length; j++) navs[j].classList.toggle('on', navs[j].getAttribute('data-nav') === page || (page === 'results' && navs[j].getAttribute('data-nav') === 'analysis'));
+    document.getElementById('scene').textContent = scenes[page] || '';
+    window.scrollTo(0, 0);
+    if (page === 'results') animateScore();
+  }
+
+  function setTheme(t) {
+    state.theme = t;
+    document.body.className = 'theme-' + t;
+    document.getElementById('tbScan').classList.toggle('on', t === 'scan');
+    document.getElementById('tbCompare').classList.toggle('on', t === 'compare');
+  }
+
+  /* ---- analysis interactions ---- */
+  var thumbStyles = [
+    'linear-gradient(160deg,#3a3a52,#23233a)',
+    'linear-gradient(200deg,#2c2c40,#1a1a2c)',
+    'linear-gradient(140deg,#32324a,#202036)',
+    'linear-gradient(120deg,#28283e,#161624)'
+  ];
+  function addPhoto() {
+    if (state.photos >= 4) { toast('4 sample photos added — that is plenty for the demo'); return; }
+    state.photos++;
+    var el = document.createElement('div');
+    el.className = 'thumb';
+    el.style.background = thumbStyles[state.photos - 1];
+    document.getElementById('thumbsScan').appendChild(el);
+    var el2 = el.cloneNode(true);
+    document.getElementById('thumbsCompare').appendChild(el2);
+    var sp = document.getElementById('chamberSpin');
+    if (sp) sp.classList.remove('gspin');
+    document.getElementById('chamberBox').classList.add('assembling');
+    document.getElementById('compareSuspect').classList.add('assembling');
+    refreshReadiness();
+  }
+  function addUpc() {
+    state.upc = true;
+    document.getElementById('upcLabel').textContent = 'UPC captured — 1 image';
+    refreshReadiness();
+  }
+  function caseChanged() {
+    var v = document.getElementById('caseNo').value.trim();
+    state.caseOk = v.length >= 3;
+    refreshReadiness();
+  }
+  function mark(id, done) {
+    var row = document.getElementById(id);
+    row.classList.toggle('done', done);
+    var ring = row.querySelector('.ring');
+    if (ring) ring.classList.toggle('done', done);
+    var tick = row.querySelector('.tick');
+    if (tick) tick.style.display = done ? '' : 'none';
+  }
+  function refreshReadiness() {
+    mark('rdCase', state.caseOk);
+    mark('rdPhotos', state.photos > 0);
+    mark('rdUpc', state.upc);
+    document.getElementById('photoCount').textContent = state.photos > 0 ? '· ' + state.photos + ' ADDED' : '';
+    var left = (state.caseOk ? 0 : 1) + (state.photos > 0 ? 0 : 1);
+    document.getElementById('stepsLeft').textContent = left === 0 ? 'ALL REQUIRED STEPS COMPLETE' : left + ' OF 3 REQUIRED STEPS REMAINING';
+    document.getElementById('runBtn').disabled = left > 0;
+  }
+
+  /* ---- run flow ---- */
+  var runSteps = [
+    'UPLOADING EVIDENCE — 0K OF 7 PHOTOS',
+    'BUILDING SUSPECT TWIN — MESH 12.4K',
+    'COMPARING 214 FEATURES AGAINST NF0A88XH',
+    'SCORING — GPT-5.5 VISION FORENSICS'
+  ];
+  function runAnalysis() {
+    var caseNo = document.getElementById('caseNo').value.trim() || 'VF-2026-0412';
+    document.getElementById('runCase').textContent = 'CASE ' + caseNo.toUpperCase();
+    document.getElementById('resultCase').textContent = 'ANALYSIS COMPLETE · CASE ' + caseNo.toUpperCase();
+    var log = document.getElementById('runLog');
+    log.innerHTML = '';
+    document.getElementById('overlay').classList.add('on');
+    var fill = document.getElementById('progFill');
+    fill.style.width = '4%';
+    var i = 0;
+    var timer = setInterval(function () {
+      if (i < runSteps.length) {
+        var line = document.createElement('div');
+        line.innerHTML = '<b>OK</b>&nbsp; ' + runSteps[i];
+        log.appendChild(line);
+        fill.style.width = (18 + i * 26) + '%';
+        i++;
+      } else {
+        clearInterval(timer);
+        fill.style.width = '100%';
+        setTimeout(function () {
+          document.getElementById('overlay').classList.remove('on');
+          buildResultThumbs();
+          go('results');
+        }, 450);
+      }
+    }, 650);
+  }
+  function buildResultThumbs() {
+    var host = document.getElementById('resultThumbs');
+    host.innerHTML = '';
+    var n = Math.max(state.photos, 3);
+    for (var i = 0; i < Math.min(n, 4); i++) {
+      var d = document.createElement('div');
+      d.className = 'thumb';
+      d.style.width = '44px'; d.style.height = '44px';
+      d.style.background = thumbStyles[i % 4];
+      host.appendChild(d);
+    }
+    document.getElementById('resultMeta').textContent = (state.photos || 7) + ' PHOTOS · ' + (state.upc ? '1 UPC · ' : '') + 'ANALYZED IN 42S · SAMPLE';
+  }
+  function animateScore() {
+    var arc = document.getElementById('scoreArc');
+    var num = document.getElementById('scoreNum');
+    arc.style.strokeDasharray = '0 314';
+    num.textContent = '0';
+    setTimeout(function () {
+      arc.style.strokeDasharray = '107 314';
+      var v = 0;
+      var t = setInterval(function () {
+        v += 2;
+        if (v >= 34) { v = 34; clearInterval(t); }
+        num.textContent = v;
+      }, 40);
+    }, 150);
+  }
+
+  /* ---- cases / reports / models ---- */
+  function filterCases(f, btn) {
+    var tabs = document.querySelectorAll('.chiptab');
+    for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('on');
+    btn.classList.add('on');
+    var rows = document.querySelectorAll('#caserows .trow');
+    var count = 0;
+    for (var j = 0; j < rows.length; j++) {
+      var show = f === 'all' || rows[j].getAttribute('data-f') === f;
+      rows[j].style.display = show ? '' : 'none';
+      if (show) count++;
+    }
+    btn.textContent = btn.textContent.replace(/ · \d+$/, '') + ' · ' + count;
+  }
+  function exportReport() {
+    toast('Findings report generated — added to Reports');
+    setTimeout(function () { go('reports'); }, 700);
+  }
+  function setDefault(btn) {
+    var btns = document.querySelectorAll('.modelbtn');
+    var chips = document.querySelectorAll('.modelstatus');
+    for (var i = 0; i < btns.length; i++) {
+      var mine = btns[i] === btn;
+      btns[i].className = 'btn modelbtn ' + (mine ? 'primary' : 'ghost');
+      btns[i].textContent = mine ? 'Default engine' : 'Set as default';
+      btns[i].disabled = mine;
+      if (chips[i].textContent !== 'BETA' || mine) {
+        chips[i].className = 'statuschip modelstatus ' + (mine ? 'st-ok' : (chips[i].textContent === 'BETA' ? 'st-warn' : 'st-dim'));
+        chips[i].textContent = mine ? 'ACTIVE' : (chips[i].textContent === 'BETA' ? 'BETA' : 'AVAILABLE');
+      }
+    }
+    toast('Default engine updated');
+  }
+  function setBg(name, btn) {
+    if (name === 'royal') { document.body.removeAttribute('data-bg'); } else { document.body.setAttribute('data-bg', name); }
+    var dots = document.querySelectorAll('.bgdot');
+    for (var i = 0; i < dots.length; i++) dots[i].classList.toggle('on', dots[i] === btn);
+    toast('Background: ' + btn.title);
+  }
+  var toastTimer;
+  function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('on'); }, 2600);
+  }
+</script>

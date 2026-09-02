@@ -564,6 +564,22 @@ _LABEL_CHECKS = [
 ]
 _LABEL_SEVERITY = {cid: sev for cid, sev, _d in _LABEL_CHECKS}
 _LABEL_NOISY = {"L1", "L2"}          # photo-based font/weave calls — damp low-confidence tells
+
+# WHICH CHECKS MAY LEAVE THE DENOMINATOR. Only L7 — a Gore-Tex check on a cotton
+# tee genuinely does not apply.
+#
+# `not_applicable` is the one status that shrinks the denominator in
+# _label_internal_coverage rather than counting against it, which makes it the
+# single most valuable string a model can emit if it wants an item cleared. With
+# the care-tag checks (L3-L6, L8, L10, L11) marked not_applicable instead of
+# not_visible, label internal coverage went from 0.25 to 1.00 on identical
+# evidence — clearing the LABEL_EVIDENCE_COVERAGE gate, whose entire purpose is
+# to require that the care tag was read, on the neck tag alone.
+#
+# Every other check applies to every garment: they all have a fibre content, a
+# country of origin, a size. If one is not shown, the honest status is
+# not_visible, and that is what it is coerced to here.
+_LABEL_NA_ALLOWED = {"L7"}
 _LABEL_IDS = [cid for cid, _s, _d in _LABEL_CHECKS]
 _LABEL_WEIGHT = {"critical": 3, "strong": 2, "supporting": 1}
 _STATUS_POINTS = {"genuine": 0, "suspicious": 50, "counterfeit_tell": 100}
@@ -626,7 +642,11 @@ def _label_internal_coverage(by):
     applicable = scored = 0.0
     for cid, sev, _d in _LABEL_CHECKS:
         c = by.get(cid) or {}
-        if c.get("status") == "not_applicable":
+        # The whitelist is enforced HERE as well as at the parse boundary in
+        # _aggregate_label, because this is the function whose denominator the
+        # status moves. A guard that only exists upstream protects the callers
+        # that happen to go through upstream.
+        if c.get("status") == "not_applicable" and cid in _LABEL_NA_ALLOWED:
             continue
         w = _LABEL_WEIGHT[sev]
         applicable += w
@@ -644,6 +664,14 @@ def _aggregate_label(checks):
     for c in (checks or []):
         cid = c.get("id")
         if cid in _LABEL_SEVERITY:
+            # not_applicable is only honoured where it can be true — see
+            # _LABEL_NA_ALLOWED. Anywhere else it is an unseen tag claiming to
+            # be an irrelevant one, and it is recorded as what it is.
+            if c.get("status") == "not_applicable" and cid not in _LABEL_NA_ALLOWED:
+                c = dict(c, status="not_visible",
+                         evidence=(c.get("evidence") or "")
+                         + " [not_applicable coerced to not_visible: this check "
+                           "applies to every garment]")
             by[cid] = c                                  # last one wins if duplicated
 
     visible = [c for c in by.values()
@@ -658,6 +686,20 @@ def _aggregate_label(checks):
 
     num = den = 0.0
     critical_hit = False
+    # A CRITICAL tell that was seen well enough to count, but not well enough to
+    # floor. The gap between the visibility threshold (0.5) and the critical
+    # floor (0.6) was a clearance lane: an L3 fibre-content misspelling — the
+    # most mechanical, least judgement-dependent tell in the rubric — reported
+    # at confidence 0.55 alongside seven genuine checks averaged to a Label
+    # score of 20 and returned LIKELY AUTHENTIC. The same tell at 0.60 returned
+    # Suspected Counterfeit. A five-point confidence swing must not decide
+    # between releasing an item and rejecting it, and it must never resolve
+    # toward release.
+    #
+    # A visible critical tell now floors into the counterfeit band at minimum.
+    # It is still graded: >= 0.60 floors to 85 as before, 0.50-0.60 floors to
+    # DIM_COUNTERFEIT, which routes to a person rather than certifying.
+    critical_seen = False
     tells = []
     for c in visible:
         cid = c["id"]
@@ -675,10 +717,19 @@ def _aggregate_label(checks):
         den += w
         if status == "counterfeit_tell":
             tells.append(c)
-            if sev == "critical" and conf >= 0.6:
-                critical_hit = True
+            if sev == "critical":
+                critical_seen = True
+                if conf >= 0.6:
+                    critical_hit = True
     avg = num / den if den else 0.0
-    score = int(max(0, min(100, round(max(85.0, avg) if critical_hit else avg))))
+    if critical_hit:
+        avg = max(85.0, avg)
+    elif critical_seen:
+        # Seen, not certain. Floored into the counterfeit band so it cannot be
+        # averaged into a clearance, but not to 85 — the engine did not claim
+        # that much.
+        avg = max(float(scoring.DIM_COUNTERFEIT), avg)
+    score = int(max(0, min(100, round(avg))))
 
     if tells:
         finding = f"{len(tells)} label tell(s): {tells[0].get('evidence') or tells[0]['id']}"

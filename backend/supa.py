@@ -15,6 +15,7 @@ import os
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 from dotenv import load_dotenv
@@ -114,11 +115,14 @@ def create_product(name, brand, images_b64):
 
 
 def list_products():
+    folders = [it.get("name") for it in _list("")
+               if it.get("name") and it.get("id") is None]   # a folder = a product
+    # One meta.json round-trip per product. Sequentially that is minutes at
+    # catalog size (219 products measured at ~121s); a bounded pool keeps it to
+    # seconds without hammering the Storage API.
     out = []
-    for it in _list(""):
-        name = it.get("name")
-        if name and it.get("id") is None:          # a folder = a product
-            meta = _get_json(f"{name}/meta.json")
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        for meta in ex.map(lambda n: _get_json(f"{n}/meta.json"), folders):
             if meta:
                 out.append(meta)
     out.sort(key=lambda m: m.get("created_at", ""), reverse=True)

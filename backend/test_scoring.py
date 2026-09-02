@@ -214,7 +214,9 @@ def test_every_constant_lives_in_one_config_block():
     (3,  "Authentic"),                  # the top of the authentic band
     (4,  "Likely Authentic"),
     (10, "Likely Authentic"),
-    (30, "Likely Authentic"),           # the top of the clearing band
+    (25, "Likely Authentic"),           # the top of the clearing band
+    (26, "Inconclusive"),               # the photographic-noise range: a person looks
+    (30, "Inconclusive"),
     (31, "Suspected Counterfeit"),      # DIM_COUNTERFEIT — one dimension is enough
     (60, "Suspected Counterfeit"),
     (84, "Suspected Counterfeit"),
@@ -223,7 +225,7 @@ def test_ladder_boundaries_at_full_coverage(deviation, label):
     """ONE scale end to end: the composite is reported on the same deviation
     scale as the dimensions that produced it. Every dimension is MEASURED here,
     so the coverage gates are all satisfied and only the bands decide."""
-    c = all_measured(deviation)
+    c = all_measured(deviation, upc_status="match")   # certification needs the lookup
     assert c["deviation"] == deviation
     assert c["score"] == deviation
     assert c["verdict_label"] == label
@@ -247,7 +249,11 @@ def test_a_partial_dimension_may_not_trigger_the_dispositive_rule():
     dims = [dim("Logo", 90, state=scoring.DimState.PARTIAL, coverage=0.5, confidence=0.8)]
     dims += [dim(d, 5, "estimated", 0.3) for d in DIMENSIONS if d != "Logo"]
     c = agg(dims)
-    assert c["verdict_label"] != "Suspected Counterfeit"
+    # It convicts — but through R4c, the partial-specific rung with its own
+    # 2x-noise-ceiling threshold, never through R4's dispositive rule, whose
+    # confidence semantics belong to MEASURED dimensions only.
+    assert c["rule"] == "R4c"
+    assert c["rule"] not in ("R4", "R4b")
 
 
 
@@ -1163,3 +1169,104 @@ def test_the_new_knobs_live_in_the_config_block():
         assert key in scoring.SCORING_CONSTANTS
         assert getattr(scoring, key) == scoring.SCORING_CONSTANTS[key]
     assert scoring.DIM_COUNTERFEIT == scoring.BAND_COUNTERFEIT   # same band, both scales
+
+
+# ---- clearance may never be cheaper than conviction ------------------------
+#
+# Four routes by which an item reached a CLEARED verdict on evidence that would
+# not have been good enough to reject it. Each was demonstrated against the
+# ladder before the guards below existed; each test states the escape it closes.
+
+def test_clearance_needs_the_same_confidence_as_conviction():
+    """Five dimensions at 0.35 confidence, all scoring 0, certified Authentic.
+
+    MIN_DIM_CONFIDENCE (35) is the floor to CONTRIBUTE a number. It was also,
+    by omission, the floor to release goods — while rejecting them needed
+    DISPOSITIVE_CONFIDENCE (60). The asymmetry ran the wrong way round."""
+    dims = [dim(d, 0, confidence=0.35) for d in DIMENSIONS]
+    c = agg(dims)
+    assert c["verdict_label"] == "Insufficient Evidence"
+    assert c["rule"] == "R7"
+    # ...and the same evidence at clearance confidence still clears, so the
+    # guard is a floor and not a blanket refusal. (Certification additionally
+    # requires the UPC lookup — without it this is Likely Authentic.)
+    assert agg([dim(d, 0, confidence=0.8) for d in DIMENSIONS],
+               upc_status="match")["band"] == "authentic"
+
+
+def test_a_thin_dimension_is_not_a_forensic_examination():
+    """The gate counted `state == MEASURED` and nothing else, so a dimension
+    that resolved 5% of its own checks stood in for a full one. The Label half
+    of the same gate had demanded real internal coverage all along."""
+    dims = [dim("Label", 0, confidence=0.8, coverage=1.0),
+            dim("Logo", 0, confidence=0.8, coverage=0.05),
+            dim("Stitching", 0, confidence=0.8, coverage=0.05)]
+    dims += [dim(d, None, "abstain", 0.0) for d in ("Hardware", "Material")]
+    ok, why = scoring.evidence_gate([scoring.Dim.from_record(d["dimension"], d)
+                                     for d in dims])
+    assert not ok and "clearance standard" in why
+    assert agg(dims)["verdict_label"] == "Insufficient Evidence"
+
+
+def test_a_partial_that_cannot_convict_cannot_clear_either():
+    """PARTIAL_MAY_CONVICT is False because a partial ran on geometry. That
+    same distrust has to point both ways: before R8b, three clean dimensions
+    beside a PARTIAL reporting 60/100 returned Likely Authentic."""
+    dims = [dim("Label", 0), dim("Logo", 0), dim("Stitching", 0),
+            dim("Material", 40, state=scoring.DimState.PARTIAL),
+            dim("Hardware", None, "not_applicable", 0.0)]
+    c = agg(dims)
+    assert c["verdict_label"] == "Inconclusive — Suspicious"
+    assert c["rule"] == "R8b"
+    assert c["lane"] == "REVIEW"
+    # Past PARTIAL_DISPOSITIVE the same shape stops being ambiguous: 55+ on
+    # geometry and placement is twice the photographic-noise ceiling, and R4c
+    # convicts rather than parking it in review.
+    dims[3] = dim("Material", 60, state=scoring.DimState.PARTIAL)
+    c = agg(dims)
+    assert c["verdict_label"] == "Suspected Counterfeit" and c["rule"] == "R4c"
+
+
+def test_a_visible_critical_tell_can_never_average_into_a_clearance():
+    """An L3 fibre-content misspelling at confidence 0.55, beside seven genuine
+    checks, averaged to a Label score of 20 — Likely Authentic. The same tell at
+    0.60 floored to 85. A five-point confidence swing decided release."""
+    others = [lcheck(c, "genuine") for c in ("L1", "L2", "L5", "L6", "L8", "L10", "L11")]
+    for conf in (0.55, 0.60, 0.95):
+        agg_l = providers._aggregate_label([lcheck("L3", "counterfeit_tell", conf)] + others)
+        assert agg_l["score"] >= scoring.DIM_COUNTERFEIT, conf
+    # Graded, not flattened: an uncertain tell must not claim the certainty of
+    # a confident one.
+    assert (providers._aggregate_label([lcheck("L3", "counterfeit_tell", 0.55)] + others)["score"]
+            < providers._aggregate_label([lcheck("L3", "counterfeit_tell", 0.60)] + others)["score"])
+
+
+def test_not_applicable_cannot_shrink_the_label_denominator():
+    """`not_applicable` is the one status that LEAVES the denominator, which
+    makes it the most valuable string a model can emit to get an item cleared.
+    Marking the care-tag checks not_applicable instead of not_visible took
+    internal coverage from 0.25 to 1.00 on identical evidence, clearing the
+    gate whose whole purpose is to require that the care tag was read."""
+    care = ("L3", "L4", "L5", "L6", "L8", "L10", "L11")
+    seen = [lcheck("L1", "genuine"), lcheck("L2", "genuine"),
+            lcheck("L7", "not_applicable")]          # genuinely inapplicable: cotton tee
+    honest = providers._aggregate_label(
+        [lcheck(c, "not_visible") for c in care] + seen)
+    gamed = providers._aggregate_label(
+        [lcheck(c, "not_applicable") for c in care] + seen)
+    assert gamed["internal_coverage"] == honest["internal_coverage"]
+    assert gamed["internal_coverage"] < scoring._pc(scoring.LABEL_EVIDENCE_COVERAGE)
+    # L7 is the sole whitelisted exception and must still work.
+    assert "L7" in providers._LABEL_NA_ALLOWED and len(providers._LABEL_NA_ALLOWED) == 1
+
+
+def test_the_clearance_floors_live_in_the_config_block():
+    for key in ("MIN_CONFIDENCE_FOR_CLEARANCE", "MIN_INTERNAL_COVERAGE_FOR_CLEARANCE",
+                "PARTIAL_MAY_CLEAR"):
+        assert key in scoring.SCORING_CONSTANTS
+        assert getattr(scoring, key) == scoring.SCORING_CONSTANTS[key]
+    # Releasing an item must never be easier than rejecting one.
+    assert scoring.MIN_CONFIDENCE_FOR_CLEARANCE >= scoring.DISPOSITIVE_CONFIDENCE
+    assert scoring.MIN_CONFIDENCE_FOR_CLEARANCE > scoring.MIN_DIM_CONFIDENCE
+    # A state distrusted for conviction must be distrusted for clearance.
+    assert scoring.PARTIAL_MAY_CLEAR == scoring.PARTIAL_MAY_CONVICT

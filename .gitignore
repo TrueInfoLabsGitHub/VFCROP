@@ -38,3 +38,8 @@ Thumbs.db
 
 # redesign local backup
 analyze.legacy.html
+
+# --- local runtime state (intake register, audit log, preflight rejections) ---
+data/intake_cases.jsonl
+data/audit_log.jsonl
+data/preflight_rejections.jsonl
