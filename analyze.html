@@ -923,7 +923,7 @@ function examScene(d){
           <span style="width:7px;height:7px;border-radius:50%;background:var(--acc)"></span>
           <span class="mono" style="font-size:12.5px;letter-spacing:.1em;color:var(--mut2)">GHOST OVERLAY · REFERENCE ${refLabel().toUpperCase().slice(0,20)}</span>
         </div>
-        <span class="mono" style="position:absolute;left:280px;top:368px;width:260px;text-align:center;font-size:14px;letter-spacing:.12em;color:${susCol}">SUSPECT · ${anomalies} ANOMAL${anomalies===1?'Y':'IES'} FLAGGED</span>
+        <span class="mono" style="position:absolute;left:280px;top:368px;width:260px;text-align:center;font-size:14px;letter-spacing:.12em;color:${susCol}">${c.band==='mismatch'?'REFERENCE MISMATCH — NOT COMPARED':c.score==null?'SUSPECT · NOT ASSESSED':`SUSPECT · ${anomalies} ANOMAL${anomalies===1?'Y':'IES'} FLAGGED`}</span>
       </div>
     </div>
     <div class="exampanel">
@@ -936,7 +936,7 @@ function examScene(d){
           </svg>
           <div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center">
             <span style="font-size:31px;font-weight:700;color:${scoreCol}" id="examNum">0</span>
-            <span class="mono" style="font-size:11.5px;color:var(--dim)">/ 100 DEVIATION</span>
+            <span class="mono" style="font-size:11.5px;color:var(--dim)">${c.score==null?'NOT COMPARABLE':'/ 100 DEVIATION'}</span>
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
@@ -1297,8 +1297,8 @@ function dimRows(dims){
       <button type="button" class="drow-head" onclick="toggleDim(${i})">
         <span class="ddot" style="background:${col}"></span>
         <span style="min-width:0"><span style="font-size:18.5px;font-weight:500;display:block">${d.dimension}</span><span class="muted" style="font-size:17px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.finding||''}</span></span>
-        <span class="dbar"><i style="width:${d.score}%;background:${col}"></i></span>
-        <span class="mono" style="text-align:right;font-weight:600;color:${col}">${d.score}</span>
+        <span class="dbar"><i style="width:${d.score==null?0:d.score}%;background:${col}"></i></span>
+        <span class="mono" style="text-align:right;font-weight:600;color:${col}">${d.score==null?'—':d.score}</span>
         <span class="dchev"><i class="ti ti-chevron-down"></i></span>
       </button>
       <div class="drsn hidden" id="drsn-${i}">${d.reasoning||'—'}
@@ -1411,14 +1411,14 @@ function renderFindingBody(d){
   $('#findingbody').innerHTML=body+upcDetail(d.upc);
 }
 function dimDossierCard(dd){ const col=bandColor(dd.band),conf=Math.round((dd.confidence??0)*100),vi=vinfo(dd.band);
-  return `<div class="card pad"><div class="row" style="justify-content:space-between;margin-bottom:9px"><div class="row" style="gap:11px"><span class="scorecirc" style="border-color:${col};color:${col}">${dd.score}</span><span style="font-weight:600;font-size:18.5px">${dd.dimension}</span></div><span class="badge ${vi.c}">${vi.l}</span></div>
+  return `<div class="card pad"><div class="row" style="justify-content:space-between;margin-bottom:9px"><div class="row" style="gap:11px"><span class="scorecirc" style="border-color:${col};color:${col}">${dd.score==null?'—':dd.score}</span><span style="font-weight:600;font-size:18.5px">${dd.dimension}</span></div><span class="badge ${vi.c}">${vi.l}</span></div>
     <div style="font-size:17px;color:var(--sec);line-height:1.55;margin-bottom:11px">${dd.finding||''}</div>
     <div class="cmeter"><span class="cl">CONFIDENCE</span><span class="ct"><i style="width:${conf}%"></i></span><span class="cv">${conf}%</span></div></div>`;
 }
 function dimDataTable(dims){
   return `<div class="tablewrap" style="margin-bottom:14px"><table><thead><tr><th>Dimension</th><th>Finding</th><th class="num">Conf</th><th class="num">Score</th><th>Verdict</th></tr></thead><tbody>`+
     dims.map(dd=>{const col=bandColor(dd.band),conf=Math.round((dd.confidence??0)*100),vi=vinfo(dd.band);
-      return `<tr><td style="font-weight:500">${dd.dimension}</td><td class="muted">${dd.finding||''}</td><td class="num">${conf}%</td><td class="num" style="color:${col}">${dd.score}</td><td><span class="badge ${vi.c}" style="font-size:14px">${vi.l}</span></td></tr>`;}).join('')+`</tbody></table></div>`;
+      return `<tr><td style="font-weight:500">${dd.dimension}</td><td class="muted">${dd.finding||''}</td><td class="num">${conf}%</td><td class="num" style="color:${col}">${dd.score==null?'—':dd.score}</td><td><span class="badge ${vi.c}" style="font-size:14px">${vi.l}</span></td></tr>`;}).join('')+`</tbody></table></div>`;
 }
 function pipelineStrip(report){
   const rows=(report&&report.rows)||[]; if(!rows.length) return ''; const t=(report&&report.totals)||{};
