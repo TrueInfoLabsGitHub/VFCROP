@@ -640,6 +640,11 @@ class ProductReq(BaseModel):
     name: str
     brand: str = ""
     images: list[str] = []   # base64 (no data: header)
+    style: str = ""          # optional catalog attributes for a reference product
+    colorway: str = ""
+    season: str = ""
+    msrp: str = ""
+    pocket_config: str = ""
 
 
 @app.get("/api/products")
@@ -659,7 +664,10 @@ def products_create(req: ProductReq):
         raise HTTPException(503, "Supabase not configured")
     if not req.name.strip() or not req.images:
         raise HTTPException(400, "name and at least one image are required")
-    return supa.create_product(req.name.strip(), req.brand.strip(), req.images)
+    attrs = {"style": req.style.strip(), "colorway": req.colorway.strip(),
+             "season": req.season.strip(), "msrp": req.msrp.strip(),
+             "pocket_config": req.pocket_config.strip()}
+    return supa.create_product(req.name.strip(), req.brand.strip(), req.images, attrs)
 
 
 @app.delete("/api/products/{pid}")

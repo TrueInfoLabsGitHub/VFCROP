@@ -156,10 +156,15 @@ Return JSON only:
  "upc":   {"value": "digits or null", "confidence": 0-1, "image_index": 0-based or null},
  "style_number": {"value": "string or null", "confidence": 0-1},
  "country_of_origin": {"value": "string or null", "confidence": 0-1},
+ "category": {"value": "e.g. jacket|t-shirt|hoodie|hat|boot|backpack or null", "confidence": 0-1},
+ "colorway": {"value": "dominant colour(s), e.g. 'Red/Black' or null", "confidence": 0-1},
+ "pocket_config": {"value": "brief, e.g. '2 hand + 1 chest', 'none' or null", "confidence": 0-1},
  "text_detected": ["up to 6 short strings actually readable in the photos"],
  "boxes": [{"region": "logo|label|hardware|stitching", "image_index": 0,
             "x": 0-1, "y": 0-1, "w": 0-1, "h": 0-1}]
 }
+colorway is the visible colour, always readable. category is the garment type.
+pocket_config is only what is visible; use null if you cannot see the pockets.
 Boxes are normalized to each image; include one box per clearly visible region,
 at most 6 boxes total."""
 
@@ -170,6 +175,9 @@ def _mock_extract(n_images: int) -> dict:
             "upc": {"value": None, "confidence": 0, "image_index": None},
             "style_number": {"value": None, "confidence": 0},
             "country_of_origin": {"value": None, "confidence": 0},
+            "category": {"value": None, "confidence": 0},
+            "colorway": {"value": None, "confidence": 0},
+            "pocket_config": {"value": None, "confidence": 0},
             "text_detected": [],
             "boxes": [{"region": "logo", "image_index": 0,
                        "x": 0.36, "y": 0.18, "w": 0.28, "h": 0.2}] if n_images else []}

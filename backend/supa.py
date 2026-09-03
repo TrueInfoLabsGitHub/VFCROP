@@ -98,7 +98,10 @@ def _list(prefix=""):
 
 
 # ---- product CRUD ---------------------------------------------------------
-def create_product(name, brand, images_b64):
+_PRODUCT_ATTRS = ("style", "colorway", "season", "msrp", "pocket_config")
+
+
+def create_product(name, brand, images_b64, attrs=None):
     ensure_bucket()
     pid = f"{_slug(name)}-{uuid.uuid4().hex[:6]}"
     files = []
@@ -110,6 +113,12 @@ def create_product(name, brand, images_b64):
         files.append(fn)
     meta = {"id": pid, "name": name, "brand": brand or "", "images": files,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    # Optional catalog attributes so a manually-added reference product can carry
+    # the style/colorway/season/MSRP/pocket-config the Style Details table compares.
+    for k in _PRODUCT_ATTRS:
+        v = (attrs or {}).get(k)
+        if v not in (None, ""):
+            meta[k] = v
     _upload(f"{pid}/meta.json", json.dumps(meta).encode(), "application/json")
     return meta
 

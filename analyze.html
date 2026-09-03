@@ -806,6 +806,9 @@ function renderExtract(){
     xcard('brand','Brand detection',(x.brand||{}).value,(x.brand||{}).confidence)+
     xcard('upc','UPC',(x.upc||{}).value,(x.upc||{}).confidence)+
     xcard('style','Style number',(x.style_number||{}).value,(x.style_number||{}).confidence)+
+    xcard('category','Category',(x.category||{}).value,(x.category||{}).confidence)+
+    xcard('colorway','Colorway',(x.colorway||{}).value,(x.colorway||{}).confidence)+
+    xcard('pocket','Pocket config',(x.pocket_config||{}).value,(x.pocket_config||{}).confidence)+
     xcard('origin','Country of origin',(x.country_of_origin||{}).value,(x.country_of_origin||{}).confidence)+
     `<div class="xcard"><div class="xk">Text detected</div><div style="font-family:var(--mono);font-size:13px;color:var(--mut);margin-top:5px;line-height:1.7">${(x.text_detected||[]).map(esc).join('<br>')||'—'}</div></div>`;
 }
@@ -818,7 +821,8 @@ function editX(key){
 function saveX(key){
   const inp=$('#xval-'+key);if(!inp||inp.tagName!=='INPUT')return;
   const v=inp.value.trim();
-  const map={brand:'brand',upc:'upc',style:'style_number',origin:'country_of_origin'};
+  const map={brand:'brand',upc:'upc',style:'style_number',origin:'country_of_origin',
+             category:'category',colorway:'colorway',pocket:'pocket_config'};
   iExtraction=iExtraction||{};iExtraction[map[key]]={value:v||null,confidence:1,overridden:true};
   renderExtract();
 }
@@ -1017,8 +1021,10 @@ async function openRefPicker(){
   window._refList=(PRODUCTS||[]).slice().sort((a,b)=>{
     const ab=(a.brand||'').toLowerCase()===brand?0:1,bb=(b.brand||'').toLowerCase()===brand?0:1;
     return ab-bb||(a.name||'').localeCompare(b.name||'');});
-  openModal(`<div style="font-size:17px;font-weight:700;margin-bottom:4px">Choose reference product</div>
-    <div class="muted" style="font-size:13.5px;margin-bottom:12px">Pick the authentic catalog item this case is compared against. Used in the side-by-side panels and the next analysis run.</div>
+  openModal(`<div class="row" style="justify-content:space-between;margin-bottom:4px">
+      <div style="font-size:17px;font-weight:700">Choose reference product</div>
+      <button class="btn sm" onclick="openAddRef()"><i class="ti ti-plus"></i>Add new</button></div>
+    <div class="muted" style="font-size:13.5px;margin-bottom:12px">Pick the authentic catalog item this case is compared against, or add one. Used in the side-by-side panels and the next analysis run.</div>
     <div class="search" style="margin-bottom:10px"><i class="ti ti-search"></i><input id="refSearch" placeholder="Search product or brand" oninput="renderRefList()"></div>
     <div id="refGrid" style="max-height:340px;overflow:auto"></div>`);
   renderRefList();
@@ -1052,6 +1058,61 @@ async function clearRef(){
     audit('REFERENCE.CLEARED',CUR.case_id);toast('Reference back to auto-match');renderTab();
   }catch(e){toast('Failed — '+e.message);}
 }
+let _apImgs=[];
+function openAddRef(){
+  _apImgs=[];
+  openModal(`<div style="font-size:17px;font-weight:700;margin-bottom:4px">Add reference product</div>
+    <div class="muted" style="font-size:13px;margin-bottom:12px">Adds an authentic item to the catalog and sets it as this case's reference.</div>
+    <div class="lab">Product name *</div><input class="txt" id="ap_name" style="margin:5px 0 10px" value="${esc(CUR.brand||'')}">
+    <div class="row" style="gap:10px">
+      <div style="flex:1"><div class="lab">Brand</div><select id="ap_brand" style="margin-top:5px"><option value="">—</option>${BRANDS.map(b=>`<option ${b===CUR.brand?'selected':''}>${b}</option>`).join('')}</select></div>
+      <div style="flex:1"><div class="lab">Style number</div><input class="txt" id="ap_style" style="margin-top:5px"></div>
+    </div>
+    <div class="row" style="gap:10px;margin-top:10px">
+      <div style="flex:1"><div class="lab">Colorway</div><input class="txt" id="ap_colorway" style="margin-top:5px"></div>
+      <div style="flex:1"><div class="lab">Season</div><input class="txt" id="ap_season" style="margin-top:5px"></div>
+    </div>
+    <div class="row" style="gap:10px;margin-top:10px">
+      <div style="flex:1"><div class="lab">MSRP</div><input class="txt" id="ap_msrp" placeholder="e.g. 320" style="margin-top:5px"></div>
+      <div style="flex:1"><div class="lab">Pocket config</div><input class="txt" id="ap_pocket" style="margin-top:5px"></div>
+    </div>
+    <div class="lab" style="margin-top:10px">Reference images * (JPEG / PNG)</div>
+    <div class="drop" id="ap_drop" style="margin-top:6px;padding:16px"><i class="ti ti-photo-up" style="font-size:24px;color:var(--acc)"></i><div style="margin-top:4px;font-size:13px">Drop or <span style="color:var(--acc)">browse</span></div></div>
+    <input type="file" id="ap_file" accept="image/jpeg,image/png" multiple class="hidden">
+    <div class="thumbgrid" id="ap_thumbs" style="margin-top:8px"></div>
+    <div class="row" style="justify-content:space-between;margin-top:14px">
+      <button class="btn ghost sm" onclick="openRefPicker()"><i class="ti ti-arrow-left"></i>Back</button>
+      <button class="btn sm" id="ap_save" onclick="saveNewRef()"><i class="ti ti-plus"></i>Add &amp; set</button>
+    </div>`);
+  const drop=$('#ap_drop'),file=$('#ap_file');
+  drop.onclick=()=>file.click();
+  file.onchange=()=>{addRefFiles(file.files);file.value='';};
+  ['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over');}));
+  ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over');}));
+  drop.addEventListener('drop',ev=>addRefFiles(ev.dataTransfer.files));
+}
+function addRefFiles(files){
+  [...files].forEach(f=>{
+    if(!/^image\/(jpeg|png)$/.test(f.type)){toast('Only JPEG or PNG');return;}
+    if(f.size>25*1024*1024){toast(f.name+' exceeds 25MB');return;}
+    const rd=new FileReader();rd.onload=()=>{_apImgs.push({b64:String(rd.result).split(',')[1],url:rd.result});renderApThumbs();};rd.readAsDataURL(f);});
+}
+function renderApThumbs(){const g=$('#ap_thumbs');if(!g)return;
+  g.innerHTML=_apImgs.map((im,i)=>`<div class="thumb"><img src="${im.url}" alt=""><button class="rm" onclick="_apImgs.splice(${i},1);renderApThumbs()" aria-label="Remove">✕</button></div>`).join('');}
+async function saveNewRef(){
+  const name=(($('#ap_name')||{}).value||'').trim();
+  if(!name){toast('Product name is required');return;}
+  if(!_apImgs.length){toast('Add at least one image');return;}
+  const btn=$('#ap_save');if(btn)btn.disabled=true;
+  try{
+    const rec=await jsend('/api/products','POST',{name,brand:$('#ap_brand').value,
+      style:$('#ap_style').value,colorway:$('#ap_colorway').value,season:$('#ap_season').value,
+      msrp:$('#ap_msrp').value,pocket_config:$('#ap_pocket').value,images:_apImgs.map(x=>x.b64)});
+    _apImgs=[];PRODUCTS=null;await loadProducts();
+    audit('REFERENCE.ADDED',rec.id+' · '+name);
+    await pickRef(rec.id);
+  }catch(e){toast('Could not add — '+e.message);if(btn)btn.disabled=false;}
+}
 
 /* ---- 4C Style ---- */
 let zoomZ=1,zoomX=0,zoomY=0,diffOn=false;
@@ -1059,13 +1120,16 @@ function tabStyle(){
   const seized=(CUR.images||[]).find(i=>!i.file.endsWith('.pdf'));
   const dam=CURDAM&&CURDAM.available?CURDAM:null;
   const authImg=dam&&dam.images.length?API+dam.images[0]:'';
-  const ex=CUR.extraction||{},p=CURPIM&&CURPIM.matched?CURPIM:{};
+  const ex=CUR.extraction||{};
+  const chosen=CUR.ref_product_id?productById(CUR.ref_product_id):null;
+  const p=chosen||(CURPIM&&CURPIM.matched?CURPIM:{});
+  const refMsrp=p.msrp?('$'+String(p.msrp).replace(/^\$/,'')):null;
   const rows=[
     ['Style Number',(ex.style_number||{}).value,p.style],
-    ['Colorway',null,p.colorway],
+    ['Colorway',(ex.colorway||{}).value,p.colorway],
     ['Season',null,p.season],
-    ['MSRP',null,p.msrp?'$'+p.msrp:null],
-    ['Pocket Config',null,null]];
+    ['MSRP',null,refMsrp],
+    ['Pocket Config',(ex.pocket_config||{}).value,p.pocket_config]];
   const match=(a,b)=>{if(!a||!b)return ['—','var(--dim)'];
     return String(a).toLowerCase()===String(b).toLowerCase()?['✓','var(--ok)']:['✕','var(--bad)'];};
   return `
