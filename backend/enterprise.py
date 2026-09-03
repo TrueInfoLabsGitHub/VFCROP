@@ -43,14 +43,26 @@ _STYLE_TO_UPC = {v["style"].lower(): u for u, v in _PIM_DETAILS.items()}
 
 
 def _catalog_product_for(name: str):
-    """Best-effort match of a PIM name to a catalog product (for DAM images)."""
+    """Best-effort match of a PIM name to a catalog product (for DAM images).
+
+    An empty or near-empty name matches NOTHING: `"" in pn` is true for every
+    product, which used to return the first catalog row as a bogus reference for
+    any case that had no PIM match. A real match needs a non-trivial name and a
+    shared word, not a bare substring."""
     try:
-        if not supa.available():
+        name_l = (name or "").strip().lower()
+        if len(name_l) < 4 or not supa.available():
             return None
-        name_l = (name or "").lower()
+        name_words = {w for w in re.split(r"\W+", name_l) if len(w) > 2}
         for p in supa.list_products():
-            pn = (p.get("name") or "").lower()
-            if pn and (pn in name_l or name_l in pn):
+            pn = (p.get("name") or "").strip().lower()
+            if not pn:
+                continue
+            if pn == name_l or pn in name_l or name_l in pn:
+                return p
+            pn_words = {w for w in re.split(r"\W+", pn) if len(w) > 2}
+            # at least two shared meaningful words → same product family
+            if len(name_words & pn_words) >= 2:
                 return p
     except Exception:
         pass
