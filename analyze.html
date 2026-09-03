@@ -1310,6 +1310,8 @@ async function runAnalysis(){
     try{await jsend('/api/export/save','POST',{data,engine:ENGINE,case_id:cid,brand:CUR.brand||'TNF',product:(CURPIM||{}).name||'',product_id:'',suspect_images:[],upc_image:null});}catch(e){}
     audit('RUN.COMPLETED',cid+' · '+(CURRUN.verdict||''));
     ov.classList.remove('open');toast('Analysis complete');
+    CURTAB='summary';                                    // land on the verdict, not UPC
+    history.replaceState(null,'','#/case/'+encodeURIComponent(cid)+'?tab=summary');
     renderCase();
   }catch(e){clearInterval(t);ov.classList.remove('open');
     audit('RUN.FAILED',cid+' · '+e.message);
