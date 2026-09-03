@@ -506,6 +506,18 @@ async function loadAll(){
   try{QUEUE=(await jget('/api/queue')).cases||[];}catch(e){QUEUE=[];}
   try{const d=await jget('/api/cases');(d.cases||[]).forEach(r=>{if(r.id&&!(r.id in RUNMAP))RUNMAP[r.id]={rid:r.rid,score:r.score,band:r.band,verdict:r.verdict,upc:r.upc,created_at:r.created_at};});}catch(e){}
 }
+let PRODUCTS=null;                       /* catalog products, for the reference picker */
+async function loadProducts(){
+  if(PRODUCTS)return PRODUCTS;
+  try{const d=await jget('/api/products');PRODUCTS=(d.products||[]).filter(p=>p&&p.id);}catch(e){PRODUCTS=[];}
+  return PRODUCTS;
+}
+function productById(id){return (PRODUCTS||[]).find(p=>p.id===id)||null;}
+function damFromProduct(p){
+  if(!p)return {available:false,images:[]};
+  return {available:true,product_id:p.id,name:p.name||'',
+    images:(p.images||[]).slice(0,6).map(fn=>'/api/products/'+encodeURIComponent(p.id)+'/img/'+encodeURIComponent(fn))};
+}
 fetch(API+'/api/health').then(r=>r.json()).then(h=>{
   LIVE=(h.mode||{}).openai==='live';ENGINE=(h.mode||{}).openai_label||'GPT-5.5';
   const p=$('#modepill');p.textContent=(LIVE?'Live · ':'Mock · ')+ENGINE;p.className='statuschip '+(LIVE?'st-ok':'st-warn');
@@ -865,7 +877,12 @@ async function openCase(cid,tab){
   const upcVal=((CUR.extraction||{}).upc||{}).value||(CURRUN&&(CURRUN.upc||{}).extracted)||'';
   const styleVal=((CUR.extraction||{}).style_number||{}).value||'';
   try{if(upcVal||styleVal)CURPIM=await jget('/api/pim?upc='+encodeURIComponent(upcVal)+'&style='+encodeURIComponent(styleVal));}catch(e){}
-  try{CURDAM=await jget('/api/dam?style='+encodeURIComponent(styleVal)+'&name='+encodeURIComponent((CURPIM||{}).name||''));}catch(e){}
+  await loadProducts();
+  if(CUR.ref_product_id){
+    CURDAM=damFromProduct(productById(CUR.ref_product_id))||{available:false,images:[]};
+  }else{
+    try{CURDAM=await jget('/api/dam?style='+encodeURIComponent(styleVal)+'&name='+encodeURIComponent((CURPIM||{}).name||''));}catch(e){}
+  }
   renderCase();
 }
 function scoreOfCase(){if(CURRUN&&CURRUN.score!=null)return CURRUN.score;return CUR.score;}
@@ -980,6 +997,62 @@ function tabUpc(){
   </div>`;
 }
 
+/* ---- reference product picker (analyst override of the auto-matched reference) ---- */
+function refBar(){
+  const chosen=CUR.ref_product_id?productById(CUR.ref_product_id):null;
+  let label,cls;
+  if(chosen||CUR.ref_product_id){label='Analyst set · '+esc(chosen?(chosen.name||''):(CUR.ref_product_name||'product'));cls='st-ok';}
+  else if(CURDAM&&CURDAM.available){label='Auto-matched · '+esc(CURDAM.name||'catalog product');cls='st-dim';}
+  else{label='No reference matched';cls='st-warn';}
+  return `<div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+    <span class="row" style="gap:8px"><span class="lab">Reference</span><span class="statuschip ${cls}">${label}</span></span>
+    <span class="row" style="gap:6px">
+      <button class="btn ghost sm" onclick="openRefPicker()"><i class="ti ti-photo-search"></i>Change reference</button>
+      ${CUR.ref_product_id?`<button class="btn ghost sm" onclick="clearRef()" title="Revert to the automatically matched reference"><i class="ti ti-rotate"></i>Auto</button>`:''}
+    </span></div>`;
+}
+async function openRefPicker(){
+  await loadProducts();
+  const brand=(CUR.brand||'').toLowerCase();
+  window._refList=(PRODUCTS||[]).slice().sort((a,b)=>{
+    const ab=(a.brand||'').toLowerCase()===brand?0:1,bb=(b.brand||'').toLowerCase()===brand?0:1;
+    return ab-bb||(a.name||'').localeCompare(b.name||'');});
+  openModal(`<div style="font-size:17px;font-weight:700;margin-bottom:4px">Choose reference product</div>
+    <div class="muted" style="font-size:13.5px;margin-bottom:12px">Pick the authentic catalog item this case is compared against. Used in the side-by-side panels and the next analysis run.</div>
+    <div class="search" style="margin-bottom:10px"><i class="ti ti-search"></i><input id="refSearch" placeholder="Search product or brand" oninput="renderRefList()"></div>
+    <div id="refGrid" style="max-height:340px;overflow:auto"></div>`);
+  renderRefList();
+  setTimeout(()=>{const s=$('#refSearch');if(s)s.focus();},50);
+}
+function renderRefList(){
+  const g=$('#refGrid');if(!g)return;
+  if(!PRODUCTS||!PRODUCTS.length){g.innerHTML='<div class="emptybox" style="padding:26px"><i class="ti ti-database-off"></i><div style="margin-top:8px">No catalog products available.</div></div>';return;}
+  const q=(($('#refSearch')||{}).value||'').toLowerCase();
+  const list=(window._refList||[]).filter(p=>!q||((p.name||'')+' '+(p.brand||'')).toLowerCase().includes(q));
+  if(!list.length){g.innerHTML='<div class="emptybox" style="padding:26px">No products match.</div>';return;}
+  g.innerHTML=list.map(p=>{
+    const img=(p.images||[])[0]?API+'/api/products/'+encodeURIComponent(p.id)+'/img/'+encodeURIComponent(p.images[0]):'';
+    const on=CUR.ref_product_id===p.id;
+    return `<div class="row" style="gap:12px;padding:8px;border:1px solid ${on?'rgba(var(--acc-rgb),.5)':'var(--bordl)'};border-radius:10px;margin-bottom:8px;cursor:pointer;background:${on?'rgba(var(--acc-rgb),.08)':'var(--inp)'}" onclick="pickRef('${esc(p.id)}')">
+      ${img?`<img src="${img}" alt="" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--bord)">`:`<div style="width:52px;height:52px;border-radius:8px;background:var(--trough);display:flex;align-items:center;justify-content:center"><i class="ti ti-photo" style="color:var(--dim)"></i></div>`}
+      <div style="min-width:0;flex:1"><div style="font-weight:600;font-size:14.5px">${esc(p.name||'Unnamed')}</div><div class="mono" style="font-size:11px;color:var(--dim);letter-spacing:.04em">${esc(p.brand||'')}</div></div>
+      ${on?'<i class="ti ti-check" style="color:var(--acc);font-size:20px"></i>':''}</div>`;}).join('');
+}
+async function pickRef(pid){
+  const p=productById(pid);closeModal();
+  try{CUR=await jsend('/api/case/'+encodeURIComponent(CUR.case_id),'PATCH',{ref_product_id:pid,ref_product_name:(p||{}).name||''});
+    CURDAM=damFromProduct(p);
+    audit('REFERENCE.SET',CUR.case_id+' → '+((p||{}).name||pid));toast('Reference set — '+((p||{}).name||'product'));renderTab();
+  }catch(e){toast('Could not set reference — '+e.message);}
+}
+async function clearRef(){
+  try{CUR=await jsend('/api/case/'+encodeURIComponent(CUR.case_id),'PATCH',{ref_product_id:'',ref_product_name:''});
+    const styleVal=((CUR.extraction||{}).style_number||{}).value||'';
+    try{CURDAM=await jget('/api/dam?style='+encodeURIComponent(styleVal)+'&name='+encodeURIComponent((CURPIM||{}).name||''));}catch(e){CURDAM={available:false,images:[]};}
+    audit('REFERENCE.CLEARED',CUR.case_id);toast('Reference back to auto-match');renderTab();
+  }catch(e){toast('Failed — '+e.message);}
+}
+
 /* ---- 4C Style ---- */
 let zoomZ=1,zoomX=0,zoomY=0,diffOn=false;
 function tabStyle(){
@@ -996,6 +1069,7 @@ function tabStyle(){
   const match=(a,b)=>{if(!a||!b)return ['—','var(--dim)'];
     return String(a).toLowerCase()===String(b).toLowerCase()?['✓','var(--ok)']:['✕','var(--bad)'];};
   return `
+    ${refBar()}
     <div class="row" style="justify-content:flex-end;margin-bottom:10px;flex-wrap:wrap">
       <button class="btn ghost sm" onclick="toggleDiff()"><i class="ti ti-layers-difference"></i>${diffOn?'Hide differences':'Highlight differences'}</button>
       <button class="btn ghost sm" onclick="resetZoom()"><i class="ti ti-zoom-reset"></i>Reset zoom</button>
@@ -1048,6 +1122,7 @@ function tabConstruction(){
       <span style="background:${col}">${dk}${s!=null?' · '+s:''}</span></div>`;}).join('');
   const open=dimOpen&&dims[dimOpen]?dims[dimOpen]:null;
   return `
+    ${refBar()}
     <div class="row" style="justify-content:flex-end;margin-bottom:10px;flex-wrap:wrap">
       <button class="btn ghost sm" onclick="annoOn=!annoOn;renderTab()"><i class="ti ti-bounding-box"></i>${annoOn?'Hide':'Show'} annotations</button>
       <button class="btn ghost sm" onclick="refOn=!refOn;renderTab()"><i class="ti ti-columns-2"></i>${refOn?'Hide':'Show'} reference</button>
@@ -1222,7 +1297,9 @@ async function runAnalysis(){
       $('#runStatus').textContent=RSTAGES[step]+'…';$('#runBar').style.width=(8+step/RSTAGES.length*84)+'%';step++;}},2600);
   try{
     audit('RUN.STARTED',cid);
-    const req={case_id:cid,brand:CUR.brand||'TNF',reference_source:'product',product:(CURPIM||{}).name||'',product_id:(CURPIM||{}).catalog_product_id||'',suspect_images:[],upc_image:null,provider:'openai'};
+    const refId=CUR.ref_product_id||((CURPIM||{}).catalog_product_id||'');
+    const refName=CUR.ref_product_name||((CURPIM||{}).name||'');
+    const req={case_id:cid,brand:CUR.brand||'TNF',reference_source:refId?'product':'local',product:refName,product_id:refId,suspect_images:[],upc_image:null,provider:'openai'};
     const r=await fetch(API+'/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)});
     if(!r.ok){let d='HTTP '+r.status;try{d=(await r.json()).detail||d;}catch(e){}throw new Error(d);}
     const {job_id}=await r.json();

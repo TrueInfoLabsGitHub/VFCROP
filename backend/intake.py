@@ -96,6 +96,7 @@ def _blank(case_id: str) -> dict:
             "location": "", "origin_country": "", "notes_text": "", "submitter_id": "",
             "status": "New", "stage": 1, "assigned_to": "", "score": None, "verdict": "",
             "images": [], "extraction": {}, "overrides": {}, "notes": [],
+            "ref_product_id": "", "ref_product_name": "",
             "opened_at": _now(), "analyzed_at": "", "closed_at": ""}
 
 
@@ -172,7 +173,8 @@ def get(case_id: str) -> dict | None:
 
 
 _PATCHABLE = ("status", "stage", "assigned_to", "score", "verdict", "brand",
-              "priority", "location", "origin_country", "extraction")
+              "priority", "location", "origin_country", "extraction",
+              "ref_product_id", "ref_product_name")
 
 
 def patch(case_id: str, changes: dict) -> dict | None:

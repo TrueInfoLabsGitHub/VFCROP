@@ -290,6 +290,8 @@ class CasePatchReq(BaseModel):
     location: str | None = None
     origin_country: str | None = None
     extraction: dict | None = None
+    ref_product_id: str | None = None     # analyst-chosen reference (catalog product)
+    ref_product_name: str | None = None
     override: dict | None = None          # {tab, decision, notes, user}
 
 
