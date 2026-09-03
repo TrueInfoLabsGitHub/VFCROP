@@ -1293,14 +1293,29 @@ async function openOriginDeep(cid){
     </div>
     <div class="card pad" style="margin-top:14px">
       <div class="sect-lbl">Related cases</div>
-      <div class="tablecard">${rel.length?`<table class="q" style="min-width:0"><thead><tr>
-        <th>Case ID</th><th>Date</th><th>Brand</th><th>Score</th><th>Source</th><th>Outcome</th><th>Connection</th></tr></thead><tbody>`+
-        rel.map(r=>`<tr onclick="nav('#/case/${encodeURIComponent(r.case_id)}')"><td class="mono" style="color:var(--accl)">${esc(r.case_id)}</td><td class="mono" style="color:var(--mut2)">${fmtDate(r.opened_at)}</td><td>${esc(r.brand||'—')}</td><td class="mono" style="color:${scoreColor(qScoreOf(r))}">${qScoreOf(r)??'—'}</td><td style="color:var(--mut)">${esc(r.source_channel||'—')}</td><td><span class="statuschip ${STATUS_CLS[r.status]||'st-dim'}">${esc(r.status)}</span></td><td style="color:var(--mut)">${r._conn}</td></tr>`).join('')+'</tbody></table>'
-        :`<div class="emptybox" style="padding:24px">No cases share these origin attributes.</div>`}</div>
+      <div class="tablecard" id="relTable"></div>
     </div>`;
+  window._rel=rel;renderRelTable();
   drawNetwork(netNodes);
   hookTips($('#originBody'));
   $('#noteInput').addEventListener('input',()=>{clearTimeout(noteTimer);noteTimer=setTimeout(saveNote,1400);});
+}
+let relSort={key:'opened_at',dir:-1};
+function relSortBy(k){if(relSort.key===k)relSort.dir*=-1;else relSort={key:k,dir:1};renderRelTable();}
+function renderRelTable(){
+  const rel=(window._rel||[]).slice();
+  const el=$('#relTable');if(!el)return;
+  if(!rel.length){el.innerHTML=`<div class="emptybox" style="padding:24px">No cases share these origin attributes.</div>`;return;}
+  const k=relSort.key;
+  rel.sort((a,b)=>{let va=k==='score'?qScoreOf(a):a[k],vb=k==='score'?qScoreOf(b):b[k];
+    va=va==null?'':va;vb=vb==null?'':vb;return (va<vb?-1:va>vb?1:0)*relSort.dir;});
+  const si=key=>relSort.key===key?`<span class="si">${relSort.dir===1?'▲':'▼'}</span>`:'';
+  el.innerHTML=`<table class="q" style="min-width:0"><thead><tr>
+    <th onclick="relSortBy('case_id')">Case ID${si('case_id')}</th><th onclick="relSortBy('opened_at')">Date${si('opened_at')}</th>
+    <th onclick="relSortBy('brand')">Brand${si('brand')}</th><th onclick="relSortBy('score')">Score${si('score')}</th>
+    <th onclick="relSortBy('source_channel')">Source${si('source_channel')}</th><th onclick="relSortBy('status')">Outcome${si('status')}</th>
+    <th onclick="relSortBy('_conn')">Connection${si('_conn')}</th></tr></thead><tbody>`+
+    rel.map(r=>`<tr onclick="nav('#/case/${encodeURIComponent(r.case_id)}')"><td class="mono" style="color:var(--accl)">${esc(r.case_id)}</td><td class="mono" style="color:var(--mut2)">${fmtDate(r.opened_at)}</td><td>${esc(r.brand||'—')}</td><td class="mono" style="color:${scoreColor(qScoreOf(r))}">${qScoreOf(r)??'—'}</td><td style="color:var(--mut)">${esc(r.source_channel||'—')}</td><td><span class="statuschip ${STATUS_CLS[r.status]||'st-dim'}">${esc(r.status)}</span></td><td style="color:var(--mut)">${r._conn}</td></tr>`).join('')+'</tbody></table>';
 }
 async function saveNote(){
   const inp=$('#noteInput');const text=(inp.value||'').trim();
