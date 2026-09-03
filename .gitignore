@@ -43,3 +43,7 @@ analyze.legacy.html
 data/intake_cases.jsonl
 data/audit_log.jsonl
 data/preflight_rejections.jsonl
+
+data/cases/
+data/intake.jsonl
+data/audit.jsonl

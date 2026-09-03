@@ -18,7 +18,7 @@ def _tmp_stores(tmp_path, monkeypatch):
 def test_intake_create_and_list():
     intake.create("VF-2026-0501", brand="TNF", note="marketplace flag")
     rows = intake.list_cases()
-    assert len(rows) == 1 and rows[0]["status"] == "queued"
+    assert len(rows) == 1 and rows[0]["status"] == "New"
 
 
 def test_intake_is_idempotent():
@@ -28,15 +28,15 @@ def test_intake_is_idempotent():
     assert len(intake.list_cases()) == 1
 
 
-def test_intake_requires_case_id():
-    with pytest.raises(ValueError):
-        intake.create("   ")
+def test_blank_case_id_generates_one():
+    rec = intake.create("   ")
+    assert rec["case_id"].startswith("VF-") and rec["case_id"][-4:].isdigit()
 
 
 def test_mark_analyzed_moves_status():
     intake.create("VF-2026-0501")
     intake.mark_analyzed("VF-2026-0501")
-    assert intake.list_cases()[0]["status"] == "analyzed"
+    assert intake.list_cases()[0]["status"] == "In Review"
     assert intake.list_cases("queued") == []
 
 

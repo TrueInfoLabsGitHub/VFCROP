@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 import audit as audit_log
 import case_queue
+import enterprise
 import exporter
 import intake
 import preflight
@@ -248,6 +249,134 @@ def intake_list(status: str = ""):
     return {"cases": intake.list_cases(status)}
 
 
+class CaseCreateReq(BaseModel):
+    case_id: str = ""                     # blank -> generated VF-<year>-<seq>
+    brand: str = ""
+    source_channel: str = ""
+    priority: str = "Standard"
+    location: str = ""
+    origin_country: str = ""
+    notes_text: str = ""
+    submitter_id: str = ""
+    extraction: dict = {}
+    images: list[dict] = []               # [{name, b64}]
+
+
+@app.post("/api/case")
+def case_create(req: CaseCreateReq):
+    """Full intake (E3-09): metadata + images stored with SHA-256 hashes."""
+    try:
+        return intake.create_full(req.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/case/{cid}")
+def case_get(cid: str):
+    rec = intake.get(cid)
+    if not rec:
+        raise HTTPException(404, "case not found")
+    return rec
+
+
+class CasePatchReq(BaseModel):
+    status: str | None = None
+    stage: int | None = None
+    assigned_to: str | None = None
+    score: int | None = None
+    verdict: str | None = None
+    brand: str | None = None
+    priority: str | None = None
+    location: str | None = None
+    origin_country: str | None = None
+    extraction: dict | None = None
+    override: dict | None = None          # {tab, decision, notes, user}
+
+
+@app.patch("/api/case/{cid}")
+def case_patch(cid: str, req: CasePatchReq):
+    try:
+        rec = intake.patch(cid, {k: v for k, v in req.model_dump().items() if v is not None})
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not rec:
+        raise HTTPException(404, "case not found")
+    return rec
+
+
+class NoteReq(BaseModel):
+    author: str = ""
+    text: str
+
+
+@app.post("/api/case/{cid}/notes")
+def case_note(cid: str, req: NoteReq):
+    try:
+        note = intake.add_note(cid, req.author, req.text)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not note:
+        raise HTTPException(404, "case not found")
+    return note
+
+
+@app.get("/api/queue")
+def case_queue_list():
+    """The Case Queue (Epic 2): every case record, newest first."""
+    return {"cases": intake.list_cases()}
+
+
+@app.get("/api/case-image/{cid}/{fn}")
+def case_image(cid: str, fn: str):
+    p = intake.image_path(cid, fn)
+    if not p:
+        raise HTTPException(404, "image not found")
+    media = "application/pdf" if p.endswith(".pdf") else \
+            "image/png" if p.endswith(".png") else "image/jpeg"
+    return FileResponse(p, media_type=media)
+
+
+class ExtractReq(BaseModel):
+    images: list[str] = []                # base64, no data: header
+
+
+@app.post("/api/extract")
+def extract_metadata(req: ExtractReq):
+    """Intake AI extraction (E3-06/07): brand, UPC, style, origin, text, boxes."""
+    try:
+        return enterprise.extract(req.images)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"extraction failed: {str(e)[:160]}")
+
+
+@app.get("/api/pim")
+def pim(upc: str = "", style: str = ""):
+    """PIM lookup by UPC or style number (E8-01/02)."""
+    if not upc and not style:
+        raise HTTPException(400, "pass upc= or style=")
+    return enterprise.pim_lookup(upc, style)
+
+
+@app.get("/api/dam")
+def dam(style: str = "", name: str = ""):
+    """Authentic reference imagery by style (E8-03)."""
+    return enterprise.dam_images(style, name)
+
+
+@app.get("/api/suppliers")
+def suppliers(factory: str = "", country: str = "", name: str = ""):
+    """Authorized Supplier Registry cross-reference (E4-23, E8-08)."""
+    return enterprise.suppliers_query(factory, country, name)
+
+
+@app.get("/api/tms")
+def tms(origin: str = "", dest: str = ""):
+    """TMS shipping-lane cross-reference (E5-06, E8-09)."""
+    return enterprise.tms_lanes(origin, dest)
+
+
 class AuditReq(BaseModel):
     action: str
     detail: str = ""
@@ -268,6 +397,47 @@ def audit_recent(limit: int = 50):
     return {"entries": audit_log.recent(limit)}
 
 
+def _hydrate_from_case(req: AnalyzeReq) -> None:
+    """A run started from the case screen sends no photos — the images already
+    live in the case store from intake. Load them off disk, downscale to ~1024px
+    for the engine, and pick the barcode shot (extraction.upc.image_index) as
+    the UPC image."""
+    if req.suspect_images or req.suspect_image:
+        return
+    rec = intake.get(req.case_id)
+    if not rec:
+        return
+    import base64
+    import io
+    from PIL import Image as _PILImage
+    upc_idx = ((rec.get("extraction") or {}).get("upc") or {}).get("image_index")
+    b64s: list[str] = []
+    upc_b64 = None
+    for i, im in enumerate(rec.get("images") or []):
+        fn = im.get("file") or ""
+        if fn.lower().endswith(".pdf"):
+            continue
+        path = intake.image_path(req.case_id, fn)
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            with _PILImage.open(path) as pic:
+                pic = pic.convert("RGB")
+                pic.thumbnail((1024, 1024))
+                buf = io.BytesIO()
+                pic.save(buf, "JPEG", quality=88)
+            b64 = base64.b64encode(buf.getvalue()).decode()
+        except Exception:
+            continue
+        if upc_idx is not None and i == upc_idx:
+            upc_b64 = b64
+        b64s.append(b64)
+    if b64s:
+        req.suspect_images = b64s
+        if not req.upc_image:
+            req.upc_image = upc_b64 or b64s[0]
+
+
 def _preflight_or_422(req: AnalyzeReq):
     """Defence in depth: the same gate inside /api/analyze, for clients that
     skip the preflight endpoint. Raises 422 with a readable reason."""
@@ -286,6 +456,7 @@ def _preflight_or_422(req: AnalyzeReq):
 @app.post("/api/analyze")
 def analyze(req: AnalyzeReq):
     provider = req.provider if req.provider in _PROVIDERS else "openai"
+    _hydrate_from_case(req)
     _preflight_or_422(req)
 
     if USE_QUEUE:

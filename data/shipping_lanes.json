@@ -1,0 +1,10 @@
+[
+  {"origin": "Vietnam", "origin_port": "Cat Lai, Ho Chi Minh City", "destination": "United States", "dest_port": "Long Beach, CA", "mode": "ocean", "carrier_class": "contracted"},
+  {"origin": "Vietnam", "origin_port": "Haiphong", "destination": "United States", "dest_port": "Savannah, GA", "mode": "ocean", "carrier_class": "contracted"},
+  {"origin": "China", "origin_port": "Yantian, Shenzhen", "destination": "United States", "dest_port": "Los Angeles, CA", "mode": "ocean", "carrier_class": "contracted"},
+  {"origin": "China", "origin_port": "Fuzhou", "destination": "Netherlands", "dest_port": "Rotterdam", "mode": "ocean", "carrier_class": "contracted"},
+  {"origin": "Indonesia", "origin_port": "Tanjung Priok, Jakarta", "destination": "United States", "dest_port": "Seattle, WA", "mode": "ocean", "carrier_class": "contracted"},
+  {"origin": "Bangladesh", "origin_port": "Chattogram", "destination": "Belgium", "dest_port": "Antwerp", "mode": "ocean", "carrier_class": "contracted"},
+  {"origin": "Dominican Republic", "origin_port": "Caucedo", "destination": "United States", "dest_port": "Miami, FL", "mode": "ocean", "carrier_class": "contracted"},
+  {"origin": "Mexico", "origin_port": "Manzanillo", "destination": "United States", "dest_port": "Long Beach, CA", "mode": "ocean", "carrier_class": "contracted"}
+]

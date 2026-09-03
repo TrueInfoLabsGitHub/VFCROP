@@ -1,0 +1,10 @@
+[
+  {"factory_code": "VN-HCM-014", "name": "Saigon Apparel Partners", "city": "Ho Chi Minh City", "country": "Vietnam", "lat": 10.82, "lon": 106.63, "brands": ["TNF", "Vans"], "authorized_since": "2016", "ghost_shift_flag": false},
+  {"factory_code": "VN-HAN-031", "name": "Red River Garment JSC", "city": "Hanoi", "country": "Vietnam", "lat": 21.03, "lon": 105.85, "brands": ["TNF"], "authorized_since": "2019", "ghost_shift_flag": false},
+  {"factory_code": "CN-DGG-207", "name": "Dongguan Summit Outdoor", "city": "Dongguan", "country": "China", "lat": 23.02, "lon": 113.75, "brands": ["TNF", "Timberland"], "authorized_since": "2014", "ghost_shift_flag": true},
+  {"factory_code": "CN-FUZ-118", "name": "Fuzhou Coastal Footwear", "city": "Fuzhou", "country": "China", "lat": 26.07, "lon": 119.3, "brands": ["Vans", "Timberland"], "authorized_since": "2017", "ghost_shift_flag": false},
+  {"factory_code": "ID-JKT-052", "name": "Jakarta Peak Manufacturing", "city": "Jakarta", "country": "Indonesia", "lat": -6.21, "lon": 106.85, "brands": ["TNF"], "authorized_since": "2020", "ghost_shift_flag": false},
+  {"factory_code": "BD-DHA-090", "name": "Dhaka Northline Textiles", "city": "Dhaka", "country": "Bangladesh", "lat": 23.81, "lon": 90.41, "brands": ["TNF", "Vans"], "authorized_since": "2018", "ghost_shift_flag": false},
+  {"factory_code": "DO-STI-011", "name": "Santiago Calzado Industrial", "city": "Santiago", "country": "Dominican Republic", "lat": 19.45, "lon": -70.7, "brands": ["Timberland"], "authorized_since": "2012", "ghost_shift_flag": false},
+  {"factory_code": "MX-LEO-023", "name": "Leon Handwear SA", "city": "Leon", "country": "Mexico", "lat": 21.12, "lon": -101.68, "brands": ["Vans"], "authorized_since": "2021", "ghost_shift_flag": false}
+]
