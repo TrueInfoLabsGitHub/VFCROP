@@ -376,6 +376,13 @@
   .ly.on{background:rgba(var(--acc-rgb),.15);color:var(--accl);font-weight:600}
   .dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px}
 
+  /* ---- results: verdict strip + collapsed run details ---- */
+  .vstrip{display:flex;gap:22px;align-items:center;flex-wrap:wrap;padding:18px 22px;margin-bottom:14px}
+  .runmeta{margin-bottom:14px}
+  .runmeta summary{cursor:pointer;padding:14px 18px;font-size:12px;letter-spacing:.08em;color:var(--dim);list-style:none;user-select:none}
+  .runmeta summary::-webkit-details-marker{display:none}
+  .runmeta summary::before{content:'▸ ';color:var(--acc)}
+  .runmeta[open] summary::before{content:'▾ ';color:var(--acc)}
   /* ---- forensic exam scene (results hero) ---- */
   .examwrap{display:flex;margin-bottom:16px;overflow:hidden}
   .examstage{position:relative;flex:1.6;min-width:0;min-height:470px;overflow:hidden}
@@ -869,15 +876,37 @@ function garmentSvg(w,h,stroke,style,extra){
 /* ---------- results: forensic exam scene ---------- */
 function shortHash(s){ let h=2166136261; for(const ch of String(s||'case')){ h=(h^ch.charCodeAt(0))*16777619>>>0; }
   const x=h.toString(16).toUpperCase().padStart(8,'0'); return x.slice(0,4)+'…'+x.slice(4,8); }
-function sevOf(b){ return (b==='counterfeit'||b==='hard_fail'||b==='likely_counterfeit')?['HIGH','var(--bad)','hs-bad']
-  : (b==='caution')?['MED','var(--warn)','hs-warn'] : ['PASS','var(--accl)','hs-ok']; }
+/* One severity vocabulary for the whole results page, derived from SCORE +
+   STATE — never from the raw band field, which is what put a red HIGH tag on
+   a "consistent with reference (26/100)" finding. */
+function dimStateOf(d, dd){
+  if(dd.state) return dd.state;
+  const states=(((d||{}).composite)||{}).dimension_states||[];
+  const rec=states.find(s=>(s.name||s.dimension)===dd.dimension);
+  if(rec&&rec.state) return rec.state;
+  if(dd.score==null) return 'none';
+  return /\bPARTIAL\b/i.test(dd.finding||'')?'partial':'measured';
+}
+function dimView(d, dd){
+  const st=dimStateOf(d,dd);
+  if(dd.score==null) return {txt:'—', chip:['NOT ASSESSED','st-dim'], high:false, col:'var(--dim)'};
+  const s=dd.score;
+  if(st==='partial'){
+    return {txt:s+'~', chip:['PARTIAL','st-dim'], high:s>=55, col:s>=31?'var(--warn)':'var(--mut)'};
+  }
+  if(s>=31) return {txt:''+s, chip:['DEVIATION','st-bad'], high:true, col:'var(--bad)'};
+  if(s>=26) return {txt:''+s, chip:['REVIEW','st-warn'], high:false, col:'var(--warn)'};
+  return {txt:''+s, chip:['MATCH','st-ok'], high:false, col:'var(--acc)'};
+}
+/* The forensic exam stage — rendered ONLY for adverse verdicts, and hotspots
+   only for dimensions that genuinely convicted (measured >=31, partial >=55).
+   No fake REF/SUSPECT swatches. */
 function examScene(d){
-  const c=d.composite||{}, v=d.verdict||{}, dims=(d.dimensions||[]).filter(x=>x.score!=null);
-  const top=[...dims].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,3);
-  const susBad=['counterfeit','hard_fail','likely_counterfeit'].includes(c.band);
-  const susCol=susBad?'var(--bad)':(c.band==='caution'?'var(--warn)':'var(--acc)');
-  const scoreCol=bandColor(c.band);
-  const heat=[{l:'26%',t:'8%',s:46,o:.85},{l:'44%',t:'42%',s:54,o:.7},{l:'26%',t:'64%',s:42,o:.75}];
+  const c=d.composite||{}, dims=(d.dimensions||[]);
+  const flagged=dims.map(dd=>({dd,vw:dimView(d,dd)})).filter(x=>x.vw.high)
+    .sort((a,b)=>(b.dd.score||0)-(a.dd.score||0)).slice(0,3);
+  const susCol='var(--bad)';
+  const heat=[{l:'26%',t:'8%',s:46},{l:'44%',t:'42%',s:54},{l:'26%',t:'64%',s:42}];
   const spots=[{l:'28%',t:'11%'},{l:'47%',t:'46%'},{l:'28%',t:'67%'}];
   const cpos=[{x:30,y:84,dl:'0s'},{x:588,y:172,dl:'1.2s'},{x:22,y:300,dl:'.6s'}];
   const leads=[
@@ -885,26 +914,16 @@ function examScene(d){
     {p:'M584 218 L470 218 L410 204',cx:584,cy:218},
     {p:'M246 348 L312 348 L358 262',cx:246,cy:348}];
   let blobs='',hspots='',callouts='',lines='';
-  top.forEach((dd,i)=>{
-    const [sev,col,cls]=sevOf(dd.band);
-    const bad=cls==='hs-bad';
-    blobs+=`<div class="heat" style="left:${heat[i].l};top:${heat[i].t};width:${heat[i].s}px;height:${heat[i].s}px;background:radial-gradient(circle,color-mix(in srgb,${col} ${Math.round(heat[i].o*100)}%,transparent),transparent 70%);animation-delay:${i*.9}s"></div>`;
-    hspots+=`<span class="hotspot ${cls}" style="left:${spots[i].l};top:${spots[i].t}">${i+1}</span>`;
+  flagged.forEach((x,i)=>{
+    const dd=x.dd, col='var(--bad)';
+    blobs+=`<div class="heat" style="left:${heat[i].l};top:${heat[i].t};width:${heat[i].s}px;height:${heat[i].s}px;background:radial-gradient(circle,color-mix(in srgb,${col} 75%,transparent),transparent 70%);animation-delay:${i*.9}s"></div>`;
+    hspots+=`<span class="hotspot hs-bad" style="left:${spots[i].l};top:${spots[i].t}">${i+1}</span>`;
     lines+=`<path d="${leads[i].p}" stroke="color-mix(in srgb,${col} 60%,transparent)"></path><circle cx="${leads[i].cx}" cy="${leads[i].cy}" r="2.5" fill="${col}" stroke="none"></circle>`;
-    const fin=(dd.finding||dd.reasoning||'—').slice(0,90);
     callouts+=`<div class="callout" style="left:${cpos[i].x}px;top:${cpos[i].y}px;animation-delay:${cpos[i].dl}">
-      <span class="sevtag" style="color:${col};border:1px solid color-mix(in srgb,${col} 45%,transparent)">0${i+1} · ${sev}</span>
-      <b>${dd.dimension}</b><small>${fin}</small>
-      <div class="swpair">
-        <div class="sw" style="background:repeating-linear-gradient(90deg,rgba(var(--acc-rgb),.5) 0 2px,transparent 2px 4px)"><i>REF</i></div>
-        <div class="sw" style="background:repeating-linear-gradient(90deg,color-mix(in srgb,${col} 55%,transparent) 0 2px,transparent 2px ${bad?9:6}px)"><i>SUSPECT</i></div>
-      </div></div>`;
+      <span class="sevtag" style="color:${col};border:1px solid color-mix(in srgb,${col} 45%,transparent)">0${i+1} · ${dd.score}/100</span>
+      <b>${dd.dimension}</b><small>${dd.finding||dd.reasoning||''}</small></div>`;
   });
-  const findings=[...dims].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,4).map((dd,i)=>{
-    const [sev,col]=sevOf(dd.band);
-    return `<div class="finding"><span class="sev" style="color:${col};border:1px solid color-mix(in srgb,${col} 45%,transparent)">${i+1} · ${sev}</span><span>${(dd.finding||dd.reasoning||dd.dimension).slice(0,110)}</span></div>`; }).join('');
-  const conf=(d.report&&d.report.evals&&d.report.evals.confidence!=null)?Math.round(d.report.evals.confidence*100)+'%':'—';
-  const anomalies=dims.filter(x=>x.band==='counterfeit').length;
+  const n=flagged.length;
   return `<div class="card examwrap">
     <div class="examstage">
       <div class="custody" style="position:absolute;left:24px;top:24px;z-index:3"><i class="ti ti-lock"></i>CHAIN OF CUSTODY · SHA-256 ${shortHash(d.case_id||caseId)} · EVIDENCE LOCKED</div>
@@ -923,37 +942,8 @@ function examScene(d){
           <span style="width:7px;height:7px;border-radius:50%;background:var(--acc)"></span>
           <span class="mono" style="font-size:12.5px;letter-spacing:.1em;color:var(--mut2)">GHOST OVERLAY · REFERENCE ${refLabel().toUpperCase().slice(0,20)}</span>
         </div>
-        <span class="mono" style="position:absolute;left:280px;top:368px;width:260px;text-align:center;font-size:14px;letter-spacing:.12em;color:${susCol}">${c.band==='mismatch'?'REFERENCE MISMATCH — NOT COMPARED':c.score==null?'SUSPECT · NOT ASSESSED':`SUSPECT · ${anomalies} ANOMAL${anomalies===1?'Y':'IES'} FLAGGED`}</span>
+        <span class="mono" style="position:absolute;left:280px;top:368px;width:260px;text-align:center;font-size:14px;letter-spacing:.12em;color:${susCol}">SUSPECT · ${n} ANOMAL${n===1?'Y':'IES'} FLAGGED</span>
       </div>
-    </div>
-    <div class="exampanel">
-      <span style="font-size:19px;font-weight:700">Verdict</span>
-      <div style="display:flex;align-items:center;gap:18px">
-        <div style="position:relative;width:118px;height:118px;flex:none">
-          <svg width="118" height="118" viewBox="0 0 118 118" fill="none">
-            <circle cx="59" cy="59" r="50" stroke="var(--ringtrack)" stroke-width="9"></circle>
-            <circle id="examArc" cx="59" cy="59" r="50" stroke="${scoreCol}" stroke-width="9" stroke-linecap="round" stroke-dasharray="0 314" transform="rotate(-90 59 59)" style="transition:stroke-dasharray 1.2s ease"></circle>
-          </svg>
-          <div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center">
-            <span style="font-size:31px;font-weight:700;color:${scoreCol}" id="examNum">0</span>
-            <span class="mono" style="font-size:11.5px;color:var(--dim);text-align:center">${(()=>{const ds=displayScore(d);return ds.score==null?'NOT COMPARABLE':(ds.src?ds.src.toUpperCase()+' · DRIVER':'/ 100 DEVIATION');})()}</span>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px;min-width:0">
-          <span class="badge ${badgeClass(c.band)}" style="font-size:14px;padding:7px 13px">${(v.label||verdictLabel(c.band)).toUpperCase()}</span>
-          <span class="mono" style="font-size:13px;color:var(--mut2)">CONFIDENCE ${conf}</span>
-          <span class="mono" style="font-size:13px;color:var(--dim)">${(d.engine||engineName(activeEngine)).toUpperCase()} · VISION FORENSICS</span>
-        </div>
-      </div>
-      <div style="height:1px;background:var(--bordl)"></div>
-      <span class="lab">Findings</span>
-      ${findings||'<span class="muted" style="font-size:16px">No assessed dimensions.</span>'}
-      <div style="flex:1"></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn ghost sm" style="flex:1;justify-content:center;border-color:rgba(var(--acc-rgb),.45);color:var(--accl)" onclick="confirmVerdict()">Confirm verdict</button>
-        <button class="btn ghost sm" style="flex:1;justify-content:center" onclick="escalateCase()">Escalate to legal</button>
-      </div>
-      <button class="btn block" onclick="exportDisplayedReport()"><i class="ti ti-download"></i>Export findings report</button>
     </div>
   </div>`;
 }
@@ -1030,7 +1020,7 @@ let caseId='', brand='TNF';
 // name rather than being silently displayed as GPT-5.5.
 const ENGINE_LABEL={openai:'GPT-5.5'};
 const vinfo=b=>({authentic:{c:'b-green',l:'Match'},likely_authentic:{c:'b-green',l:'Close match'},caution:{c:'b-amber',l:'Review'},likely_counterfeit:{c:'b-amber',l:'Suspect'},counterfeit:{c:'b-red',l:'Deviation'},insufficient:{c:'b-gray',l:'No evidence'},mismatch:{c:'b-gray',l:'Not comparable'},hard_fail:{c:'b-red',l:'Hard fail'},error:{c:'b-gray',l:'Failed'}}[b]||{c:'b-gray',l:'N/A'});
-let findingLayout='dossier', lastSingleData=null;
+let lastSingleData=null;
 const engineName=p=>ENGINE_LABEL[p]||p;
 // DIMENSION bands: deviation, low = matches. The composite band comes from the
 // backend on the authenticity scale and uses the likely_* names below.
@@ -1050,11 +1040,6 @@ const badgeClass=b=>({authentic:'b-green',likely_authentic:'b-green',caution:'b-
 // because the two are one statement — a 72 over 30% of the item is not the
 // same claim as a 72 over 90% of it.
 const covPct=c=>{const v=(c||{}).coverage_pct??(c||{}).coverage; return typeof v==='number'?Math.round(v*100)+'%':'—';};
-// An Insufficient Evidence verdict is only useful if it says what would fix it.
-function recaptureCard(c){ const r=(c&&c.recapture)||[]; if(!r.length) return '';
-  return `<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)">
-    <div style="font-weight:600;margin-bottom:6px">Recapture these shots to resolve the verdict</div>
-    <ul class="keyev" style="margin:0">${r.map(x=>`<li>${x}</li>`).join('')}</ul></div>`; }
 function caseName(){ return curCase().id || 'Analysis'; }   // the case/run identifier (unique per run)
 function refLabel(){ const p=(products||[]).find(x=>x.id===productId); return (refSource==='product'&&p&&p.name)?p.name:'The North Face'; }
 
@@ -1305,41 +1290,6 @@ $('#run').onclick=async()=>{
 function backToInput(){ $('#v-result').classList.add('hidden'); $('#v-proc').classList.add('hidden'); $('#v-input').classList.remove('hidden'); }
 
 /* ---------- render: single engine ---------- */
-function dimRows(dims){
-  return dims.map((d,i)=>{ const col=bandColor(d.band); const conf=Math.round((d.confidence??0)*100);
-    return `<div class="drow" id="dcard-${i}">
-      <button type="button" class="drow-head" onclick="toggleDim(${i})">
-        <span class="ddot" style="background:${col}"></span>
-        <span style="min-width:0"><span style="font-size:18.5px;font-weight:500;display:block">${d.dimension}</span><span class="muted" style="font-size:17px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.finding||''}</span></span>
-        <span class="dbar"><i style="width:${d.score==null?0:d.score}%;background:${col}"></i></span>
-        <span class="mono" style="text-align:right;font-weight:600;color:${col}">${d.score==null?'—':d.score}</span>
-        <span class="dchev"><i class="ti ti-chevron-down"></i></span>
-      </button>
-      <div class="drsn hidden" id="drsn-${i}">${d.reasoning||'—'}
-        <div class="cmeter"><span class="cl">confidence</span><span class="ct"><i style="width:${conf}%"></i></span><span class="cv">${conf}%</span></div></div>
-    </div>`; }).join('');
-}
-function toggleDim(i){ const row=$('#dcard-'+i),box=$('#drsn-'+i); if(!row||!box) return; const open=box.classList.toggle('hidden')===false; row.classList.toggle('open',open); }
-function focusDim(i){ const row=$('#dcard-'+i); if(!row) return; const box=$('#drsn-'+i); if(box&&box.classList.contains('hidden')) toggleDim(i); row.scrollIntoView({behavior:'smooth',block:'center'}); row.classList.add('flash'); setTimeout(()=>row.classList.remove('flash'),1100); }
-
-function radar(dims){
-  const N=dims.length; if(!N) return '';
-  const cx=130,cy=118,R=84; const ang=i=>-Math.PI/2 + i*2*Math.PI/N; const pt=(i,r)=>[cx+r*Math.cos(ang(i)),cy+r*Math.sin(ang(i))];
-  let rings=''; [0.25,0.5,0.75,1].forEach(f=>{ const p=dims.map((_,i)=>pt(i,R*f).map(n=>n.toFixed(1)).join(',')).join(' ');
-    rings+=`<polygon points="${p}" style="fill:${f===1?'var(--chart-ring)':'none'};stroke:var(--chart-grid)" stroke-width="1"/>`; });
-  let spokes='',labels='',dots='';
-  dims.forEach((x,i)=>{ const [ex,ey]=pt(i,R); spokes+=`<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" style="stroke:var(--chart-grid)" stroke-width="1"/>`;
-    const [lx,ly]=pt(i,R+15),anc=Math.abs(lx-cx)<10?'middle':(lx<cx?'end':'start');
-    labels+=`<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" text-anchor="${anc}" font-size="14" font-weight="500" style="fill:var(--chart-label);cursor:pointer" onclick="focusDim(${i})">${x.dimension}</text>`;
-    const [px,py]=pt(i,R*((x.score||0)/100)); dots+=`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${bandColor(x.band)}" stroke-width="2" style="stroke:var(--dot-stroke);cursor:pointer" onclick="focusDim(${i})"><title>${x.dimension}: ${x.score==null?'not assessed — insufficient evidence':x.score+'/100'}</title></circle>`; });
-  const poly=dims.map((x,i)=>pt(i,R*((x.score||0)/100)).map(n=>n.toFixed(1)).join(',')).join(' '); const dc=bandColor('counterfeit');
-  return `<svg width="360" height="252" viewBox="-45 -5 350 245" role="img" aria-label="Deviation radar">${rings}${spokes}<polygon points="${poly}" fill="${dc}" fill-opacity=".12" stroke="${dc}" stroke-width="2" stroke-linejoin="round"/>${dots}${labels}</svg>`;
-}
-function radarLegend(dims){
-  return dims.map((x,i)=>{ const col=bandColor(x.band);
-    return `<div class="legrow" onclick="focusDim(${i})"><span class="legdot" style="background:${col}"></span><span class="legname">${x.dimension}</span><span class="legbar"><i style="width:${x.score==null?0:x.score}%;background:${col}"></i></span><span class="legscore" style="color:${col}">${x.score==null?'n/a':x.score}</span></div>`; }).join('');
-}
-// multi-engine radar: one polygon per engine, coloured by engine
 function compareStrip(d){
   const sus = suspectImgs.length ? suspectImgs.slice(0,3).map((b,i)=>`<div class="refc"><img src="data:image/jpeg;base64,${b}"><span>view ${i+1}</span></div>`).join('') : '<span class="muted" style="font-size:17px">No suspect photos.</span>';
   let refs=''; const fm=d&&d.fetched_meta, p=products.find(x=>x.id===productId);
@@ -1348,97 +1298,114 @@ function compareStrip(d){
   if(!refs) refs='<span class="muted" style="font-size:17px">No reference images.</span>';
   return `<div class="cmp"><div><div class="cmplbl" style="color:var(--red-deep)">Suspect</div><div class="refs3">${sus}</div></div><div><div class="cmplbl" style="color:var(--green)">Reference</div><div class="refs3">${refs}</div></div></div>`;
 }
-function upcDetail(u){
-  // not_provided / unreadable are the ABSENCE of a check — grey, never red, and
-  // never the fallback. Defaulting an unknown status to 'No match — counterfeit
-  // indicator' is what made every un-photographed barcode look incriminating.
-  const map={match:['b-green','Match — authentic record','var(--green)'],mismatch:['b-amber','Mismatch — belongs to another product','var(--amber)'],nomatch:['b-red','No match — counterfeit indicator','var(--red)'],unreadable:['b-gray','Barcode unreadable — not counted','var(--mut)'],not_provided:['b-gray','No barcode photo — not counted','var(--mut)']};
-  const [cls,label,col]=map[(u||{}).status]||map.not_provided;
-  const ext=(u&&u.extracted)?`<div class="upc-num">${u.extracted}</div>`:`<div class="upc-num muted">— no code read —</div>`;
-  return `<div class="row" style="justify-content:space-between;margin-bottom:8px"><div class="sect-lbl" style="margin:0">UPC / security tag</div><span class="badge ${cls}">${(u||{}).status||'nomatch'}</span></div>
-    <div class="card pad">${ext}<div style="font-size:18.5px;font-weight:500;color:${col};margin:6px 0">${label}</div>
-    <div class="muted" style="font-size:17.5px;line-height:1.5">${(u&&u.note)||''}</div>
-    <div class="muted mono" style="font-size:16.5px;margin-top:8px;border-top:1px solid var(--border-2);padding-top:8px">master record: ${(u&&u.expected)||'—'}</div></div>`;
+function pipelineRows(report){
+  const rows=(report&&report.rows)||[]; if(!rows.length) return '<div class="muted" style="font-size:15px">No per-agent breakdown for this run.</div>';
+  return `<div class="pgrid">${rows.map(r=>`<div class="prow"><i class="ti ti-circle-check" style="color:var(--acc)"></i><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.agent}</span><span class="lat">${((r.latency_ms||0)/1000).toFixed(1)}s</span></div>`).join('')}</div>`;
+}
+/* The whole results body — one column, five sections, each fact said once:
+   verdict strip → exam stage (adverse only) → next action (when one exists)
+   → dimension grid → evidence + UPC → collapsed run details. */
+function resultBody(d, evidenceHtml){
+  const c=d.composite||{}, v=d.verdict||{}, t=(d.report||{}).totals||{}, ev=(d.report||{}).evals||{};
+  const conf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
+  const ds=displayScore(d), scoreCol=bandColor(c.band);
+  const adverse=['counterfeit','hard_fail','likely_counterfeit'].includes(c.band);
+  const rule=(c.rule||'').toString();
+  const why=c.reason||v.summary||'';
+  const upc=d.upc||{};
+  const um={match:['st-ok','MATCH'],mismatch:['st-warn','MISMATCH'],nomatch:['st-bad','NO MATCH'],unreadable:['st-dim','UNREADABLE'],not_provided:['st-dim','NOT PROVIDED']}[upc.status]||['st-dim','NOT PROVIDED'];
+  const views=(d.dimensions||[]).map(dd=>({dd,vw:dimView(d,dd)}));
+  const counts={}; views.forEach(x=>{ counts[x.vw.chip[0]]=(counts[x.vw.chip[0]]||0)+1; });
+  const countChips=[['MATCH','st-ok'],['REVIEW','st-warn'],['DEVIATION','st-bad'],['PARTIAL','st-dim'],['NOT ASSESSED','st-dim']]
+    .filter(([k])=>counts[k]).map(([k,cls])=>`<span class="statuschip ${cls}">${counts[k]} ${k}</span>`).join(' ');
+  const cards=views.map(({dd,vw})=>`
+    <div class="card pad">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <span style="font-weight:600;font-size:18px">${dd.dimension}</span>
+        <span class="mono" style="font-size:21px;font-weight:600;color:${vw.col}">${vw.txt}</span>
+      </div>
+      <span class="statuschip ${vw.chip[1]}">${vw.chip[0]}</span>
+      <div style="font-size:15.5px;color:var(--mut);line-height:1.55;margin-top:10px">${dd.finding||dd.reasoning||'—'}</div>
+      ${dd.confidence!=null?`<div class="cmeter"><span class="cl">confidence</span><span class="ct"><i style="width:${Math.round((dd.confidence||0)*100)}%"></i></span><span class="cv">${Math.round((dd.confidence||0)*100)}%</span></div>`:''}
+    </div>`).join('');
+  let action='';
+  if((c.recapture||[]).length){
+    action=`<div class="card pad" style="border-left:3px solid var(--warn);margin-bottom:14px">
+      <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="font-weight:600"><i class="ti ti-camera" style="vertical-align:-2px"></i> Next action — recapture these shots, then re-run</div>
+        <button class="btn sm" onclick="backToInput()"><i class="ti ti-camera"></i>Add photos &amp; re-run</button>
+      </div>
+      <ul class="keyev" style="margin:8px 0 0">${c.recapture.map(x=>`<li>${x}</li>`).join('')}</ul></div>`;
+  } else if(c.band==='mismatch'){
+    action=`<div class="card pad" style="border-left:3px solid var(--warn);margin-bottom:14px">
+      <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="min-width:0"><div style="font-weight:600">Next action — wrong reference</div>
+          <div class="muted" style="font-size:15.5px;margin-top:3px">Pick the catalog product that matches the suspect item, then re-run.</div></div>
+        <button class="btn sm" onclick="backToInput()"><i class="ti ti-refresh"></i>Fix reference &amp; re-run</button>
+      </div></div>`;
+  }
+  return `
+    <div class="card vstrip">
+      <div style="position:relative;width:104px;height:104px;flex:none">
+        <svg width="104" height="104" viewBox="0 0 118 118" fill="none">
+          <circle cx="59" cy="59" r="50" stroke="var(--ringtrack)" stroke-width="9"></circle>
+          <circle id="examArc" cx="59" cy="59" r="50" stroke="${scoreCol}" stroke-width="9" stroke-linecap="round" stroke-dasharray="0 314" transform="rotate(-90 59 59)" style="transition:stroke-dasharray 1.2s ease"></circle>
+        </svg>
+        <div style="position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center">
+          <span style="font-size:27px;font-weight:700;color:${scoreCol}" id="examNum">0</span>
+          <span class="mono" style="font-size:10px;color:var(--dim);text-align:center;line-height:1.3">${ds.score==null?'N/A':(ds.src?ds.src.toUpperCase()+'<br>DRIVER':'/100')}</span>
+        </div>
+      </div>
+      <div style="flex:1;min-width:250px">
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <span class="badge ${badgeClass(c.band)}" style="font-size:13.5px;padding:6px 13px">${(v.label||verdictLabel(c.band)).toUpperCase()}</span>
+          <span class="statuschip ${v.verifier_confirmed?'st-ok':'st-dim'}">${v.verifier_confirmed?'VERIFIER ✓':'VERIFIER ✕'}</span>
+        </div>
+        <div class="mono" style="font-size:12px;color:var(--dim);margin-top:8px;letter-spacing:.06em">${rule?rule.toUpperCase()+' · ':''}COVERAGE ${covPct(c)} · CONFIDENCE ${conf} · ${(d.engine||engineName(activeEngine)).toUpperCase()}</div>
+        ${why?`<div style="font-size:15.5px;color:var(--mut);margin-top:8px;max-width:72ch;line-height:1.55">${why}</div>`:''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;flex:none">
+        <div class="row" style="gap:8px">
+          <button class="btn ghost sm" style="border-color:rgba(var(--acc-rgb),.45);color:var(--accl)" onclick="confirmVerdict()">Confirm</button>
+          <button class="btn ghost sm" onclick="escalateCase()">Escalate</button>
+        </div>
+        <button class="btn sm" style="justify-content:center" onclick="exportDisplayedReport()"><i class="ti ti-download"></i>Export report</button>
+      </div>
+    </div>
+    ${adverse?examScene(d):''}
+    ${action}
+    <div class="row" style="justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
+      <div class="sect-lbl" style="margin:0">Dimensions</div>
+      <div class="row" style="gap:8px;flex-wrap:wrap">${countChips}</div>
+    </div>
+    <div class="legend-band">0–25 match · 26–30 review · 31–100 deviation · ~ partial (method unresolved — can neither clear nor convict) · — not assessed</div>
+    <div class="dgrid" style="margin-bottom:14px">${cards}</div>
+    <div class="card pad" style="margin-bottom:14px">
+      <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div class="sect-lbl" style="margin:0">Evidence</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <span class="statuschip ${um[0]}">UPC · ${um[1]}</span>
+          ${upc.extracted?`<span class="mono" style="font-size:14px;color:var(--mut);align-self:center">${upc.extracted}</span>`:''}
+        </div>
+      </div>
+      ${evidenceHtml}
+      ${upc.note?`<div class="muted" style="font-size:14.5px;margin-top:10px;border-top:1px solid var(--bordl);padding-top:8px">${upc.note}${upc.expected?` <span class="mono" style="color:var(--dim)">· master record: ${upc.expected}</span>`:''}</div>`:''}
+    </div>
+    <details class="card runmeta">
+      <summary class="mono">RUN DETAILS · $${(t.cost||0).toFixed(4)} · ${((t.wall_ms||0)/1000).toFixed(1)}S · ${(t.tokens||0).toLocaleString()} TOKENS · LANE ${(c.lane||'—')}</summary>
+      <div style="padding:0 18px 16px">${pipelineRows(d.report)}</div>
+    </details>`;
 }
 function renderSingle(d){
-  const c=d.composite,v=d.verdict,dims=d.dimensions,t=(d.report||{}).totals||{},ev=(d.report||{}).evals||{};
-  const conf=ev.confidence!=null?Math.round(ev.confidence*100)+'%':'—';
-  const nM=dims.filter(x=>x.band==='authentic').length,nR=dims.filter(x=>x.band==='caution').length,nD=dims.filter(x=>x.band==='counterfeit').length;
-  const um={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match'],unreadable:['b-gray','Unreadable'],not_provided:['b-gray','Not provided']}[(d.upc||{}).status]||['b-gray','Not provided'];
+  const t=(d.report||{}).totals||{};
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="backToInput()"><i class="ti ti-arrow-left"></i>Back</button>
       <div><div style="font-size:22.5px;font-weight:600">${caseName()}</div><div class="muted" style="font-size:17px">${refLabel()} · ${engineName(activeEngine)} · ${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
-      <span class="badge ${badgeClass(c.band)}" style="margin-left:auto">${v.label||verdictLabel(c.band)}</span>
-      <button class="btn sm" onclick="runAnalysis()" style="margin-left:8px"><i class="ti ti-refresh"></i>Re-run</button>
+      <button class="btn sm" style="margin-left:auto" onclick="runAnalysis()"><i class="ti ti-refresh"></i>Re-run</button>
     </div>
-    ${examScene(d)}
-    <div class="metrics">
-      <div class="metric"><div class="k">Deviation</div><div class="v" style="color:${bandColor(c.band)}">${displayScore(d).score==null?'—':displayScore(d).score}</div></div>
-      <div class="metric" title="Share of the item's diagnostic weight that was actually measured. Coverage never travels apart from the score: 72 over 30% of the item and 72 over 90% are not the same statement."><div class="k">Coverage</div><div class="v">${covPct(c)}</div></div>
-      <div class="metric"><div class="k">Lane</div><div class="v" style="font-size:24px">${c.lane||'—'}</div></div>
-      <div class="metric"><div class="k">Confidence</div><div class="v">${conf}</div></div>
-      <div class="metric"><div class="k">Run cost</div><div class="v" style="color:var(--green)">$${(t.cost||0).toFixed(4)}</div></div>
-      <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
-    </div>
-    ${c.reason?`<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)"><div style="font-weight:600;margin-bottom:4px">${c.band==='mismatch'?'Reference mismatch':(c.capped?'Verdict held back':'Why this verdict')}</div><div class="muted" style="font-size:16px">${c.reason}</div></div>`:''}
-    ${recaptureCard(c)}
-    <div class="card pad" style="margin-bottom:14px">
-      <div class="verdict">
-        <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
-          <ul class="keyev">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul></div></div>
-      <div class="matchrow">
-        <div class="mcell"><div class="mk">UPC / tag</div><span class="badge ${um[0]}" style="font-size:15.5px">${um[1]}</span></div>
-        <div class="mcell"><div class="mk">Dimensions</div><div class="mv"><span style="color:var(--green)">${nM}</span> · <span style="color:var(--amber)">${nR}</span> · <span style="color:var(--red)">${nD}</span></div></div>
-        <div class="mcell"><div class="mk">Verifier</div><div class="mv">${v.verifier_confirmed?'✓ confirmed':'✕ refuted'}</div></div>
-      </div>
-    </div>
-    ${pipelineStrip(d.report)}
-    <div class="sect-lbl">Evidence comparison</div>
-    <div class="card pad" style="margin-bottom:14px">${compareStrip(d)}</div>
-    <div class="row" style="justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div class="sect-lbl" style="margin:0">Forensic finding</div>
-      <div class="lyswitch" id="lyswitch">
-        <button class="ly${findingLayout==='radar'?' on':''}" onclick="setLayout('radar')">Radar hero</button>
-        <button class="ly${findingLayout==='dossier'?' on':''}" onclick="setLayout('dossier')">Dossier</button>
-        <button class="ly${findingLayout==='table'?' on':''}" onclick="setLayout('table')">Data table</button>
-      </div>
-    </div>
-    <div id="findingbody"></div>`;
-  lastSingleData=d; renderFindingBody(d); examAnimate(d);
-}
-function setLayout(l){ findingLayout=l; document.querySelectorAll('#lyswitch .ly').forEach(b=>b.classList.toggle('on', (b.getAttribute('onclick')||'').indexOf("'"+l+"'")>=0)); if(lastSingleData) renderFindingBody(lastSingleData); }
-function renderFindingBody(d){
-  const dims=d.dimensions||[];
-  const nM=dims.filter(x=>x.band==='authentic').length,nR=dims.filter(x=>x.band==='caution').length,nD=dims.filter(x=>x.band==='counterfeit').length;
-  const counts=`<div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-    <div class="legend-band" style="margin:0"><span class="lg"><i style="background:var(--green)"></i>0–30 Match</span><span class="lg"><i style="background:var(--amber)"></i>31–60 Review</span><span class="lg"><i style="background:var(--red)"></i>61–100 Deviation</span></div>
-    <div class="dimcounts"><span class="cnt b-green">${nM} match</span><span class="cnt b-amber">${nR} review</span><span class="cnt b-red">${nD} deviation</span></div></div>`;
-  let body;
-  if(findingLayout==='dossier'){
-    body=counts+`<div class="dgrid" style="margin-bottom:14px">${dims.map(dimDossierCard).join('')}</div>`;
-  } else if(findingLayout==='table'){
-    body=counts+dimDataTable(dims);
-  } else {
-    body=counts+`<div class="card pad" style="margin-bottom:14px"><div class="radar-card"><div><div style="text-align:center;font-size:15px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Deviation profile</div>${radar(dims)}</div><div class="radar-legend">${radarLegend(dims)}</div></div></div><div class="card" style="margin-bottom:14px">${dimRows(dims)}</div>`;
-  }
-  $('#findingbody').innerHTML=body+upcDetail(d.upc);
-}
-function dimDossierCard(dd){ const col=bandColor(dd.band),conf=Math.round((dd.confidence??0)*100),vi=vinfo(dd.band);
-  return `<div class="card pad"><div class="row" style="justify-content:space-between;margin-bottom:9px"><div class="row" style="gap:11px"><span class="scorecirc" style="border-color:${col};color:${col}">${dd.score==null?'—':dd.score}</span><span style="font-weight:600;font-size:18.5px">${dd.dimension}</span></div><span class="badge ${vi.c}">${vi.l}</span></div>
-    <div style="font-size:17px;color:var(--sec);line-height:1.55;margin-bottom:11px">${dd.finding||''}</div>
-    <div class="cmeter"><span class="cl">CONFIDENCE</span><span class="ct"><i style="width:${conf}%"></i></span><span class="cv">${conf}%</span></div></div>`;
-}
-function dimDataTable(dims){
-  return `<div class="tablewrap" style="margin-bottom:14px"><table><thead><tr><th>Dimension</th><th>Finding</th><th class="num">Conf</th><th class="num">Score</th><th>Verdict</th></tr></thead><tbody>`+
-    dims.map(dd=>{const col=bandColor(dd.band),conf=Math.round((dd.confidence??0)*100),vi=vinfo(dd.band);
-      return `<tr><td style="font-weight:500">${dd.dimension}</td><td class="muted">${dd.finding||''}</td><td class="num">${conf}%</td><td class="num" style="color:${col}">${dd.score==null?'—':dd.score}</td><td><span class="badge ${vi.c}" style="font-size:14px">${vi.l}</span></td></tr>`;}).join('')+`</tbody></table></div>`;
-}
-function pipelineStrip(report){
-  const rows=(report&&report.rows)||[]; if(!rows.length) return ''; const t=(report&&report.totals)||{};
-  const cells=rows.map(r=>`<div class="prow"><i class="ti ti-circle-check" style="color:var(--green)"></i><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.agent}</span><span class="lat">${((r.latency_ms||0)/1000).toFixed(1)}s</span></div>`).join('');
-  return `<div class="sect-lbl">Pipeline</div><div class="card pad" style="margin-bottom:14px"><div class="pgrid">${cells}</div>
-    <div class="muted" style="font-size:15px;margin-top:11px;border-top:1px solid var(--border-2);padding-top:10px">completed in ${((t.wall_ms||0)/1000).toFixed(1)}s · $${(t.cost||0).toFixed(4)} · ${(t.tokens||0).toLocaleString()} tokens</div></div>`;
+    ${resultBody(d, compareStrip(d))}`;
+  lastSingleData=d; examAnimate(d);
 }
 
 /* ---------- render: compare ---------- */
@@ -1755,51 +1722,16 @@ function storedEvidence(rec){
   return `<div class="cmp"><div><div class="cmplbl" style="color:var(--red-deep)">Suspect</div><div class="refs3">${sus}</div></div><div><div class="cmplbl" style="color:var(--green)">Reference</div><div class="refs3">${ref}</div></div></div>`;
 }
 function renderStoredCase(rec){
-  const d=storedToData(rec), c=d.composite, v=d.verdict, t=d.report.totals, dims=d.dimensions;
-  const conf=rec.confidence!=null?Math.round(rec.confidence*100)+'%':'—';
-  const nM=dims.filter(x=>x.band==='authentic').length,nR=dims.filter(x=>x.band==='caution').length,nD=dims.filter(x=>x.band==='counterfeit').length;
-  const um={match:['b-green','Match'],mismatch:['b-amber','Mismatch'],nomatch:['b-red','No match'],unreadable:['b-gray','Unreadable'],not_provided:['b-gray','Not provided']}[(d.upc||{}).status]||['b-gray','Not provided'];
+  const d=storedToData(rec);
   const title=rec.product||rec.case_id||'Case', dt=(rec.created_at||'').slice(0,10);
   $('#v-result').innerHTML=`
     <div class="rhead">
       <button class="btn ghost sm" onclick="go('cases')"><i class="ti ti-arrow-left"></i>Back</button>
       <div><div style="font-size:22.5px;font-weight:600">${title}</div><div class="muted" style="font-size:17px">${rec.case_id||''}${rec.engine?' · '+rec.engine:''}${dt?' · '+dt:''}</div></div>
-      <span class="badge ${badgeClass(c.band)}" style="margin-left:auto">${v.label||verdictLabel(c.band)}</span>
-      <span class="badge b-gray" style="margin-left:8px;font-size:14px">saved run</span>
+      <span class="badge b-gray" style="margin-left:auto;font-size:14px">saved run</span>
     </div>
-    ${examScene(d)}
-    <div class="metrics">
-      <div class="metric"><div class="k">Deviation</div><div class="v" style="color:${bandColor(c.band)}">${displayScore(d).score==null?'—':displayScore(d).score}</div></div>
-      <div class="metric" title="Share of the item's diagnostic weight that was actually measured. Coverage never travels apart from the score: 72 over 30% of the item and 72 over 90% are not the same statement."><div class="k">Coverage</div><div class="v">${covPct(c)}</div></div>
-      <div class="metric"><div class="k">Lane</div><div class="v" style="font-size:24px">${c.lane||'—'}</div></div>
-      <div class="metric"><div class="k">Confidence</div><div class="v">${conf}</div></div>
-      <div class="metric"><div class="k">Run cost</div><div class="v" style="color:var(--green)">$${(t.cost||0).toFixed(4)}</div></div>
-      <div class="metric"><div class="k">Latency</div><div class="v">${((t.wall_ms||0)/1000).toFixed(1)}s</div></div>
-    </div>
-    ${c.reason?`<div class="card pad" style="margin-bottom:14px;border-left:3px solid var(--amber)"><div style="font-weight:600;margin-bottom:4px">${c.band==='mismatch'?'Reference mismatch':(c.capped?'Verdict held back':'Why this verdict')}</div><div class="muted" style="font-size:16px">${c.reason}</div></div>`:''}
-    ${recaptureCard(c)}
-    <div class="card pad" style="margin-bottom:14px">
-      <div class="verdict">
-        <div style="min-width:0"><div class="vsum">${v.summary||''}</div>
-          <ul class="keyev">${(v.key_evidence||[]).map(e=>`<li>${e}</li>`).join('')}</ul></div></div>
-      <div class="matchrow">
-        <div class="mcell"><div class="mk">UPC / tag</div><span class="badge ${um[0]}" style="font-size:15.5px">${um[1]}</span></div>
-        <div class="mcell"><div class="mk">Dimensions</div><div class="mv"><span style="color:var(--green)">${nM}</span> · <span style="color:var(--amber)">${nR}</span> · <span style="color:var(--red)">${nD}</span></div></div>
-        <div class="mcell"><div class="mk">Verifier</div><div class="mv">${v.verifier_confirmed?'✓ confirmed':'✕ refuted'}</div></div>
-      </div>
-    </div>
-    <div class="sect-lbl">Evidence comparison</div>
-    <div class="card pad" style="margin-bottom:14px">${storedEvidence(rec)}</div>
-    <div class="row" style="justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div class="sect-lbl" style="margin:0">Forensic finding</div>
-      <div class="lyswitch" id="lyswitch">
-        <button class="ly${findingLayout==='radar'?' on':''}" onclick="setLayout('radar')">Radar hero</button>
-        <button class="ly${findingLayout==='dossier'?' on':''}" onclick="setLayout('dossier')">Dossier</button>
-        <button class="ly${findingLayout==='table'?' on':''}" onclick="setLayout('table')">Data table</button>
-      </div>
-    </div>
-    <div id="findingbody"></div>`;
-  lastSingleData=d; renderFindingBody(d); examAnimate(d);
+    ${resultBody(d, storedEvidence(rec))}`;
+  lastSingleData=d; examAnimate(d);
 }
 /* ---------- cases: search + CSV over the real case store ---------- */
 let caseQuery='';
